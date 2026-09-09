@@ -13,7 +13,9 @@ description: 通过 pkchome 与带引用闸门的 pkc 命令，为 Owner 维护�
 4. 核对原话 `pkc source fetch <sid> ¶a-b`；找名字或原句 `pkc search <q> --lexical`。
 5. 用 `pkc consult answer <handoff_id> --text-file -`（没跑 recall 时 `pkc consult record --question <q> --text-file -`）把回答记进库。
 
-两三次检索就该有完整答案。引用你读到的页面锚点与原文区间；库里没有就明说。长输出分页，
+两三次检索就该有完整答案；读命令彼此独立，输入已知时可同时发几条。每条输出的头部和页尾就是判断依据：
+页面何时编译、有无待编译作业、每个被引区间是谁说的、同时含全部查询词的块有几个——凭这些作答，
+只在要逐字引用时才回原文。引用你读到的页面锚点与原文区间；库里没有就明说。长输出分页，
 页脚写明 `--page N`；先读第一页再决定翻页。同一套流程的细节在库内 `references/consume.md`，
 只在需要时读；`references/cli.md` 是完整参数表，不是必读。
 

@@ -2250,6 +2250,30 @@ _ZH: dict[str, str] = {
         "它们的地图。"
     ),
     "steward.skill.who": _STEWARD_WHO_ZH,
+    "steward.cli.recall": "fast 回答，或 --evidence 按断言、原文窗口、派生片段摘要、地图的顺序输出数量统计和来源索引；地图放最后，便于已经掌握地图的读者（--json 保留模型上下文原始字节）。",
+    "steward.cli.canonical_read": "无条件读取一页或多页：原样正文上方列出最近提交、断言、引用和全库编译队列状态，下方列出来源索引及引用区间发言者。",
+    "steward.cli.search": "按排名返回来源区间及发言者；词法和融合模式另报每个词项及全部词项的匹配块数估计（带引号的短语算一个词项）。",
+    "steward.cli.source_fetch": "从一个或多个来源逐字读取区间，每段标注完整来源 id、区间、已知发言者和来源日期；JSON 返回列表。",
+    "steward.cli.source_fetch_spans": "一个或多个 ¶a-b、¶a 或 a-b 区间，后面可接另一来源 id 及其区间；每个来源恰好两个裸整数 `a b` 表示一个区间",
+    "steward.read.unknown": "未知",
+    "steward.read.none": "无",
+    "steward.read.sources": "来源：",
+    "steward.read.cited": "引用区间：{spans}",
+    "steward.read.evidence_for": "问题证据：{query}",
+    "steward.read.tally": "按相关性排序 · {pages} 页中的 {claims} 条断言 · {window_sources} 个来源的 {windows} 个原文窗口 · {episodes} 条片段摘要（派生）",
+    "steward.read.pages": "页面：{pages}",
+    "steward.read.sections": "章节：1 断言 · 2 原文窗口 · 3 片段摘要（派生） · 4 地图（知识库 glance；完整地图见 pkc outline）",
+    "steward.read.map": "# 4 地图",
+    "steward.read.page": "页面：{path}",
+    "steward.read.status": "编译：{compiled_at}（提交 {commit}） · 断言：{claims} · 已被替代：{superseded} · 引用来源：{sources_cited} · 最新来源：{latest_source}",
+    "steward.read.queue_empty": "队列：无待处理编译",
+    "steward.read.queue_pending": "队列：全库有 {count} 个待处理编译作业 · 目标页面未知",
+    "steward.read.query": "查询：{query}",
+    "steward.read.search_counts": "匹配全部词项的块数：{all_terms} · {terms}（词法估计）",
+    "steward.read.showing": "显示：{showing} / {total}（按排名；总数为估计；--limit N 可查看更多）",
+    "steward.read.showing_fused": "显示：{showing} 条融合结果（按排名；--limit N 可查看更多）",
+    "steward.read.lexical_total": "词法总数：{total}（估计）",
+    "steward.read.showing_semantic": "显示：{showing} 条语义结果（按排名；--limit N 可查看更多）",
     "steward.cli.outline": (
         "完整地图：每一页都在所属族下，一页一行，绝不裁掉。会话的第一条命令，也是编译后的检查。"
         "需要按预算挑选头部页面的地图时，见 `glance`。"
@@ -2289,50 +2313,74 @@ _ZH: dict[str, str] = {
 `--include-archived` 将它们纳入并标明状态。原 live 路径上的归档记录解释已退场的主题。
 按已知地址读取仍然可达。
 
-【强】/【中】/【弱】等力度标签表达[契约](contract.md)规定的区分，不是真实性的概率。
-保留它们的条件与不确定性。`pkc profile show` 中，`inferred` 是 Steward 的假设，`owner`
-表示 Owner 写下或确认过，`detected` 表示系统观察所得。
-""",
-    "steward.consume.when_to_use": """## 什么时候用什么
+## 一条 claim 保证了什么，没保证什么
 
-每条命令都是一次进程启动，两三次检索就该给出完整答案。按问题的形状选一条路，语法就在这里，
+下面每一条都是机械保证——写入时库已经检查过，读命令会把这个事实印出来——所以你可以凭输出
+判断，不必再查一遍。
+
+- **写入时已验证引用。** 页面上的每条 claim 都过了闸门：每个 `[cite: <sid> ¶a-b]` 在提交时
+  都解析到了本库的真实块，页面是按[契约](contract.md)写的。Claim 是编译对「这段原文支持什么」
+  的判断，原文是它脚下的事实。读原文是为了逐字引用措辞，不是为了相信 claim。
+- **日期已经定了。** 编译把每个日期换算成 Owner 时区的日历日，相对说法（「下周」）会附原话。
+  Claim 里的日期就是答案，原文不会比它更对。
+- **没被接替就是现行。** 除非后来的 claim 用 `<!-- supersedes: c:xxxx -->` 点名它，否则一条
+  claim 就是现行的；被点名后，后者现行、前者冻结为历史。`pkc canonical read` 的头部会数出被
+  接替的条数；`pkc canonical history` 打印接替链。
+- **谁说的会印出来。** 来源带角色时（代理会话、Owner 陈述、会议、聊天），页面的 `来源：`
+  页尾和证据的 `来源：` 索引会写明每个被引区间的说话人——Owner 本人的话，还是 agent 对自己
+  工作的叙述。Agent 报告「做完了」不等于 Owner 验收；动作短记是日志，不是结果。
+- **新鲜度会写明。** 页面头部写明编译时间，以及本库是否还有待编译作业。还在队列里的材料不在
+  任何页面上，问最新会话的问题可能还要用 `pkc search --lexical` 查 L0。
+- **没有也会写明。** `pkc search --lexical` 会数出同时含全部查询词的块数。为零说明没有任何
+  原话把这些词放在一起：按已记录的回答，其余说明是推断，或者直接说没有记录。
+- **力度是契约的。** `【强】/【中】/【弱】`之类标签表达[契约](contract.md)规定的区分，不是
+  真实性的概率，保留它们的条件。`pkc profile show` 中，`inferred` 是 Steward 的假设，
+  `owner` 表示 Owner 写下或确认过，`detected` 表示系统观察所得。
+""",
+    "steward.consume.when_to_use": """## 按问题的形状选最佳做法
+
+每条命令都是一次进程启动，两三次检索通常就有完整答案。读命令彼此独立——输入已知时可以同时
+发几条（告诉 harness 它们互不依赖，它就会并行跑）。按问题的形状选一条路，语法就在这里，
 不必再翻 cli.md：
 
 | 问题的形状 | 走法 |
 |---|---|
-| 问一个 outline 里认得出的主体（一个项目、一个人、一个主题） | `pkc outline` 定位 → `pkc canonical read <path> [<path>…]` 一次读完相关的一两页 → 作答。页面里引用的原文用 `pkc source fetch <sid> ¶a-b` 核对。 |
-| 问题跨多个页面，或不知道落在哪一页 | `pkc recall <q> --evidence`：一次拿到多页的 claim 与原文窗口，以及待答的 `handoff_id`。不够再按引用的地址 `source fetch`。 |
-| 找一个名字、一句原话、或没入正本的材料 | `pkc search <q> --lexical`（默认 10 条；`--limit N` 加多）。语义检索开着时 `--semantic` 查概念匹配。 |
+| 问一个 outline 里认得出的主体（一个项目、一个人、一个主题） | `pkc outline` 定位 → `pkc canonical read <path> [<path>…]` 一次读完相关的一两页 → 按 claim 作答。头部写明这页何时编译；`来源：` 页尾写明每个被引区间是谁说的。只在要逐字引用时才 fetch 原文。 |
+| 问题跨多个页面，或不知道落在哪一页 | `pkc recall <q> --evidence`：一次拿到多页的 claim 与原文窗口，按相关度排序，头部统计它们来自哪些页面，并给出回答时要关闭的 `handoff_id`。后面的页相关度更低；统计里出现你没读过的页面时再翻。 |
+| 找一个名字、一句原话、没入正本的材料、或最新的会话 | `pkc search <q> --lexical`（默认 10 条；`--limit N` 加多）。头部数出每个词的块数和同时含全部词的块数；每条命中写明说话人。语义检索开着时 `--semantic` 查概念匹配。 |
+| 什么都没找到 | `search` 报告同时含全部词的块为零、页面里也没有时，库里就是没有记录：直接说明，并用 `pkc consult record … --kind no_record` 收尾。不要继续找计数已经说了不存在的记录。 |
 | 只想知道库里有什么 | `pkc outline`（`--definitions` 带一行定义）：完整地图，一页一行，没有 top-K 或字符预算，长了分页。仅当 outline 太长、难以扫读时才用有预算的 `pkc glance`，它会省略页面并报告数量。 |
 | `pkc draft finish` 之后 | 对每个写入过的族运行 `pkc outline --family <template>`，查看新页面是否落在正确的族下。 |
 
 长输出会分页：散文一页 8,000 字符，页脚写明 `--page N` 看下一页、`--all-pages` 全量；`--json`
-按条目给列表分页并附 `paging` 字段。先读第一页判断够不够，再决定翻页，不要一开始就 `--all-pages`。
-
-`outline` 和 `glance` 都是地图，不是可引用的证据。`outline --definitions` 为有定义的页面
-增加一行定义；`--json` 返回族树。两种地图默认省略已归档页面，保留 live 路径上的归档记录，
-用 `--include-archived` 纳入并标明已归档页面。关闭卷的数量标在所属页面旁。
+按条目给列表分页并附 `paging` 字段。头部都在第一页；先读第一页再判断要不要翻。
 """,
-    "steward.consume.primitives": """## 阅读原语，按阅读顺序
+    "steward.consume.primitives": """## 工具：每条返回什么、典型用法
 
-- `pkc outline` 是完整的族地图；`pkc glance` 是回答通道按预算挑选的地图。
-  两者的完整性保证不同，用途由上表说明。
-- `pkc canonical ls` 列出页面；`pkc canonical read <path>` 打印页面的 overview、账本、
-  锚点与引用。沿链接和卷目录继续读；用 `pkc canonical history <path> c:xxxx`
-  查看一条 claim 的接替链。
-- `pkc search <q> --lexical` 打印 L1 命中及来源/块地址，不受 intake plan 限制。
-  查名字、原句或没有 canonical claim 的材料时使用。查看检索旋钮 `intake.semantic_retrieval`
-  （`PNEUMA_KNOWLEDGE_SEMANTIC_RETRIEVAL`）：`on` 时 `--semantic` 可查已索引的概念匹配；
-  `off` 不构建 embedding 或 L2 支路。默认 search 融合可用支路。语义摘要是派生内容，不是原文。
-- `pkc source structure <sid>` 打印元数据和章节到块的映射；
-  `pkc source fetch <sid> ¶a-b` 打印逐字区间。用它们核对措辞、说话人和上下文：
-  来源材料是 claim 之下的事实依据。
-- `pkc recall <q> --evidence` 打印 fast 通道的证据上下文、查询内句柄和 `handoff_id`。
-  它不构建 chat model；关闭语义检索时完全不需要模型。用它汇集证据并打开待回答的咨询交接。
-- `pkc history` 打印版本、作业和来源；`pkc brief <version>` 打印保留的编译后简报。
-  用它们定位知识库何时变化，再读对应 claim。
-- `pkc consultations` 打印过往问题、访客类别、未命中和证据/引用数。
-  用它查看已记录的使用；咨询是保留记录，不是知识。
+- `pkc outline`——完整的族地图，一页一行带 claim 数；`--definitions` 加每页定义；
+  `--family <template>` 只看一族；`--json` 返回族树。典型用法：会话开始、定位页面、检查编译落点。
+- `pkc glance`——回答通道按预算挑选的地图：每族头部页面加省略数。典型用法：仅当 outline 太长难以扫读。
+- `pkc canonical ls`——所有页面路径。`pkc canonical read <path> [<path>…]`——状态头部（`编译`、
+  `断言`、`已被替代`、`引用来源`、`最新来源`、`队列`），编译模型看到的那份页面（overview、账本、
+  锚点、引用），以及 `来源：` 页尾：每个被引来源的类型、日期、标题，来源带角色时还有每个被引区间
+  的说话人（`引用区间：`）。`pkc canonical history <path> c:xxxx`——一条 claim 的接替链。
+  典型用法：回答关于某个主体的问题；一次读多页。
+- `pkc search <q> --lexical`——头部（`匹配全部词项的块数`、逐词计数、`显示：N / M`）
+  和按序的 L1 命中，带来源/块地址，来源带角色时带说话人；不受 intake plan 限制。`--semantic`
+  （`intake.semantic_retrieval` 为 `on` 时）查已索引的概念匹配；默认融合可用支路。语义摘要是派生
+  内容，不是原文。典型用法：名字、原句、未编译或最新的材料，以及「不存在」信号。
+- `pkc source structure <sid>`——元数据和章节到块的映射，带每块的角色。
+  `pkc source fetch <sid> ¶a-b [<sid> ¶c-d …]`——一个或多个来源的逐字区间，每段上方一行写明
+  来源、区间、说话人、日期。典型用法：逐字引用措辞、读被引区间的上下文。
+- `pkc recall <q> --evidence`——fast 通道的证据：头部（`按相关性排序`、`页面：` 逐页 claim 统计、
+  窗口与片段摘要数、`章节：` 顺序），然后依次是断言、原文窗口、派生片段摘要、最后是地图；
+  `来源：` 索引把 s01 这类句柄对应到来源；`handoff_id` 与关闭它的命令。不构建 chat model。`--json`
+  的 `content` 保留通道的原样上下文。典型用法：跨页面的问题。
+- `pkc history`——版本、作业和来源；`pkc brief <version>`——保留的编译后简报。典型用法：定位
+  知识库何时变化，再读对应 claim。
+- `pkc consultations`——过往问题、访客类别、未命中和证据/引用数。咨询是保留记录，不是知识。
+- `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q>
+  --text-file <f>`——记录你写下的回答（见「回答」）。
 
 多跳阅读由你自己逐次调用这些命令完成：沿页面链接、claim 链或引用读取下一项，直到证据
 回答了问题，或库的空白已清楚。完整命令参数见 [cli.md](cli.md)。
@@ -2348,10 +2396,10 @@ _ZH: dict[str, str] = {
     "steward.consume.no_families": "这份契约没有声明路径模板。",
     "steward.consume.answering": """## 回答
 
-引用你实际读到的内容：页面和 claim 锚点加其来源区间，或来源区间本身。把摘要当作精确措辞前，
-先读它引用的区间。库中没有相关记录时明确说出。来源类型带角色（`owner-dialogue/v1`、
-`agent-session/v1`）时，区分 Owner 自己的话与 Steward 或 agent 叙述；报告完成不等于
-Owner 验收，动作 stub 不等于执行成功。
+按读到的 claim 作答并引用它：页面和 claim 锚点加其来源区间，或来源区间本身。要逐字引用措辞
+才 fetch 原文；claim 的事实、日期和说话人已由上面的保证定下。库中没有相关记录时明确说出，
+推断与记录分开写。来源类型带角色（`owner-dialogue/v1`、`agent-session/v1`）时，区分 Owner
+自己的话与 Steward 或 agent 叙述；报告完成不等于 Owner 验收，动作 stub 不等于执行成功。
 
 用你写下的回答记录使用：`pkc consult answer <handoff_id> --text-file <f>`（`-` 读 stdin）
 关闭 `recall --evidence` 的交接。引用你读过的内容：交接句柄、真实的 `[cite: <sid> ¶a-b]`
@@ -2366,9 +2414,9 @@ canonical 锚点中解析成功；无效引用以退出码 4 拒绝回答，交�
 `silent` 什么也不记录。交接的类别在 recall 时固定；直接记录在 `consult record` 上选择。
 worker 清完队列后，`attention` 组件才读到这次更新。
 
-Visitor 从库中阅读并回答。Owner 还可以陈述纠正或请求结构变化；这些动作遵循 SKILL.md
-中的 Owner 陈述与演进流程。两种姿态都不会把回答变成 canonical 知识。在 agent 执行器下，
-阅读由 agent 完成；fast/deep/briefing API 通道是有密钥的控制台用来测试质量的工具。
+访客从库中阅读并作答。Owner 还可以陈述订正或要求结构变更；这些动作遵循 SKILL.md 中的
+Owner 陈述与 evolve 流程。两种姿态都不会把回答变成 canonical 知识。在 agent 执行器下由 agent
+完成这些阅读；fast/deep/briefing API 通道是有密钥的控制台用来测试质量的工具。
 """,
     "steward.skill.episodes": """## 编译前的片段划分
 

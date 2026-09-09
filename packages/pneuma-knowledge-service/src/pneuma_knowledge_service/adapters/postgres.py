@@ -1394,7 +1394,7 @@ class PostgresStore:
         *,
         limit: int,
         before: tuple[datetime, str] | None = None,
-        status: str | None = None,
+        status: str | tuple[str, ...] | None = None,
         kind: str | None = None,
     ) -> tuple[list[dict[str, Any]], int, bool]:
         """One keyset-paginated job page, newest first.
@@ -1402,10 +1402,16 @@ class PostgresStore:
         `status` is the QUERY vocabulary, not the column: `failed` and `succeeded` are the
         two halves of `done` (see `JOB_STATUS_SQL`). The column keeps its three values, so
         the queue's storage semantics — and everything that reads them — are untouched.
+        A tuple selects several raw states in one snapshot for internal status summaries.
         """
         filters = ["user_id = %s"]
         params: list[Any] = [str(user_id)]
-        if status:
+        if isinstance(status, tuple):
+            # One count over several raw states, so a queued -> claimed transition cannot
+            # be counted twice by readers summing independently sampled status queries.
+            filters.append("status = ANY(%s)")
+            params.append(list(status))
+        elif status:
             derived = JOB_STATUS_SQL.get(status)
             if derived is not None:
                 filters.append(derived)

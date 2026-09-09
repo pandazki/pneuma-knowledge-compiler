@@ -311,6 +311,24 @@ async def test_written_on_names_the_day_each_path_was_last_committed(tmp_path):
     assert await store.written_on(U2) == {}
 
 
+async def test_last_commit_is_path_specific_literal_and_bounded_by_snapshot(tmp_path):
+    store = GitCanonicalStore(str(tmp_path))
+    path = "memory/topics/plan[1].md"
+    assert await store.last_commit(U1, path) is None
+    repo = store.repo_path(U1)
+    _commit_on(repo, "2026-03-01", path, _file("d-1", "plan", "first plan"))
+    first = store._run(repo, "rev-parse", "HEAD").stdout.strip()
+    # This path matches the other's glob spelling, but cannot move its history date.
+    _commit_on(repo, "2026-04-02", "memory/topics/plan1.md", _file("d-2", "plan1", "other plan"))
+    assert await store.last_commit(U1, path) == (first, "2026-03-01")
+    _commit_on(repo, "2026-05-03", path, _file("d-1", "plan", "revised plan"))
+    last = store._run(repo, "rev-parse", "HEAD").stdout.strip()
+    assert await store.last_commit(U1, path) == (last, "2026-05-03")
+    assert await store.last_commit(U1, path, at=SnapshotRef(ref=first)) == (first, "2026-03-01")
+    assert await store.last_commit(U1, "memory/topics/missing.md") is None
+    assert await store.last_commit(U2, path) is None
+
+
 async def test_tag_creates_readable_ref(tmp_path):
     store = GitCanonicalStore(str(tmp_path))
     ref = await store.commit_patch(

@@ -21,6 +21,32 @@ class LexicalHit(Protocol):
 
 
 class LexicalIndex(Protocol):
+    async def search_with_total(
+        self,
+        user_id: UserId,
+        query: str,
+        *,
+        limit: int = 20,
+        include_archived: bool = False,
+    ) -> tuple[list[LexicalHit], int]:
+        """The ordinary ranked hits and the index's estimated total, before the limit."""
+        ...
+
+    async def count(
+        self,
+        user_id: UserId,
+        query: str,
+        *,
+        all_terms: bool = False,
+        include_archived: bool = False,
+    ) -> int:
+        """Estimated matching blocks; `all_terms` forbids dropping query terms.
+
+        Tokenization and phrase matching belong to the lexical index. Tenant and archive
+        scope are identical to search; a backend failure must never become a zero count.
+        """
+        ...
+
     async def index_blocks(
         self,
         user_id: UserId,

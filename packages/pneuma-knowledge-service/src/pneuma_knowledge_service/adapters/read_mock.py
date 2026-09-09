@@ -146,7 +146,8 @@ class InMemoryLibraryStore(InMemoryJobQueue):
             }
             for job in reversed(self.jobs)
             if str(job.user_id) == str(user_id)
-            and (not status or job.status == status)
+            and (job.status in status if isinstance(status, tuple)
+                 else not status or job.status == status)
             and (not kind or job.kind == kind)
         ]
         return rows[:limit], len(rows), len(rows) > limit

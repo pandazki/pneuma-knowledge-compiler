@@ -20,8 +20,10 @@ deployment cannot run) · 4 findings (`pkc library check`, or an unresolved cons
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import shlex
 import sys
 import uuid
 from dataclasses import dataclass, field
@@ -38,7 +40,7 @@ from pneuma_knowledge_core.canonical_glance import (
     volume_origin,
 )
 from pneuma_knowledge_core.compile.documents import render_document
-from pneuma_knowledge_core.compile.supersession import block_by_anchor, chains
+from pneuma_knowledge_core.compile.supersession import SUPERSEDES_MARK_RE, block_by_anchor, chains
 from pneuma_knowledge_core.domain.archive import (
     any_archived,
     is_archive_record,
@@ -47,11 +49,21 @@ from pneuma_knowledge_core.domain.archive import (
     live_path,
     split_archived,
 )
-from pneuma_knowledge_core.domain.canonical import CanonicalDocument
-from pneuma_knowledge_core.domain.ids import SourceId, UserId
+from pneuma_knowledge_core.domain.canonical import CanonicalDocument, iter_canonical_citations
+from pneuma_knowledge_core.domain.ids import SourceId, UserId, extract_anchors
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.archive_filter import archive_view
 from pneuma_knowledge_core.recall.fast import FastEvidence, fast_recall, message_text
 from pneuma_knowledge_core.recall.rag import rag_recall
+
+from .reader_signals import (
+    SourceSignals,
+    evidence_lines,
+    evidence_tally,
+    one_line,
+    span_label,
+    source_index_lines,
+)
 
 EXIT_OK = 0
 EXIT_NOTHING = 1
@@ -374,9 +386,16 @@ async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
     """One page, or several in one process: every `pkc` call builds its context, so a
     reader wanting three pages should not pay for three."""
     paths = [path] if isinstance(path, str) else list(path)
-    docs = await rt.ctx.canonical.list(rt.user_id)
+    snapshots = await rt.ctx.canonical.snapshots(rt.user_id)
+    at = snapshots[0] if snapshots else None
+    docs = await rt.ctx.canonical.list(rt.user_id, at=at)
     by_path = {d.path: d for d in docs}
+    signals = await SourceSignals.for_runtime(rt.ctx.store, rt.user_id)
+    _jobs, pending, _more = await rt.ctx.store.list_jobs_page(
+        rt.user_id, limit=1, status=("queued", "claimed"), kind="compile"
+    )
     found = []
+    lines = []
     for wanted in paths:
         doc = by_path.get(wanted)
         if doc is None:
@@ -384,13 +403,48 @@ async def cmd_canonical_read(rt: ReadRuntime, path: str | list[str]) -> int:
             continue
         # The compile model's own `read_document` rendering, so the Steward and the model
         # read one page rather than two descriptions of it.
-        found.append({"path": doc.path, "document": render_document(doc.frontmatter, doc.body)})
+        cited: dict[str, list[tuple[int, int]]] = {}
+        for citation in iter_canonical_citations(doc.body):
+            spans = cited.setdefault(str(citation.source_id), [])
+            span = (citation.block_start, citation.block_end)
+            if span not in spans:
+                spans.append(span)
+        sources = []
+        for source_id, spans in cited.items():
+            sources.append({
+                **await signals.summary(source_id),
+                "cited": [await signals.span(source_id, start, end) for start, end in sorted(spans)],
+            })
+        written = await rt.ctx.canonical.last_commit(rt.user_id, doc.path, at=at)
+        anchors = extract_anchors(doc.body)
+        status = {
+            "compiled_at": written[1] if written else None,
+            "commit": written[0] if written else None,
+            "claims": len(anchors),
+            "superseded": len(set(anchors) & set(SUPERSEDES_MARK_RE.findall(doc.body))),
+            "sources_cited": len(cited),
+            "latest_source": max((s["date"] for s in sources if s["date"]), default=None),
+            "queue_pending": pending,
+        }
+        item = {"path": doc.path, "document": render_document(doc.frontmatter, doc.body),
+                "status": status, "sources": sources}
+        found.append(item)
+        display = {key: value if value is not None else prompt("steward.read.unknown")
+                   for key, value in status.items()}
+        display["commit"] = status["commit"][:7] if status["commit"] else display["commit"]
+        lines.extend([
+            prompt("steward.read.page", path=doc.path),
+            prompt("steward.read.status", **display),
+            prompt("steward.read.queue_pending", count=pending) if pending
+            else prompt("steward.read.queue_empty"),
+            "", item["document"], "", *source_index_lines(sources), "",
+        ])
     if not found:
         return EXIT_NOTHING
     if len(paths) == 1:
-        _emit(rt, found[0], [found[0]["document"]])
+        _emit(rt, found[0], lines)
     else:
-        _emit(rt, {"pages": found}, [item["document"] for item in found])
+        _emit(rt, {"pages": found}, lines)
     return EXIT_OK
 
 
@@ -549,33 +603,45 @@ async def cmd_source_show(rt: ReadRuntime, source_id: str) -> int:
 async def cmd_source_fetch(rt: ReadRuntime, source_id: str, span: str | list[str]) -> int:
     """Verbatim L0 for one or more spans. UNCONDITIONAL (I3): no plan, no strategy and no
     visibility state decides whether a cited span resolves."""
-    tokens = [span] if isinstance(span, str) else span
-    spans = []
-    if len(tokens) == 2 and all(re.fullmatch(r"\d+", token) for token in tokens):
-        spans = [(int(tokens[0]), int(tokens[1]))]
-        tokens = []
-    for token in tokens:
-        parsed = parse_span(token)
-        if parsed is None:
+    tokens = [span] if isinstance(span, str) else list(span)
+    groups: list[tuple[str, list[str]]] = [(source_id, [])]
+    for index, token in enumerate(tokens):
+        if parse_span(token) is not None:
+            groups[-1][1].append(token)
+        elif groups[-1][1] and index + 1 < len(tokens) and parse_span(tokens[index + 1]):
+            groups.append((token, []))
+        else:
             return _refuse(
                 rt, f"not a block span: {token!r} — write ¶a-b, ¶a or a-b; "
-                "exactly two bare integers `a b` mean one span"
+                "exactly two bare integers `a b` mean one span; another source id needs a span"
             )
-        spans.append(parsed)
     items = []
+    signals = await SourceSignals.for_runtime(rt.ctx.store, rt.user_id)
     try:
-        for start, end in spans:
-            text = await rt.ctx.store.fetch(
-                rt.user_id, SourceId(source_id), {"blocks": [start, end]}
+        for sid, tokens in groups:
+            spans = (
+                [(int(tokens[0]), int(tokens[1]))]
+                if len(tokens) == 2 and all(re.fullmatch(r"\d+", token) for token in tokens)
+                else [parse_span(token) for token in tokens]
             )
-            items.append({"source_id": source_id, "blocks": [start, end], "text": text})
+            for start, end in spans:
+                text = await rt.ctx.store.fetch(
+                    rt.user_id, SourceId(sid), {"blocks": [start, end]}
+                )
+                summary = await signals.summary(sid)
+                items.append({"source_id": sid, "blocks": [start, end],
+                              **await signals.span(sid, start, end),
+                              "date": summary["date"], "text": text})
     except (KeyError, ValueError) as exc:
         print(str(exc), file=rt.err)
         return EXIT_NOTHING
     _emit(
         rt,
-        items[0] if len(items) == 1 else items,
-        [item["text"] for item in items],
+        items,
+        [f"{item['source_id']} {item['span']}"
+         + (f" · {item['speaker']}" if item.get("speaker") else "")
+         + f" · {item['date'] or prompt('steward.read.unknown')}\n{item['text']}"
+         for item in items],
     )
     return EXIT_OK
 
@@ -600,11 +666,25 @@ async def cmd_search(
     """
     ctx = rt.ctx
     view = await archive_view(rt.user_id, ctx.store) if include_archived else None
+    terms: dict[str, str] = {}
+    if mode != "semantic":
+        # Preserve the index query spelling even for a quoted single word; quotes disable
+        # prefix matching in Meilisearch. Apostrophes inside words are ordinary text.
+        lexer = shlex.shlex(query, posix=False)
+        lexer.whitespace_split, lexer.commenters, lexer.quotes, lexer.escape = True, "", '"', ""
+        try:
+            for token in lexer:
+                term = token[1:-1] if token.startswith('"') and token.endswith('"') else token
+                terms.setdefault(term, token)
+        except ValueError as exc:
+            return _refuse(rt, str(exc))
     hits: list[dict[str, Any]] = []
+    total = None
     if mode == "lexical":
-        for hit in await ctx.lexical.search(
+        lexical_hits, total = await ctx.lexical.search_with_total(
             rt.user_id, query, limit=limit, include_archived=include_archived
-        ):
+        )
+        for hit in lexical_hits:
             hits.append(
                 {
                     "source_id": str(hit.source_id),
@@ -656,28 +736,55 @@ async def cmd_search(
                     "text": hit.text,
                 }
             )
-    if not hits:
-        print("nothing found", file=rt.err)
-        return EXIT_NOTHING
+    signals = await SourceSignals.for_runtime(ctx.store, rt.user_id)
     for hit in hits:
         hit["archived"] = (
             view.source_archived(hit["source_id"]) if view is not None else False
         )
+        speaker = await signals.span(hit["source_id"], *hit["blocks"])
+        if "speaker" in speaker:
+            hit["speaker"] = speaker["speaker"]
+    payload = {
+        "mode": mode, "query": query, "include_archived": include_archived, "hits": hits,
+        "showing": len(hits), "total": total,
+    }
+    lines = [prompt("steward.read.query", query=one_line(query))]
+    if mode != "semantic":
+        counts = await asyncio.gather(*(
+            ctx.lexical.count(rt.user_id, term_query, all_terms=True,
+                              include_archived=include_archived)
+            for term_query in [query, *terms.values()]
+        ))
+        payload["counts"] = {"all_terms": counts[0], "per_term": dict(zip(terms, counts[1:]))}
+        lines.append(prompt("steward.read.search_counts", all_terms=counts[0], terms=" · ".join(
+            f"{json.dumps(term, ensure_ascii=False)}: {count}"
+            for term, count in payload["counts"]["per_term"].items()
+        )))
+        if mode == "fused":
+            # A fused candidate cap is not an index-wide total. Keep the lexical estimate
+            # separately named; pretending it counted vector-only hits can yield 10 of 0.
+            payload["lexical_total"] = await ctx.lexical.count(
+                rt.user_id, query, include_archived=include_archived
+            )
+            lines.append(prompt("steward.read.lexical_total", total=payload["lexical_total"]))
+    lines.append(prompt(
+        "steward.read.showing" if mode == "lexical" else f"steward.read.showing_{mode}",
+        showing=len(hits), total=total,
+    ))
     _emit(
         rt,
-        {
-            "mode": mode,
-            "query": query,
-            "include_archived": include_archived,
-            "hits": hits,
-        },
-        [
-            f"{h['source_id']} ¶{h['blocks'][0]}-{h['blocks'][1]}"
+        payload,
+        lines + [
+            f"{h['source_id']} {span_label(*h['blocks'])}"
+            + (f" {h['speaker']}" if h.get("speaker") else "")
             + ("  [archived]" if h["archived"] else "")
             + f"\n  {h['text']}"
             for h in hits
         ],
     )
+    if not hits:
+        print("nothing found", file=rt.err)
+        return EXIT_NOTHING
     return EXIT_OK
 
 
@@ -1021,8 +1128,9 @@ async def cmd_recall_evidence(
     library being used, while the answering face prints to whoever typed the question. The
     CLI states the same rule in `--visitor-class`'s help (`cli.RECALL_VISITOR_DEFAULTS`).
 
-    It prints what the lane WOULD have handed its model — the bytes, in the lane's own
-    rendering, with the lane's own query-local handles — and then records a PENDING HANDOFF:
+    JSON keeps what the lane WOULD have handed its model byte for byte; prose reorders the
+    same sections and adds mechanical reader signals. Both keep the lane's own query-local
+    handles and record a PENDING HANDOFF:
     the question, the instant, the library ref sampled the way the lane samples it, the
     manifest and the handle map. That is not a consultation yet, and deliberately: a record
     written before the answer exists would have to be rewritten when it arrived, or would
@@ -1043,6 +1151,12 @@ async def cmd_recall_evidence(
         for stage in evidence.stages
     ]
     body = message_text(evidence.content)
+    tally = evidence_tally(evidence)
+    signals = await SourceSignals.for_runtime(rt.ctx.store, rt.user_id)
+    sources = [
+        {"handle": handle, **await signals.summary(source_id)}
+        for handle, source_id in evidence.handles.items()
+    ]
     handoff_id = uuid.uuid4().hex
     snaps = await rt.ctx.canonical.snapshots(rt.user_id)
     await handoffs.create(
@@ -1075,14 +1189,15 @@ async def cmd_recall_evidence(
             "as_of": when.isoformat(),
             "system": evidence.system,
             "content": body,
+            "tally": tally,
+            "sources": sources,
             "handles": dict(evidence.handles),
             "evidence_manifest": _manifest_payload(evidence.manifest),
             "arms": arms,
             "visitor_class": visitor_class,
             "include_archived": bool(include_archived),
         },
-        [
-            body,
+        evidence_lines(evidence, tally) + source_index_lines(sources) + [
             "",
             "arms: " + "; ".join(
                 f"{arm['name']}: {arm['status']}"

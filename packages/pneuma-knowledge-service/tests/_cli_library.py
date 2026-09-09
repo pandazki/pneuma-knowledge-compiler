@@ -67,6 +67,9 @@ class FakeCanonicalStore:
     async def read_meta(self, user_id, rel_path: str):  # noqa: ANN001
         return None
 
+    async def last_commit(self, user_id, path, *, at=None):  # noqa: ANN001
+        return None
+
 
 class FakeLexical:
     def __init__(self, hits: list[Any] | None = None) -> None:
@@ -74,6 +77,13 @@ class FakeLexical:
 
     async def search(self, user_id, query, *, limit=20, include_archived=False):  # noqa: ANN001
         return self.hits[:limit]
+
+    async def search_with_total(self, user_id, query, *, limit=20, include_archived=False):  # noqa: ANN001
+        hits = await self.search(user_id, query, limit=limit, include_archived=include_archived)
+        return hits, len(self.hits)
+
+    async def count(self, user_id, query, *, all_terms=False, include_archived=False):  # noqa: ANN001
+        return len(self.hits)
 
     async def search_claims(  # noqa: ANN001
         self, user_id, query, *, limit=40, include_archived=False

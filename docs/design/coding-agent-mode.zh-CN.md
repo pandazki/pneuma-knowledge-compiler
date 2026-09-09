@@ -389,11 +389,11 @@ HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要
 |---|---|
 | `pkc outline`（`--json`、`--family <template>`、`--definitions`、`--include-archived`） | 完整地图：每一页都在所属族下，一页一行，没有 top-K 或字符预算；用于会话开始及编译后检查 |
 | `pkc glance`（`--include-archived`） | 回答通道的有预算地图（`canonical_glance`）：每个族的头部页面，报告省略数量；outline 太长、难以扫读时用来挑选主题 |
-| `pkc canonical ls`（`--include-archived`） / `read <path>` / `history <path>` | 页面、一页、一条 claim 链——`read` 与 `history` 无条件：按地址点名的页，无论是否归档都作答 |
-| `pkc source ls`（`--include-archived`） / `show <id>` / `fetch <id> ¶a-b` | L0：来源、结构、逐字 span——`show` 与 `fetch` 无条件 |
+| `pkc canonical ls`（`--include-archived`） / `read <path> [<path> …]` / `history <path>` | 页面、一页、一条 claim 链；每页正文前列出最近提交、断言及被替代数量、引用来源及日期、全库编译队列状态，正文后列出来源索引及引用区间发言者；`read` 与 `history` 无条件 |
+| `pkc source ls`（`--include-archived`） / `show <id>` / `fetch <id> ¶a-b [<id> ¶c-d …]` | L0：来源、结构、逐字 span；每个读取区间标注完整来源 id、区间、已知发言者和来源日期（JSON 为列表），仍支持单来源多区间；`show` 与 `fetch` 无条件 |
 | `pkc archive propose` / `confirm` / `ls` / `show` / `drop` / `inventory` | 让一个主题退场，以及把它请回来（§5.5）——一份提案、一次确认，以及排在普通队列上的一个作业 |
-| `pkc search <q>`（`--lexical` / `--semantic` / 融合；`--include-archived`） | L1 / L2，默认范围内，除非要求 |
-| `pkc recall <q> --evidence`（`--include-archived`） | fast lane 装配好的上下文、不含回答调用：claim、窗口、片段摘要、glance，带查询局部句柄 |
+| `pkc search <q>`（`--lexical` / `--semantic` / 融合；`--include-archived`） | L1 / L2，默认范围内，除非要求；命中标注已知发言者，列出每个词项及严格匹配全部词项的词法估计数和显示数量（引号短语算一个词项；语义模式无词法计数，融合模式单独报告词法总数） |
+| `pkc recall <q> --evidence`（`--include-archived`） | fast lane 证据，不含回答调用：文本先给出总数及按排名的页面计数，再依次列出断言、原文窗口、派生片段摘要、原样 glance，最后列出句柄到来源的索引；JSON 保留 lane 的 `content` 原始字节并新增 `tally` 和 `sources` |
 | `pkc recall <q>`（`--include-archived`） | 配置了回答模型时的 fast lane |
 | `pkc jobs` / `pkc history` / `pkc brief <version>` | 队列、编译版本、编译后简报 |
 | `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q> --text-file <f>`（或 `-`；`--kind no_record`） | 关闭交接回答，或不经过交接直接记录阅读；每个引用都必须可解析 |
@@ -407,8 +407,9 @@ HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要
 的族树；不属于已声明族的页面仍可见，其 template 为 null。它从一次 canonical listing 推导
 元数据，不逐页读取，也不调用模型。当前 listing 会加载正文；持久化页头索引留作后续优化。
 
-`pkc recall --evidence` 返回 fast lane 本会递给回答模型的东西，且不多于
-此：lane 中无模型的那一半，露出来。
+`pkc recall --evidence` 露出 fast lane 中无模型的那一半。JSON 的 `content` 完全保留
+lane 本会递给回答模型的字节。文本保留各证据章节的内容，将地图放最后，便于已经掌握地图
+的读者；元数据页头和来源索引提供机械阅读信号，不改变 lane。
 
 递交那一刻记下的是一条**待答交接**，不是咨询。`ConsultationRecord` 是冻结的，`is_miss` 读的是
 `answer_kind`——在回答存在之前写下的记录，要么等回答来了再改写（保留记录从不被改写），要么声称

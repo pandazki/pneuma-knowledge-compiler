@@ -642,6 +642,9 @@ class FastEvidence:
     expanded_documents: tuple[str, ...] = field(default_factory=tuple)
     glance_chars: int = 0
     stages: tuple[StageTiming, ...] = field(default_factory=tuple)
+    # The same rendered evidence, with assembly boundaries retained for read surfaces.
+    # These never change the bytes or ordering of `content` sent to an answering model.
+    sections: tuple[tuple[str, str], ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -1714,7 +1717,12 @@ def recall_human(
     ) + _recall_human_tail(question, as_of)
 
 
-def _recall_human_evidence(
+def _recall_human_evidence(claims: list[RetrievedClaim], **kwargs: Any) -> str:
+    """The lane's original order, joined from the same named evidence sections."""
+    return "\n\n".join(text for _kind, text in _recall_human_sections(claims, **kwargs))
+
+
+def _recall_human_sections(
     claims: list[RetrievedClaim],
     *,
     windows: list | None = None,
@@ -1726,41 +1734,41 @@ def _recall_human_evidence(
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
     component_evidence: Sequence[ComponentEvidence] = (),
-) -> str:
+) -> list[tuple[str, str]]:
     """Everything before the volatile clock/question tail in the Human message."""
 
     windows = windows or []
-    sections: list[str] = []
+    sections: list[tuple[str, str]] = []
     if profile:
-        sections.append(f"{prompt('recall.section.profile_header')}\n{profile}")
+        sections.append(("profile", f"{prompt('recall.section.profile_header')}\n{profile}"))
     if snapshot:
-        sections.append(snapshot)
+        sections.append(("snapshot", snapshot))
     if glance:
-        sections.append(glance)
-    sections.append(
+        sections.append(("map", glance))
+    sections.append(("claims",
         prompt("recall.section.claims_header", count=len(claims))
         + "\n"
         + (render_claims(claims) or prompt("recall.section.claims_empty"))
-    )
+    ))
     if component_evidence:
-        sections.append(
+        sections.append(("components",
             prompt("recall.section.component_header", count=evidence_counts(component_evidence))
             + "\n"
             + render_component_evidence(component_evidence)
-        )
+        ))
     if episode_summaries:
-        sections.append(
+        sections.append(("episodes",
             prompt(
                 "recall.section.episode_summaries_header",
                 count=len(episode_summaries),
             )
             + "\n"
             + render_episode_summaries(episode_summaries)
-        )
+        ))
     if timelines:
-        sections.append(render_subject_timelines(timelines))
+        sections.append(("timelines", render_subject_timelines(timelines)))
     if windows:
-        sections.append(
+        sections.append(("windows",
             prompt("recall.section.windows_header", count=len(windows))
             + "\n"
             + (
@@ -1768,14 +1776,14 @@ def _recall_human_evidence(
                 if window_notes is not None
                 else _render_window_section(windows)
             )
-        )
+        ))
     if full_documents:
-        sections.append(
+        sections.append(("documents",
             prompt("recall.fast.select.documents_header", count=len(full_documents))
             + "\n"
             + render_full_documents(full_documents)
-        )
-    return "\n\n".join(sections)
+        ))
+    return sections
 
 
 def _recall_human_tail(question: str, as_of: datetime) -> str:
@@ -2185,13 +2193,14 @@ def recall_human_content(
     component_evidence: Sequence[ComponentEvidence] = (),
     images: Sequence[RecallImage] = (),
     image_mode: Literal["caption", "native"] = "caption",
+    evidence_sections: list[tuple[str, str]] | None = None,
 ) -> str | list[dict]:
     """Build the volatile Human content shared by direct and agentic recall.
 
     Original image bytes enter only when the query caller explicitly selected native
     delivery. Caption mode keeps the same block-aligned derived evidence in text form.
     """
-    evidence = _recall_human_evidence(
+    sections = _recall_human_sections(
         claims,
         windows=windows,
         episode_summaries=episode_summaries,
@@ -2203,10 +2212,17 @@ def recall_human_content(
         timelines=timelines,
         component_evidence=component_evidence,
     )
+    if evidence_sections is not None:
+        evidence_sections.extend(sections)
+    evidence = "\n\n".join(text for _kind, text in sections)
     tail = _recall_human_tail(question, as_of)
     if not images:
         return evidence + tail
     header = prompt("recall.section.images_header", count=len(images))
+    if evidence_sections is not None:
+        evidence_sections.append((
+            "images", header + "\n" + "\n".join(_render_recall_image(image) for image in images)
+        ))
     if image_mode == "caption":
         return (
             evidence
@@ -4010,6 +4026,7 @@ async def fast_recall(
         # the same function they alias with, so what comes back is the message that call
         # would have carried — not a rendering of it, and not a second assembly that could
         # drift from one.
+        evidence_sections: list[tuple[str, str]] = []
         evidence_human = recall_human_content(
             question,
             claims,
@@ -4025,8 +4042,13 @@ async def fast_recall(
             component_evidence=shown_component_evidence,
             images=images,
             image_mode=image_mode,
+            evidence_sections=evidence_sections,
         )
         aliased_evidence, evidence_handles = _alias_human_content(evidence_human)
+        section_aliaser = SessionAliaser()
+        aliased_sections = tuple(
+            (kind, section_aliaser.alias(text)) for kind, text in evidence_sections
+        )
         timer.record("total", (time.perf_counter() - lane_started) * 1000.0)
         return FastEvidence(
             question=question,
@@ -4049,6 +4071,7 @@ async def fast_recall(
             expanded_documents=tuple(selected),
             glance_chars=len(glance or ""),
             stages=(*semantic_skipped_stages(embeddings), *timer.emit()),
+            sections=aliased_sections,
         )
     if answer_format == "structured":
         with timer.measure("answer"):

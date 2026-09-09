@@ -311,11 +311,8 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
     p = _jsonable(
         csub.add_parser(
             "read",
-            help=(
-                _tool_help("read-document")
-                + " Unconditional: a page addressed by path answers whether or not it is "
-                "archived."
-            ),
+            help=prompt("steward.cli.canonical_read"),
+            description=prompt("steward.cli.canonical_read"),
         )
     )
     p.add_argument("path", nargs="+", help="one page, or several read in one process")
@@ -350,16 +347,19 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
     p = _jsonable(
         ssub.add_parser(
             "fetch",
-            help="verbatim L0 for a block span — unconditional, whatever any plan said",
+            help=prompt("steward.cli.source_fetch"),
+            description=prompt("steward.cli.source_fetch"),
         )
     )
     p.add_argument("source_id")
     p.add_argument(
         "span", nargs="+",
-        help="one or more ¶a-b, ¶a or a-b spans; exactly two bare integers `a b` mean one span",
+        help=prompt("steward.cli.source_fetch_spans"),
     )
 
-    p = _archivable(_jsonable(top.add_parser("search", help=_tool_help("search-source"))))
+    p = _archivable(_jsonable(top.add_parser(
+        "search", help=prompt("steward.cli.search"), description=prompt("steward.cli.search"),
+    )))
     p.add_argument("query")
     p.add_argument("--lexical", action="store_true", help="L1 only")
     p.add_argument("--semantic", action="store_true", help="L2 only")
@@ -395,17 +395,15 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
 
     p = _archivable(
         _jsonable(
-            top.add_parser("recall", help="the fast lane — or the context it would answer from")
+            top.add_parser("recall", help=prompt("steward.cli.recall"),
+                           description=prompt("steward.cli.recall"))
         )
     )
     p.add_argument("query")
     p.add_argument(
         "--evidence",
         action="store_true",
-        help=(
-            "print the assembled context instead of answering it: exactly what the lane "
-            "would have handed its model, with the same handles and the same manifest"
-        ),
+        help=prompt("steward.cli.recall"),
     )
     p.add_argument(
         "--visitor-class",

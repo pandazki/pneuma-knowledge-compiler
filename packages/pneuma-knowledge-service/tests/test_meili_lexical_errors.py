@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from types import SimpleNamespace
 from meilisearch_python_sdk.errors import MeilisearchApiError
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_service.adapters.meilisearch import (
@@ -71,6 +72,8 @@ async def test_only_index_not_found_reads_as_absence():
     # …and a user with no index still gets the honest empty answer, not an exception.
     assert await store.search(USER, "aurora") == []
     assert await store.search_claims(USER, "aurora") == []
+    assert await store.search_with_total(USER, "aurora") == ([], 0)
+    assert await store.count(USER, "aurora", all_terms=True) == 0
 
 
 async def test_a_search_over_a_configured_index_propagates_a_real_failure():
@@ -83,3 +86,46 @@ async def test_a_search_over_a_configured_index_propagates_a_real_failure():
         await store.search(USER, "aurora")
     with pytest.raises(MeilisearchApiError):
         await store.search_claims(USER, "aurora")
+    with pytest.raises(MeilisearchApiError):
+        await store.count(USER, "aurora", all_terms=True)
+
+
+async def test_count_uses_strict_matching_and_the_same_tenant_archive_scope():
+    store = MeiliLexicalIndex("http://meili.invalid", "")
+    asked = []
+
+    def index(uid):
+        async def search(query, **kwargs):
+            asked.append((uid, query, kwargs))
+            return SimpleNamespace(
+                hits=[{"source_id": "synthetic", "block_index": 0, "text": "aurora"}],
+                estimated_total_hits=0 if kwargs["matching_strategy"] == "all" else 37,
+            )
+        return SimpleNamespace(search=search)
+
+    store._client = SimpleNamespace(index=index)
+    store._configured.update({"blocks_u-meili-errors", "blocks_other"})
+    hits, total = await store.search_with_total(USER, 'aurora "blue plan"', limit=1)
+    assert len(hits) == 1 and total == 37
+    assert await store.count(USER, 'aurora "blue plan"', all_terms=True) == 0
+    assert await store.count(UserId("other"), '"blue plan"', include_archived=True) == 37
+    assert [(uid, query) for uid, query, _kw in asked] == [
+        ("blocks_u-meili-errors", 'aurora "blue plan"'),
+        ("blocks_u-meili-errors", 'aurora "blue plan"'),
+        ("blocks_other", '"blue plan"'),
+    ]
+    assert [kw["matching_strategy"] for _uid, _q, kw in asked] == ["last", "all", "last"]
+    assert [kw["limit"] for _uid, _q, kw in asked] == [1, 0, 0]
+    assert [kw["filter"] for _uid, _q, kw in asked] == ["NOT archived = true", "NOT archived = true", None]
+
+
+async def test_an_absent_estimate_is_not_reported_as_zero():
+    store = MeiliLexicalIndex("http://meili.invalid", "")
+    store._configured.add("blocks_u-meili-errors")
+
+    async def search(*args, **kwargs):
+        return SimpleNamespace(hits=[], estimated_total_hits=None)
+
+    store._client = SimpleNamespace(index=lambda uid: SimpleNamespace(search=search))
+    with pytest.raises(ValueError, match="no estimated total"):
+        await store.count(USER, "aurora", all_terms=True)

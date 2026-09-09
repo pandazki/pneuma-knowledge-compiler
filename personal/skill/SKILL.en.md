@@ -13,9 +13,13 @@ No status check first. Directly:
 4. Check wording with `pkc source fetch <sid> ¶a-b`; find names or phrases with `pkc search <q> --lexical`.
 5. Record the answer with `pkc consult answer <handoff_id> --text-file -` (or `pkc consult record --question <q> --text-file -` when no recall ran).
 
-Two or three lookups should give a complete answer. Cite the page anchors and source spans you
-read; say plainly when the library has nothing. Long output is paged and the footer names
-`--page N`; read the first page before deciding to turn it. The same flow in detail is the
+Two or three lookups should give a complete answer; read commands are independent, so run
+several at once when their inputs are known. Each output's header and footer are the grounds
+for judgement: when the page was compiled, whether compile jobs are pending, who spoke each
+cited span, how many blocks hold every term of the query — answer from those, and fetch a span
+only to quote it verbatim. Cite the page anchors and source spans you read; say plainly when
+the library has nothing. Long output is paged and the footer names `--page N`; read the first
+page before deciding to turn it. The same flow in detail is the
 library's `references/consume.md`, read when needed; `references/cli.md` is the full argument
 table, not required reading.
 

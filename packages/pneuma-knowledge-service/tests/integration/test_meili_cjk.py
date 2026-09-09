@@ -44,3 +44,17 @@ async def test_chinese_japanese_english_recall(meili, user):
     assert top.source_id == SID
     assert "付款" in top.text
     assert top.score > 0
+
+
+async def test_all_terms_counts_do_not_drop_terms_and_respect_phrases_and_archive(meili, user):
+    await meili.index_blocks(user, SID, _blocks([
+        "aurora blue plan", "aurora red plan", "zephyr green plan",
+    ]))
+    hits, total = await meili.search_with_total(user, "aurora zephyr", limit=1)
+    assert len(hits) == 1 and total == 2  # ordinary ranked retrieval may drop the last term
+    assert await meili.count(user, "aurora zephyr", all_terms=True) == 0
+    assert await meili.count(user, "aurora", all_terms=True) == 2
+    assert await meili.count(user, '"blue plan"', all_terms=True) == 1
+    await meili.index_blocks(user, SourceId("synthetic-archived"), _blocks(["aurora zephyr"]), archived=True)
+    assert await meili.count(user, "aurora zephyr", all_terms=True) == 0
+    assert await meili.count(user, "aurora zephyr", all_terms=True, include_archived=True) == 1

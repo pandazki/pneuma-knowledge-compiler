@@ -503,11 +503,11 @@ the reader's attention for it. `pkc canonical read` takes several paths in one p
 |---|---|
 | `pkc outline` (`--json`, `--family <template>`, `--definitions`, `--include-archived`) | the complete map: every page under its family, one line each, no top-K or character budget; session start and the check after a compile |
 | `pkc glance` (`--include-archived`) | the answering lanes' budgeted map (`canonical_glance`): top pages per family, with omission counts; choose subjects when outline is too long to scan |
-| `pkc canonical ls` (`--include-archived`) / `read <path>` / `history <path>` | pages, a page, a claim chain — `read` and `history` are unconditional: an address resolves whether or not it is archived |
-| `pkc source ls` (`--include-archived`) / `show <id>` / `fetch <id> ¶a-b` | L0: sources, structure, verbatim spans — `show` and `fetch` are unconditional |
+| `pkc canonical ls` (`--include-archived`) / `read <path> [<path> …]` / `history <path>` | pages, a page, a claim chain; each read has a last-commit, claim/supersession, cited-source/date and library compile-queue header plus a source index with cited-span speakers; `read` and `history` are unconditional |
+| `pkc source ls` (`--include-archived`) / `show <id>` / `fetch <id> ¶a-b [<id> ¶c-d …]` | L0: sources, structure, verbatim spans; each fetched span has its full source id, span, known speakers and source day (JSON is a list); single-source multi-span reads still work; `show` and `fetch` are unconditional |
 | `pkc archive propose` / `confirm` / `ls` / `show` / `drop` / `inventory` | retiring a subject and bringing it back (§5.5) — a proposal, a confirmation, and one job on the ordinary queue |
-| `pkc search <q>` (`--lexical` / `--semantic` / fused; `--include-archived`) | L1 / L2, in the default scope unless asked |
-| `pkc recall <q> --evidence` (`--include-archived`) | the fast lane's assembled context without the answer call: claims, windows, episode summaries, glance, with query-local handles |
+| `pkc search <q>` (`--lexical` / `--semantic` / fused; `--include-archived`) | L1 / L2, in the default scope unless asked; known speakers on hits, per-term and strict all-terms lexical estimates plus the shown count (quoted phrases are one term; semantic has no lexical counts, fused reports its lexical total separately) |
+| `pkc recall <q> --evidence` (`--include-archived`) | the fast lane's evidence without the answer call: prose shows a tally and ranked page counts, then claims, verbatim windows, derived episode summaries, and the unchanged glance last, followed by a handle-to-source index; JSON keeps the lane's exact `content` bytes and adds `tally` and `sources` |
 | `pkc recall <q>` (`--include-archived`) | the fast lane with the configured answer model, when one is configured |
 | `pkc jobs` / `pkc history` / `pkc brief <version>` | the queue, compile versions, the post-compile brief |
 | `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q> --text-file <f>` (or `-`; `--kind no_record`) | close a handed answer or record direct reading without a hand-over; every citation must resolve |
@@ -523,9 +523,10 @@ a total page count; pages outside declared families remain visible under a null 
 It derives metadata from one canonical listing, with no per-document reads or model calls.
 The current listing loads document bodies; a persisted header index is a later optimization.
 
-`pkc recall --evidence` returns what the fast lane would have
-handed its answer model, and nothing the lane would not have: the model-free half of the
-lane, exposed.
+`pkc recall --evidence` exposes the model-free half of the fast lane. JSON `content` is
+exactly what the lane would have handed its answer model. Prose preserves each evidence
+section's contents while moving the map last for a reader who already holds it; metadata
+headers and source indexes add mechanical reading signals without changing the lane.
 
 What the hand-over records is a **pending handoff**, not a consultation. A `ConsultationRecord`
 is frozen and `is_miss` reads `answer_kind`, so a record written before the answer exists

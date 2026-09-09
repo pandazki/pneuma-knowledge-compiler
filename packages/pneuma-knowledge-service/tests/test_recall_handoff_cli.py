@@ -1,6 +1,6 @@
 """`pkc recall --evidence` and `pkc consult answer` — the hand-over, and what closes it.
 
-The claim under test is one claim, made twice: what `--evidence` prints is what the answering
+The claim under test is one claim, made twice: JSON `content` is what the answering
 model would have received, byte for byte. Once against the lane's own model-free half
 (`fast_recall(evidence_only=True)`), and once against a RECORDING model driven through the
 whole lane — the second is the one that would catch a rendering the CLI invented, because it
@@ -169,10 +169,10 @@ async def test_reading_never_builds_a_chat_model_or_materializes_schema(strategy
     resolve_writable.assert_not_called()
 
 
-async def test_evidence_prints_exactly_what_the_lane_would_hand_its_model():
+async def test_evidence_json_preserves_exactly_what_the_lane_would_hand_its_model():
     lib = _lib()
     await _seed(lib)
-    rt = _rt(lib)
+    rt = _rt(lib, as_json=True)
     when = datetime(2026, 9, 1, tzinfo=timezone.utc)
 
     code = await read_cmd.cmd_recall_evidence(
@@ -188,7 +188,9 @@ async def test_evidence_prints_exactly_what_the_lane_would_hand_its_model():
         evidence_only=True,
         **await read_cmd._fast_kwargs(rt, as_of=when, style=None),
     )
-    assert message_text(evidence.content) in printed
+    import json
+
+    assert message_text(evidence.content) == json.loads(printed)["content"]
     assert evidence.manifest  # the lane put something in front of a model
 
 
