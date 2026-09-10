@@ -23,7 +23,10 @@
 3. **`pkc` 启动器** —— 写在 `pkchome` 同一个 bin 目录下（内容为
    `exec pkchome exec -- pkc "$@"`）。该处已有的非本版 `pkc` 会被拒绝，绝不覆盖。
 4. **技能** —— 对每个存在的宿主目录（`~/.codex`、`~/.claude`）执行
-   `pkchome skill install --force`。
+   `pkchome skill install --force`，装进该宿主自己的配置目录：`$CODEX_HOME/skills`（默认
+   `~/.codex/skills`）与 `$CLAUDE_CONFIG_DIR/skills`（默认 `~/.claude/skills`），绝不装进
+   `~/.agents/skills`——Codex 在每一个无人值守轮里都会从 HOME 读它。早先安装留在那里的全局
+   副本会被删除（`ok: removed the old global skill at …`）；只动带有本版全局标记的副本。
 5. **Docker** —— 探测 `docker info`。失败时说明 Docker Desktop 或 OrbStack 从哪里获取，
    并以退出码 3 停止；此前完成的步骤不会回滚，重跑即可继续。
 6. **控制台页面** —— 执行 `pkchome console install`。只有在本仓库内构建的 wheel 才自带
@@ -82,7 +85,10 @@ setup 未能写入推断字段时，`onboarding` 会自行补写，并在首行�
 `model` / `reasoning_effort`——这个库的编译与演进轮跑哪个模型、想多深，而不是继承你自己
 全局 harness 配置里的那一套。Codex 两者都认（`reasoning_effort` 取 `minimal`、`low`、
 `medium`、`high`、`xhigh` 之一）；Claude Code 只认模型，因为它的 CLI 没有推理强度开关。
-留空即各自交给 harness。改动其中任何一个都会重启该库的引擎，因为启动器只在启动时读一次设置。
+留空即各自交给 harness。`reasoning_effort_episodes` 单独声明 episodes 轮（为一个来源划分
+L2 边界——判断简单，却按编译轮的上下文付费）的推理强度；取值集合相同，留空即继承
+`reasoning_effort`，`status` 会在 `Rounds:` 一行里以 `(episodes low)` 显示。改动其中任何一个
+都会重启该库的引擎，因为启动器只在启动时读一次设置。
 
 知识库选择优先级依次是 `--library`、`PKC_LIBRARY`、当前目录或祖先中最近的 `.pkc`
 文件，以及 home 的当前库。未选择时以退出码 2 拒绝执行。`env` 为用户自己的 shell
@@ -191,8 +197,14 @@ Owner 原话与代理叙述逐字保留；工具缩为有长度上限的动作�
   infra/、run/、data/        生成的 compose 文件、引擎 pid 与日志、数据卷
   libraries/<name>/         library.yaml、engine/、canonical/、skill/
 ~/.local/bin/               pkchome（uv tool）与并列的 pkc 启动器
-~/.codex/skills/pkc-steward/、~/.claude/skills/pkc-steward/    全局技能
+$CODEX_HOME/skills/pkc-steward/          Codex 的全局技能（默认 ~/.codex）
+$CLAUDE_CONFIG_DIR/skills/pkc-steward/   Claude Code 的全局技能（默认 ~/.claude）
 ```
+
+全局技能给你自己的会话用。无人值守的一轮只看得见它所在库的技能包
+（`libraries/<name>/.agents/skills/pkc-steward` 或 `.claude/skills/pkc-steward`）：它在不含任何
+技能的每作业配置目录下运行，而 Codex 轮会从 `~/.agents/skills` 读到的任何 `pkc-steward`
+都会按路径被关掉。
 
 一座库自己的技能包在 setup 中**最后**渲染——排在主体档案之后，因为包里就写着主体；
 无人值守的每一轮开跑前，worker 都会校验它，发现漂移就地重渲，让宿主读到的措辞始终是

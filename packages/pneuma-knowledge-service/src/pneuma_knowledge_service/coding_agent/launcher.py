@@ -47,11 +47,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .backends import (
+    HIDDEN_SKILLS,
     MODEL,
     OUTPUT_FILE,
     PROJECT_DIR,
     REASONING_EFFORT,
     SESSION,
+    SKILL_NAME,
     SYSTEM_FILE,
     SYSTEM_PROMPT_FILE,
     BackendManifest,
@@ -198,6 +200,9 @@ class LaunchRequest:
     reasoning_effort: str = ""
     #: Resume this session instead of starting a new one, when the manifest can.
     resume_session: str = ""
+    #: `SKILL.md` paths of the copies of this framework's skill the round must not see
+    #: (`foreign_skill_copies`). Carried only by a harness whose manifest can switch one off.
+    hidden_skills: tuple[str, ...] = ()
     #: Extra environment for the child, on top of the inherited one.
     env: dict[str, str] = field(default_factory=dict)
     #: The worker's own resolved `Settings`, so the child's `pkc` reaches the SAME stack this
@@ -303,6 +308,29 @@ def _child_env(request: LaunchRequest) -> dict[str, str]:
     )
 
 
+def foreign_skill_copies(manifest: BackendManifest, project_dir: str) -> tuple[str, ...]:
+    """Every copy of this framework's skill a round would see besides the library's own.
+
+    The per-job config home hides the Owner's global copy under `~/.codex` / `~/.claude`,
+    because the round's config home is not the Owner's. It cannot hide a copy in a root the
+    harness reads from HOME regardless (`manifest.home_skill_roots`) — and a round that lists
+    two `pkc-steward` skills may read the global router instead of its library's package. So
+    each copy found there is named, by the path as reached and by its resolved target (the
+    root may be a symlink), for the launch to switch off. The library's own package is never
+    among them, whichever way it is reached.
+    """
+    own = (Path(project_dir).expanduser() / manifest.skill_dir / "SKILL.md").resolve()
+    found: list[str] = []
+    for root in manifest.home_skill_roots:
+        skill = Path(root).expanduser() / SKILL_NAME / "SKILL.md"
+        if not skill.is_file() or skill.resolve() == own:
+            continue
+        for path in (str(skill), str(skill.resolve())):
+            if path not in found:
+                found.append(path)
+    return tuple(found)
+
+
 def seed_config_home(manifest: BackendManifest, home: Path) -> None:
     """Make a per-job config home the harness can actually log in from.
 
@@ -353,6 +381,11 @@ def build_argv(request: LaunchRequest, workdir: Path) -> list[str]:
         OUTPUT_FILE: str(workdir / LAST_MESSAGE_FILENAME),
         PROJECT_DIR: str(Path(request.project_dir).expanduser().resolve()),
         SESSION: request.resume_session or "",
+        HIDDEN_SKILLS: (
+            manifest.render_hidden_skills(request.hidden_skills)
+            if request.hidden_skills and manifest.render_hidden_skills
+            else ""
+        ),
     }
     return [manifest.binary, *render_argv(template, values)]
 
@@ -563,6 +596,7 @@ __all__ = [
     "harness_env",
     "launch_round",
     "scrub",
+    "foreign_skill_copies",
     "seed_config_home",
     "resume_supported",
     "stdin_text",

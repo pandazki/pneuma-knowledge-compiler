@@ -72,6 +72,7 @@
 | `AGENT_RATE_LIMIT_COOLDOWN_MAX_S` | `21600` | 翻倍停在哪里——六小时。猜短了才是贵的那个错误：在这条存在之前，853 个作业在四小时里穿过了一份已经死掉的额度。不是引擎旋钮 |
 | `AGENT_MODEL` | （空） | 拉起的 harness 跑**哪个模型**，作为启动模板的模型参数（`-m` / `--model`）传入。留空则交给 harness 自己——也就是所有者的全局 harness 配置，因为每个作业的配置目录正是从那里播种的。当一个知识库的编译轮不该继承所有者为自己终端所设的东西时，就在这里点名。不是引擎旋钮 |
 | `AGENT_REASONING_EFFORT` | （空） | 告诉那个 harness 想多深：`minimal`、`low`、`medium`、`high` 或 `xhigh`，其余取值在启动时即被拒绝。Codex 以 `-c model_reasoning_effort=<e>` 承载；本版本的 Claude Code CLI 没有这个开关，会直接丢弃。留空即 harness 自身的默认。不是引擎旋钮 |
+| `AGENT_REASONING_EFFORT_EPISODES` | （空） | 只对 **episodes** 轮（为一个来源划分 L2 片段边界）单独声明的推理强度——这比编译简单得多，却会按编译轮的上下文付费。可接受的取值相同，同样在启动时拒绝其余取值；留空即继承 `AGENT_REASONING_EFFORT`。编译与演进轮不受影响。不是引擎旋钮 |
 | `AGENT_KEEP_WORKDIR` | `false` | 保留启动器为每一轮建的工作目录（system 文本、任务、harness 的最后一条消息），而不是删掉它。仅供调试：这些文件里装着知识库的材料，把它们留在 `/tmp` 应当是运维者刻意做的决定。不是引擎旋钮 |
 | `PROJECT_DIR` | （API 的 cwd） | 控制台的 Steward 视图在哪里拉起 harness（[coding-agent-mode](../design/coding-agent-mode.md) §5.6）。就是技能包被装进去的那个项目目录，好让 harness 读到本部署自己的 `AGENTS.md` / `CLAUDE.md`，并在旁边找到技能——与 `pkc` 和无人值守 worker 遵循的是同一个约定。之所以做成配置项，是因为 API 与 worker 并不一定共用同一个工作目录。不是引擎旋钮（属于部署接线） |
 | `STEWARD_SESSION_IDLE` | `1800` | 控制台的 Steward 会话在开启它的那个浏览器标签页关掉之后还能活多少秒。关掉标签页不等于结束一场对话：harness 进程仍然在跑，重新连上就会重新接回它，并用会话自己保留的事件尾巴重绘。超过这个时限后，进程**组**会被 TERM→KILL 收掉，会话的逐字记录（`steward_turns`）随之删除；下一次接入开的是一段新会话。`0` 表示最后一个 socket 一走就收掉会话。不是引擎旋钮 |

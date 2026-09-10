@@ -219,6 +219,7 @@ def status_document(home: Home, explicit: str | None = None) -> dict:
             # effort to the harness's own configuration.
             "agent_model": library.state.choices.model,
             "reasoning_effort": library.state.choices.reasoning_effort,
+            "reasoning_effort_episodes": library.state.choices.reasoning_effort_episodes,
             # No probe of an engine port whose pid is dead: a status taken with nothing up
             # must cost nothing but the reads that can still answer.
             "queue": queue_status(library) if engine_state["up"] else None,
@@ -268,6 +269,14 @@ def worker_line(library: dict) -> str:
     return f"{line} — cooling until {local_time(cooling['until'])} ({reason})"
 
 
+def rounds_line(library: dict) -> str:
+    """The model and effort the library's rounds run at, and episodes' own effort when set."""
+    line = (f"{library['agent_model'] or 'the harness default model'}"
+            f" at {library['reasoning_effort'] or 'the harness default effort'}")
+    episodes = library.get("reasoning_effort_episodes")
+    return f"{line} (episodes {episodes})" if episodes else line
+
+
 def render_text(document: dict) -> str:
     def state(value):
         return "unknown" if value is None else "up" if value else "down"
@@ -284,8 +293,7 @@ def render_text(document: dict) -> str:
         lines.extend(["", f"{library['name']}{' (current)' if library['current'] else ''}",
                       f"  Engine: {state(library['engine']['up'])} (port {library['engine']['port']})",
                       f"  Worker: {worker_line(library)}",
-                      f"  Rounds: {library['agent_model'] or 'the harness default model'}"
-                      f" at {library['reasoning_effort'] or 'the harness default effort'}",
+                      f"  Rounds: {rounds_line(library)}",
                       f"  Engine directory: {library['engine_dir']}",
                       f"  Embedding key: {'present' if library['key'] else 'absent'}",
                       f"  Canonical HEAD: {library['canonical_head'] or 'empty'}",

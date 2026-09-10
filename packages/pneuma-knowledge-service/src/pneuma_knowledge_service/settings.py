@@ -191,6 +191,11 @@ class Settings(BaseSettings):
     # an unknown value is a round that dies in argv minutes after the job was queued, and the
     # place to refuse it is where it is written.
     agent_reasoning_effort: str = ""
+    # The same effort for EPISODES rounds only — L2 boundary detection for one source, a far
+    # simpler judgement than a compile, yet one that costs a compile round's context when it
+    # inherits a compile's effort. Empty inherits `agent_reasoning_effort`; the worker picks
+    # between the two by the job's kind (`workers/compile_worker.agent_round_effort`).
+    agent_reasoning_effort_episodes: str = ""
 
     # ── the console's Steward view (docs/design/coding-agent-mode.md §5.6) ────────────────
 
@@ -601,7 +606,7 @@ class Settings(BaseSettings):
         parse_model_pricing(value)
         return value
 
-    @field_validator("agent_reasoning_effort")
+    @field_validator("agent_reasoning_effort", "agent_reasoning_effort_episodes")
     @classmethod
     def _effort_must_be_one_a_harness_takes(cls, value: str) -> str:
         """An effort no harness accepts is refused here rather than in a launched argv.

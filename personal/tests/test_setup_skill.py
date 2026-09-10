@@ -58,6 +58,99 @@ def test_refresh_re_renders_our_own_package_and_still_refuses_a_stranger(home):
     assert (installed / "SKILL.md").read_text() == "Somebody else's pkc-steward\n"
 
 
+def test_the_global_skill_lives_in_the_harness_config_home_and_never_in_agents(home, monkeypatch):
+    """`$CODEX_HOME/skills` is what an unattended round's per-job CODEX_HOME hides; the shared
+    `~/.agents/skills` that Codex reads from HOME regardless is not written."""
+    elsewhere = Path.home() / "codex-elsewhere"
+    elsewhere.mkdir(parents=True)
+    monkeypatch.setenv("CODEX_HOME", str(elsewhere))
+    files = skill_install.install(home)
+    assert files == [elsewhere / "skills" / "pkc-steward" / "SKILL.md"]
+    assert skill_install.is_ours(elsewhere / "skills" / "pkc-steward")
+    assert not (Path.home() / ".agents").exists() and not (Path.home() / ".codex").exists()
+
+
+def _old_global_copy(directory: Path) -> Path:
+    """A global render as an earlier install left it: the router with its version marker."""
+    directory.mkdir(parents=True)
+    atomic_write(directory / "SKILL.md",
+                 f"router\n{BLOCK_START}\n{skill_install.MANAGED_NOTE}\n<!-- pkc:end -->\n")
+    atomic_write(directory / "skill-version.json", '{"backend": "claude-code"}\n')
+    return directory
+
+
+def test_a_round_stops_seeing_the_old_global_copy_once_the_installer_removes_it(
+    home, monkeypatch, capsys
+):
+    """The round's environment before and after: Codex reads `~/.agents/skills` from HOME, so
+    a global render of ours there is a second `pkc-steward` beside the library's package. The
+    install targets `$CODEX_HOME/skills` and removes the marked copy; an unmarked one stays."""
+    from pneuma_knowledge_service.coding_agent.backends import CODEX
+    from pneuma_knowledge_service.coding_agent.launcher import foreign_skill_copies
+
+    owner = Path.home()
+    (owner / ".codex").mkdir(parents=True)
+    old = _old_global_copy(owner / ".agents" / "skills" / "pkc-steward")
+    project = owner / "library"
+    (project / CODEX.skill_dir).mkdir(parents=True)
+    atomic_write(project / CODEX.skill_dir / "SKILL.md", "the library's own package\n")
+    assert foreign_skill_copies(CODEX, str(project))  # the round would switch it off by path
+
+    files = skill_install.install(home, "codex")
+    assert files == [owner / ".codex" / "skills" / "pkc-steward" / "SKILL.md"]
+    assert not old.exists()
+    assert capsys.readouterr().err == "ok: removed the old global skill at ~/.agents/skills/pkc-steward\n"
+    assert foreign_skill_copies(CODEX, str(project)) == ()
+    skill_install.install(home, "codex")  # once: nothing is left to remove
+    assert capsys.readouterr().err == ""
+
+    # Not ours: no marker, or a marker without the global note (a library package's shape).
+    stranger = owner / ".agents" / "skills" / "pkc-steward"
+    stranger.mkdir(parents=True)
+    atomic_write(stranger / "SKILL.md", f"somebody's\n{BLOCK_START}\n")
+    skill_install.install(home, "codex")
+    atomic_write(stranger / "skill-version.json", '{"backend": "codex"}\n')
+    skill_install.install(home, "codex")
+    assert (stranger / "SKILL.md").read_text().startswith("somebody's")
+
+
+def test_the_migration_handles_every_shape_of_the_agents_root(home, capsys):
+    owner = Path.home()
+    agents = owner / ".agents"
+    agents.mkdir(parents=True)
+    # Missing root, then a dangling link: nothing to remove, and the link is left alone.
+    assert skill_install.remove_stale_global_copies() == []
+    (agents / "skills").symlink_to(owner / "gone")
+    assert skill_install.remove_stale_global_copies() == []
+    assert (agents / "skills").is_symlink()
+    (agents / "skills").unlink()
+
+    # A symlink to anywhere: the copy reached through it is removed where it physically is.
+    elsewhere = _old_global_copy(owner / "shared" / "skills" / "pkc-steward")
+    (agents / "skills").symlink_to(owner / "shared" / "skills")
+    assert skill_install.remove_stale_global_copies() == [agents / "skills" / "pkc-steward"]
+    assert not elsewhere.exists() and (owner / "shared" / "skills").is_dir()
+    (agents / "skills").unlink()
+
+    # A `pkc-steward` that is itself a link: the link goes, what it points at stays.
+    target = _old_global_copy(owner / "kept" / "pkc-steward")
+    (agents / "skills").mkdir()
+    (agents / "skills" / "pkc-steward").symlink_to(target)
+    assert skill_install.remove_stale_global_copies() == [agents / "skills" / "pkc-steward"]
+    assert not (agents / "skills" / "pkc-steward").is_symlink() and target.is_dir()
+    (agents / "skills").rmdir()
+
+    # A root that IS a harness's own skill directory holds that harness's live global install:
+    # not stale, so kept — the round's launcher switches it off by path instead.
+    (owner / ".claude").mkdir()
+    skill_install.install(home, "claude-code")
+    (agents / "skills").symlink_to(owner / ".claude" / "skills")
+    assert skill_install.remove_stale_global_copies() == []
+    skill_install.install(home, "claude-code")
+    assert (owner / ".claude" / "skills" / "pkc-steward" / "SKILL.md").is_file()
+    assert "removed" not in capsys.readouterr().err
+
+
 def test_skill_autodetect_does_not_create_unselected_harness(home):
     (Path.home() / ".claude").mkdir(parents=True)
     files = skill_install.install(home)

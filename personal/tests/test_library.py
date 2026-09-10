@@ -251,6 +251,45 @@ def test_the_rounds_model_and_effort_are_recorded_choices_the_environment_states
     assert home.config.defaults.model == "gpt-6-astra"
 
 
+def test_episodes_rounds_take_their_own_effort_and_inherit_when_it_is_empty(
+    home, make_library, monkeypatch
+):
+    """Episodes rounds are a simple judgement at a compile's price; the library states their
+    effort alone, validated against the one accepted set, and a running engine is restarted."""
+    from pneuma_knowledge_service.settings import AGENT_REASONING_EFFORTS
+
+    library = make_library()
+    assert library.state.choices.reasoning_effort_episodes == ""
+    restarts = []
+    monkeypatch.setattr(library_module, "restart_engine",
+                        lambda home, library: restarts.append(library.state.name) or True)
+    set_config(home, "reasoning_effort", "medium", library)
+    environment = home_environment(home, Library.load(home, "notes"))
+    # Empty is absence: the engine's episodes rounds inherit the library's effort.
+    assert "PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT_EPISODES" not in environment
+
+    note = set_config(home, "reasoning_effort_episodes", "low", Library.load(home, "notes"))
+    assert note == "engine notes restarted; its rounds now run at reasoning_effort_episodes low"
+    assert restarts == ["notes", "notes"]
+    reloaded = Library.load(home, "notes")
+    assert reloaded.state.choices.reasoning_effort_episodes == "low"
+    assert reloaded.show()["choices"]["reasoning_effort_episodes"] == "low"
+    environment = home_environment(home, reloaded)
+    assert environment["PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT_EPISODES"] == "low"
+    assert environment["PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT"] == "medium"
+
+    with pytest.raises(ValueError, match="reasoning_effort_episodes must be one of") as refusal:
+        set_config(home, "reasoning_effort_episodes", "ultra", reloaded)
+    for effort in AGENT_REASONING_EFFORTS:
+        assert effort in str(refusal.value)
+    assert Library.load(home, "notes").state.choices.reasoning_effort_episodes == "low"
+
+    note = set_config(home, "reasoning_effort_episodes", "", Library.load(home, "notes"))
+    assert note == "engine notes restarted; its rounds now run at reasoning_effort for episodes too"
+    assert "PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT_EPISODES" not in home_environment(
+        home, Library.load(home, "notes"))
+
+
 def test_custom_contract_rejected_before_publication(home, make_library, tmp_path):
     contract = tmp_path / "contract.md"
     atomic_write(contract, "No frontmatter")

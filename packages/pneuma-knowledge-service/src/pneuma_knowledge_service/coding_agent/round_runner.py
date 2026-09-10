@@ -58,7 +58,14 @@ from ..cli.draft import (
 )
 from .backends import BackendManifest, unavailable_reason
 from .install import SKILL_HASH_ENV, installed_hash
-from .launcher import LaunchRequest, LaunchResult, launch_round, resume_supported, scrub
+from .launcher import (
+    LaunchRequest,
+    LaunchResult,
+    foreign_skill_copies,
+    launch_round,
+    resume_supported,
+    scrub,
+)
 
 log = logging.getLogger(__name__)
 
@@ -337,6 +344,8 @@ class AgentRoundRunner:
             model=self.model,
             reasoning_effort=self.reasoning_effort,
             resume_session=resume_session,
+            # The round sees one `pkc-steward` — this library's — and no global copy beside it.
+            hidden_skills=foreign_skill_copies(self.manifest, self.project_dir),
             env={**self._env(), "PKC_DRAFT_EXECUTOR": executor},
             settings=self.settings,
             retries=self.retries,

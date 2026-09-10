@@ -1447,6 +1447,8 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # which is deployment wiring in the same sense the sandbox flags are.
         "agent_model",
         "agent_reasoning_effort",
+        # The same effort stated for episodes rounds alone — the same argv, for one job kind.
+        "agent_reasoning_effort_episodes",
         # The two knobs of the console's Steward session (§5.6): WHERE this installation
         # spawns a harness, and how long that process outlives the browser tab. A directory
         # and a timeout — deployment wiring by construction, and neither of them is reachable

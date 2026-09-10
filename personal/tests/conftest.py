@@ -17,6 +17,9 @@ def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "owner"))
     monkeypatch.setenv("PKC_HOME", str(tmp_path / "home"))
     monkeypatch.delenv("PKC_LIBRARY", raising=False)
+    # A harness's config home is the developer's own; the global skill lands under the tmp HOME.
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     # The console's two overrides are the developer's own; no test inherits the machine's.
     monkeypatch.delenv("PKC_CONSOLE_DIST", raising=False)
     monkeypatch.delenv("PKC_CONSOLE_URL", raising=False)

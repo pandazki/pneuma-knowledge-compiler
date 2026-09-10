@@ -25,7 +25,11 @@ The installed library supplies `pkc`, including every canonical write through it
    (`exec pkchome exec -- pkc "$@"`). A `pkc` there that is not ours is refused, never
    replaced.
 4. **the skill** — `pkchome skill install --force` for every harness whose directory exists
-   (`~/.codex`, `~/.claude`).
+   (`~/.codex`, `~/.claude`), into that harness's own config home: `$CODEX_HOME/skills`
+   (default `~/.codex/skills`) and `$CLAUDE_CONFIG_DIR/skills` (default `~/.claude/skills`),
+   never `~/.agents/skills`, which Codex reads from HOME in every unattended round. A global
+   copy an earlier install left there is removed (`ok: removed the old global skill at …`);
+   only a copy carrying this edition's global marker is touched.
 5. **Docker** — a `docker info` probe. On failure it says where Docker Desktop or OrbStack
    comes from and stops with exit 3; nothing done above is undone, so a re-run continues.
 6. **the console page** — `pkchome console install`. The wheel carries the built page only
@@ -91,8 +95,11 @@ no `--library`): `backend`, `language`, `semantic_retrieval`, `embedding`, `unat
 how hard it thinks, instead of inheriting whatever your own global harness configuration
 says. Codex honours both (`reasoning_effort` is one of `minimal`, `low`, `medium`, `high`,
 `xhigh`); Claude Code honours the model only, because its CLI has no effort flag. Empty
-leaves each to the harness. Changing either restarts the library's engine, because a
-launcher reads its settings when it starts.
+leaves each to the harness. `reasoning_effort_episodes` states the effort of episodes rounds
+alone (L2 boundaries for one source — a simpler judgement at a compile's price); same accepted
+set, empty inherits `reasoning_effort`, and `status` shows it on the `Rounds:` line as
+`(episodes low)`. Changing any of them restarts the library's engine, because a launcher reads
+its settings when it starts.
 
 Choose a library with `--library`, `PKC_LIBRARY`, the nearest `.pkc` file in the current
 directory or an ancestor, or the home current selection, in that order. No selection is an
@@ -220,8 +227,14 @@ All of this is edition state; canonical still changes only through the library's
   infra/, run/, data/       the generated compose file, engine pids and logs, the volumes
   libraries/<name>/         library.yaml, engine/, canonical/, skill/
 ~/.local/bin/               pkchome (uv tool) and the pkc launcher beside it
-~/.codex/skills/pkc-steward/, ~/.claude/skills/pkc-steward/    the global skill
+$CODEX_HOME/skills/pkc-steward/          the global skill for Codex (default ~/.codex)
+$CLAUDE_CONFIG_DIR/skills/pkc-steward/   the global skill for Claude Code (default ~/.claude)
 ```
+
+The global skill is for your own sessions. An unattended round sees only its library's package
+(`libraries/<name>/.agents/skills/pkc-steward` or `.claude/skills/pkc-steward`): it runs under a
+per-job config home that holds no skills, and a Codex round has any `pkc-steward` it would read
+from `~/.agents/skills` switched off by path.
 
 A library's own package is rendered LAST in a setup — after the profile, which it states in
 its own prose — and the worker verifies it before every unattended round and re-renders it in

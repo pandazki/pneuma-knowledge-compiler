@@ -17,6 +17,7 @@ backend name.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -46,6 +47,9 @@ SYSTEM_FILE = "{system_file}"
 OUTPUT_FILE = "{output_file}"
 PROJECT_DIR = "{project_dir}"
 SESSION = "{session}"
+#: The copies of this framework's skill a round must not see, rendered by the manifest's
+#: `render_hidden_skills` from their paths (`launcher.foreign_skill_copies`).
+HIDDEN_SKILLS = "{hidden_skills}"
 
 #: How a round's system text reaches the harness.
 STDIN_PREFIX = "stdin_prefix"  #: no system channel — the text heads the piped prompt
@@ -235,6 +239,15 @@ class BackendManifest:
     #: duplicated into a temporary directory. Absent files are simply absent (a harness that
     #: authenticates through the system keychain has no file to link).
     config_seed: tuple[str, ...] = ()
+    #: Skill roots this harness reads from the user's HOME whatever `config_home_env` says,
+    #: `~`-relative. A per-job config home hides what lives under the Owner's own one; it does
+    #: not hide these, so the launcher switches off any copy of this framework's skill found
+    #: here that is not the library's own package — a round sees exactly one. Empty = the
+    #: harness reads user-level skills only from its config home.
+    home_skill_roots: tuple[str, ...] = ()
+    #: The value of `HIDDEN_SKILLS` for a list of `SKILL.md` paths to switch off. None = this
+    #: harness has no such switch.
+    render_hidden_skills: Callable[[Sequence[str]], str] | None = None
     #: Variables the launcher REMOVES from the child's environment. `CLAUDECODE` is the one
     #: that matters: a Claude Code session that finds it set believes it is nested and
     #: short-circuits, so a round launched from inside a Claude session would never run.
@@ -336,6 +349,21 @@ _CODEX_SANDBOX: tuple[str, ...] = (
 # `PNEUMA_KNOWLEDGE_AGENT_REASONING_EFFORT` exists to stop being the only answer.
 _CODEX_EFFORT: tuple[str, ...] = ("-c", f"model_reasoning_effort={REASONING_EFFORT}")
 
+# Which copies of the skill a Codex round must NOT see. Codex reads `~/.agents/skills` from
+# HOME whatever `CODEX_HOME` says, so the per-job config home does not hide a copy there — and
+# where the harnesses' skill directories are one directory behind symlinks, the Owner's global
+# Claude Code copy IS such a copy. Each is switched off by path; unfilled, the pair drops.
+_CODEX_HIDDEN_SKILLS: tuple[str, ...] = ("-c", f"skills.config={HIDDEN_SKILLS}")
+
+
+def codex_hidden_skills(paths: Sequence[str]) -> str:
+    """`skills.config` as a TOML array: every path switched off, nothing else stated.
+
+    A JSON string is a valid TOML basic string, escapes included, so the paths travel exactly.
+    """
+    return "[" + ", ".join(f"{{path={json.dumps(path)}, enabled=false}}" for path in paths) + "]"
+
+
 _CODEX_COMMON: tuple[str, ...] = (
     "--skip-git-repo-check",  # the working directory is a fresh mkdtemp, not a repo
     "--color",
@@ -343,6 +371,7 @@ _CODEX_COMMON: tuple[str, ...] = (
     "--json",  # the token counts ride these events; there is no other channel
     *_CODEX_SANDBOX,
     *_CODEX_EFFORT,
+    *_CODEX_HIDDEN_SKILLS,
     "-m",
     MODEL,
     "--output-last-message",
@@ -396,6 +425,8 @@ CODEX = BackendManifest(
     default_config_home="~/.codex",
     effort_flags=_CODEX_EFFORT,
     config_seed=("auth.json", "config.toml"),
+    home_skill_roots=("~/.agents/skills",),
+    render_hidden_skills=codex_hidden_skills,
     usage_limit_patterns=CODEX_USAGE_LIMIT_PATTERNS,
     read_output=read_codex_output,
     # `--skip-git-repo-check` because a library need not be a git repository (the canonical
