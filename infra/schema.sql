@@ -140,6 +140,16 @@ ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS not_before timestamptz;
 -- words lived in a worker process that had already moved on. NULL = no harness said
 -- anything (every job that ran a model, and every row written before this column).
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS harness_output text;
+-- Where this job stands in its user's queue, when that is not the moment it was written.
+-- NULL (every ordinary job, and every row written before this column) = `created_at`. Two
+-- writers set it, each to an instant it inherits rather than invents: an index job queueing
+-- its source's `episodes` judgement passes its OWN place, so the judgement sorts ahead of
+-- the compile of the same source instead of behind every compile already queued; and a job
+-- whose harness never ran is re-queued at the original job's place instead of at the end.
+-- `created_at` stays the true record of when the row was written — the claim orders by
+-- `COALESCE(order_at, created_at)` and nothing rewrites either column
+-- (adapters/postgres.py `claim_next`).
+ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS order_at timestamptz;
 
 CREATE INDEX IF NOT EXISTS compile_jobs_claim
     ON compile_jobs (user_id, status, created_at);

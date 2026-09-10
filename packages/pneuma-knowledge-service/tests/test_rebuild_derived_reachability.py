@@ -23,6 +23,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pneuma_knowledge_service.adapters.postgres import CLAIM_FIRST_KINDS
 
 _OPS = Path(__file__).resolve().parents[3] / "scripts" / "ops"
 if str(_OPS) not in sys.path:
@@ -87,7 +88,9 @@ class _Queue:
         return list(reversed(self.jobs))  # newest first, like the adapter
 
     async def claim_next(self, user_id):  # noqa: ANN001
-        for job in self.jobs:
+        # The adapter's rank: claim-first kinds ahead of the rest, FIFO within each.
+        ranked = sorted(self.jobs, key=lambda j: j["kind"] not in CLAIM_FIRST_KINDS)
+        for job in ranked:
             if job["status"] == "queued":
                 job["status"] = "claimed"
                 return SimpleNamespace(
@@ -129,24 +132,43 @@ async def test_a_tenant_with_no_sources_still_has_its_use_side_pass(monkeypatch)
     assert [j["kind"] for j in store.jobs] == ["recall_rebuild"]
 
 
-async def test_the_rebuild_is_enqueued_and_left_alone_when_a_compile_is_ahead_of_it(
+async def test_the_rebuild_is_enqueued_and_left_alone_when_an_index_job_is_ahead_of_it(
     monkeypatch, capsys
 ):
-    """The script has no model and no skill, so it claims only the two keyless kinds. A
-    compile at the head of this user's queue is reported and left for the worker — which
-    then runs the rebuild behind it, under the same claim."""
+    """The script has no model and no skill, so it claims only the two keyless kinds. A job
+    the claim would hand out first that is not one of them — here an index job queued
+    earlier — is reported and left for the worker, which then runs the rebuild behind it,
+    under the same claim."""
 
     async def fake_rebuild_job(ctx, user_id, job):  # noqa: ANN001
-        raise AssertionError("the script must not run the rebuild past a compile job")
+        raise AssertionError("the script must not run the rebuild past an index job")
+
+    monkeypatch.setattr(rebuild_derived, "run_recall_rebuild_job", fake_rebuild_job)
+
+    store = _QueueStore(sources=(), ahead=("index",))
+    await rebuild_derived.rebuild_user(_ctx(store), "u-mei")
+
+    assert [j["kind"] for j in store.jobs] == ["index", "recall_rebuild"]
+    assert [j["status"] for j in store.jobs] == ["queued", "queued"]
+    assert "the worker will run it" in capsys.readouterr().out
+
+
+async def test_a_compile_queued_earlier_does_not_hold_the_rebuild_back(monkeypatch):
+    """The claim hands the rebuild out ahead of a compile round, so the script's peek must
+    say the same thing the claim does: it runs the rebuild and leaves the compile queued."""
+    ran: list[str] = []
+
+    async def fake_rebuild_job(ctx, user_id, job):  # noqa: ANN001
+        ran.append(job.job_id)
+        await ctx.store.complete(user_id, job.job_id, ok=True, detail="replayed")
 
     monkeypatch.setattr(rebuild_derived, "run_recall_rebuild_job", fake_rebuild_job)
 
     store = _QueueStore(sources=(), ahead=("compile",))
     await rebuild_derived.rebuild_user(_ctx(store), "u-mei")
 
-    assert [j["kind"] for j in store.jobs] == ["compile", "recall_rebuild"]
-    assert [j["status"] for j in store.jobs] == ["queued", "queued"]
-    assert "the worker will run it" in capsys.readouterr().out
+    assert ran == ["j-1"]
+    assert [j["status"] for j in store.jobs] == ["queued", "done"]
 
 
 async def test_a_projection_job_ahead_of_the_rebuild_is_drained_first(monkeypatch):

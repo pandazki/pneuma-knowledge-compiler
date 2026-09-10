@@ -144,7 +144,9 @@ async def ingest_conversation(
     # Indexing (L1 + L2) is deferred to the background worker — ingest is enqueue-only so
     # the HTTP request never touches Meili/Qdrant/the configured model. Enqueue an "index" job first (the
     # worker re-reads the stored NormalizedSource + its intake_plan to run L1/L2), then the
-    # compile job — claim_next orders by created_at so recall (L1/L2) drains before compile.
+    # compile job. claim_next hands index jobs out ahead of compile rounds, and the compile
+    # being written second is what lets the index job's episodes judgement (queued at the
+    # index job's place) precede it.
     await ctx.store.enqueue(user_id, "index", {"source_id": str(source_id)})
     await ctx.store.enqueue(user_id, "compile", {"source_ids": [str(source_id)]})
 

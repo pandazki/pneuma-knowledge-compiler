@@ -962,7 +962,9 @@ partition for the agent's judgement. A matching kept manifest is replayed, and a
 episodes job is not duplicated by an index retry. With retrieval off, or the source's plan
 set to `none`, there is no episodes job. The API executor's model and keyless fallback paths
 retain their existing behavior. Compile reads L0 and never waits on episodes; the skill's
-reading order does not add a queue dependency.
+reading order does not add a queue dependency. The episodes job does take its index job's
+place in the queue, so it is ordinarily claimed before that source's compile (§9) — an order,
+not a wait.
 
 ```
 pkc index episodes open <job>
@@ -1312,7 +1314,11 @@ went around the gate is stopped before the next round builds on it, rather than 
   one log message per holder; the SQL claim enforces the same exclusion. A repeated `open`
   resumes for the same executor; another executor is refused and shown the owning worker's
   recorded posture. Index writes L1 and queues episode judgement (§5.12);
-  projection and rebuild jobs remain mechanical.
+  projection and rebuild jobs remain mechanical. The claim hands index, projection and
+  rebuild jobs out ahead of every other kind (L1 is unconditional, I3), the episodes job
+  takes its index job's place in the queue (`order_at`) so it precedes that source's
+  compile, and a job re-queued because its harness never ran keeps its original place —
+  one job in flight per user, as before.
 - **A launch that never became a round.** The launcher waits a rate limit out (§8), but a
   subscription that is out of room for the night outlasts any backoff, and what came back was
   a non-zero exit with `rate_limited` on it. The runner reports that as its own outcome,

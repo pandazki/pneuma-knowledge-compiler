@@ -285,6 +285,22 @@ async def test_agent_index_enqueues_episodes_without_mechanical_fallback(rt, mon
     assert rt.ctx.store.manifest_writes == 0
 
 
+async def test_the_index_job_queues_episodes_at_its_own_place_ahead_of_the_compile(rt):
+    """The episodes job is written when the index job RUNS — after the source's compile was
+    queued. It inherits the index job's place, so the claim hands it out before that compile
+    instead of behind every compile already waiting."""
+    index_id = await rt.jobs.enqueue(rt.user_id, "index", {"source_id": str(SID)})
+    compile_id = await rt.jobs.enqueue(rt.user_id, "compile", {"source_ids": [str(SID)]})
+    job = await rt.jobs.claim_next(rt.user_id)
+    assert job.job_id == index_id
+    await compile_worker.process_index_job(rt.ctx, rt.user_id, job)
+    episodes_job = await rt.jobs.claim_next(rt.user_id)
+    assert episodes_job.kind == "episodes"
+    assert episodes_job.order_at == job.order_at
+    await rt.jobs.complete(rt.user_id, episodes_job.job_id, ok=True)
+    assert (await rt.jobs.claim_next(rt.user_id)).job_id == compile_id
+
+
 async def test_api_index_keeps_the_same_mechanical_path(rt):
     rt.ctx.settings.llm_model_compile = ""
     ns = await rt.ctx.store.get(rt.user_id, SID)

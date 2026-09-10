@@ -21,6 +21,8 @@ from typing import Any
 
 from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
 
+from .postgres import CLAIM_FIRST_KINDS
+
 
 class InMemoryDraftStore:
     """`DraftStore` (core `ports/draft_store.py`) over a dict, keyed `(user_id, job_id)`."""
@@ -140,6 +142,8 @@ class _Job:
     def __init__(  # noqa: ANN001
         self, job_id: str, user_id, kind: str, payload: dict,
         not_before: datetime | None = None,
+        order_at: datetime | None = None,
+        seq: int = 0,
     ) -> None:
         self.job_id = job_id
         self.user_id = user_id
@@ -149,6 +153,17 @@ class _Job:
         #: The earliest instant a claim may take it; None = now, as a queue has always meant.
         self.not_before = not_before
         self.created_at = datetime.now(timezone.utc)
+        #: Its place in the queue — `COALESCE(order_at, created_at)`, as the SQL computes it —
+        #: and whether that place was inherited, which wins a tie exactly as in the SQL.
+        self.order_at = order_at or self.created_at
+        self.inherited = order_at is not None
+        self.seq = seq
+
+    def claim_key(self) -> tuple:
+        """The claim query's ORDER BY, in Python (adapters/postgres.py `claim_next`). The
+        write sequence stands in for the ties a real clock would not produce."""
+        rank = 0 if self.kind in CLAIM_FIRST_KINDS else 1
+        return (rank, self.order_at, not self.inherited, self.seq)
 
 
 class InMemoryJobQueue:
@@ -163,10 +178,14 @@ class InMemoryJobQueue:
         self.drafts = None
 
     async def enqueue(  # noqa: ANN001
-        self, user_id, kind: str, payload: dict, *, not_before: datetime | None = None
+        self, user_id, kind: str, payload: dict, *, not_before: datetime | None = None,
+        order_at: datetime | None = None,
     ) -> str:
         self._seq += 1
-        job = _Job(f"job-{self._seq:02d}", user_id, kind, dict(payload), not_before)
+        job = _Job(
+            f"job-{self._seq:02d}", user_id, kind, dict(payload), not_before, order_at,
+            seq=self._seq,
+        )
         self.jobs.append(job)
         return job.job_id
 
@@ -183,7 +202,7 @@ class InMemoryJobQueue:
         skip = {k for k in exclude_kinds if k}
         allowed = {t for t in tenants if t}
         now = datetime.now(timezone.utc)
-        for job in self.jobs:
+        for job in sorted(self.jobs, key=_Job.claim_key):
             if (
                 job.status == "queued"
                 and str(job.user_id) == str(user_id)

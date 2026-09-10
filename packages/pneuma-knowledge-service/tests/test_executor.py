@@ -273,8 +273,10 @@ async def test_under_an_agent_executor_a_compile_job_waits_and_the_work_behind_i
 
 
 async def test_under_a_model_executor_the_worker_drains_everything_as_before(monkeypatch):
+    """Everything is drained; the index job goes first although it was queued second,
+    because the claim hands out derived-only work ahead of compile rounds (I3)."""
     jobs, (compile_job, index_job), ran = await _drain(settings(), monkeypatch)
-    assert ran == [f"compile:{compile_job}", f"index:{index_job}"]
+    assert ran == [f"index:{index_job}", f"compile:{compile_job}"]
     assert (await jobs.get_job(USER, compile_job)).status == "done"
 
 
