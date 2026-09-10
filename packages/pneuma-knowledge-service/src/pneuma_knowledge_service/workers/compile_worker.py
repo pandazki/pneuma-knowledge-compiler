@@ -791,6 +791,20 @@ async def ensure_skill_package(
         )
 
 
+def agent_round_effort(settings: object, kind: str) -> str:
+    """How hard the harness is told to think for one job of `kind`.
+
+    An episodes round (L2 boundaries for one source) is a simple judgement that costs a
+    compile round's context when it thinks at a compile's effort, so it may be stated on its
+    own; empty inherits the effort every other agent round runs at.
+    """
+    if kind == "episodes":
+        episodes = str(getattr(settings, "agent_reasoning_effort_episodes", "") or "")
+        if episodes:
+            return episodes
+    return str(getattr(settings, "agent_reasoning_effort", "") or "")
+
+
 async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> None:
     """One claimed compile job, run through a launched coding agent (§9).
 
@@ -834,9 +848,10 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
         timeout_s=float(ctx.settings.compile_call_timeout),
         # WHICH model runs the round and how hard it thinks. Empty leaves both to the harness,
         # which means the Owner's own global harness configuration — the deployment states
-        # them here when the library's rounds are not to inherit the Owner's terminal.
+        # them here when the library's rounds are not to inherit the Owner's terminal. The
+        # effort is chosen by the job's kind: an episodes round may state its own.
         model=str(ctx.settings.agent_model),
-        reasoning_effort=str(ctx.settings.agent_reasoning_effort),
+        reasoning_effort=agent_round_effort(ctx.settings, kind),
         retries=int(ctx.settings.agent_retries),
         keep_workdir=bool(ctx.settings.agent_keep_workdir),
         # Which library. The harness runs in an empty working directory with no project

@@ -974,6 +974,9 @@ harness 的 JSON 结果把用量读进作业记录。prompt 经 stdin 从文件�
   （`auth.json`、`config.toml`；`.credentials.json`、`settings.json`），启动器把它们从所有者
   真正的家目录**链接**进来：没有任何密钥被复制进临时目录，这一轮刷新的 token 就刷新在所有者自
   己的会话之后会读到的地方，而其余一切——会话、日志、缓存——都落在每作业目录里，随作业一起消失。
+  这也意味着无人值守的一轮只看得见它所在库的技能包：每作业目录里不播种任何技能，而 harness
+  无论配置目录在哪都会从 HOME 读取的技能根（Codex 的 `~/.agents/skills`，即清单的
+  `home_skill_roots`）里其余的 `pkc-steward` 会在启动 argv 中按路径关掉（`skills.config`）。
 - **子进程里 `CLAUDECODE` 被取消设置。** Claude Code 会话一旦发现它被设了就认为自己是嵌套的并
   短路返回，于是从一个 Claude 会话里启动的 worker 拉起的每一轮都会什么也不做。
 - **两家提供方，两套 token 词汇。** Anthropic 把缓存读写报在 `input_tokens` **之外**，所以要

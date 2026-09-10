@@ -1241,7 +1241,11 @@ the manifest rather than a branch anywhere:
   `config.toml`; `.credentials.json`, `settings.json`) and the launcher LINKS them from the
   Owner's real home: no secret is copied into a temporary directory, a token the round
   refreshes is refreshed where the Owner's own sessions will find it, and everything else —
-  sessions, logs, caches — lands in the per-job directory and dies with the job.
+  sessions, logs, caches — lands in the per-job directory and dies with the job. It also
+  means an unattended round sees only its library's skill package: no skills are seeded into
+  the per-job home, and the skill roots a harness reads from HOME whatever its config home says
+  (Codex's `~/.agents/skills`, the manifest's `home_skill_roots`) have any other `pkc-steward`
+  switched off by path in the launch argv (`skills.config`).
 - **`CLAUDECODE` is unset in the child.** A Claude Code session that finds it set believes it
   is nested and short-circuits, so a worker started from inside one would launch rounds that
   do nothing.

@@ -140,7 +140,8 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     assert all(row["up"] is None for row in document["services"].values())
     row = document["libraries"][0]
     assert set(row) == {"name", "tenant", "current", "engine", "unattended", "agent_model",
-                        "reasoning_effort", "queue", "key", "engine_dir", "canonical_head",
+                        "reasoning_effort", "reasoning_effort_episodes", "queue", "key",
+                        "engine_dir", "canonical_head",
                         "skill_fresh", "steps", "last_used", "sync"}
     # The tenant travels with the name: it is what the console reads once it has switched to
     # a library by name, and a row without it names a library no request could reach.
@@ -156,6 +157,13 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     # So are the round's model and effort: recorded, and empty means the harness's own.
     assert row["agent_model"] == "" and row["reasoning_effort"] == ""
     assert "Rounds: the harness default model at the harness default effort" in rendered
+    assert row["reasoning_effort_episodes"] == "" and "(episodes" not in rendered
+    # Episodes rounds at their own effort are named on the same line, only when stated.
+    named = {**row, "agent_model": "gpt-5.6-luna", "reasoning_effort": "medium",
+             "reasoning_effort_episodes": "low"}
+    assert status.rounds_line(named) == "gpt-5.6-luna at medium (episodes low)"
+    assert "  Rounds: gpt-5.6-luna at medium (episodes low)" in status.render_text(
+        {**document, "libraries": [named]})
 
 
 def test_queue_reads_one_bounded_page_of_succeeded_compiles(home, make_library, monkeypatch):

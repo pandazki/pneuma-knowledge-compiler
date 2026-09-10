@@ -60,6 +60,10 @@ def home_environment(home: Home, library: Library) -> dict[str, str]:
         values["AGENT_MODEL"] = library.state.choices.model
     if "agent_reasoning_effort" in Settings.model_fields and library.state.choices.reasoning_effort:
         values["AGENT_REASONING_EFFORT"] = library.state.choices.reasoning_effort
+    # Episodes rounds at their own effort — absent when empty, so they inherit the one above.
+    if ("agent_reasoning_effort_episodes" in Settings.model_fields
+            and library.state.choices.reasoning_effort_episodes):
+        values["AGENT_REASONING_EFFORT_EPISODES"] = library.state.choices.reasoning_effort_episodes
     if "project_dir" in Settings.model_fields:
         values["PROJECT_DIR"] = str(library.path)
     if "semantic_retrieval" in Settings.model_fields:

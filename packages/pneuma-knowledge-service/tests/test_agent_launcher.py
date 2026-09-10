@@ -264,8 +264,125 @@ def test_the_worker_states_the_round_s_model_and_effort_rather_than_inheriting_t
 
     source = inspect.getsource(compile_worker.process_agent_job)
     assert "model=str(ctx.settings.agent_model)" in source
-    assert "reasoning_effort=str(ctx.settings.agent_reasoning_effort)" in source
+    assert "reasoning_effort=agent_round_effort(ctx.settings, kind)" in source
     assert "reasoning_effort=self.reasoning_effort" in inspect.getsource(AgentRoundRunner._launch)
+
+
+def test_an_episodes_round_thinks_at_its_own_effort_and_every_other_round_does_not(tmp_path):
+    """Episodes rounds (L2 boundaries for one source) may run at their own effort; compile
+    and evolve rounds keep the library's, and an empty episodes effort inherits it."""
+    from pneuma_knowledge_service.settings import Settings
+    from pneuma_knowledge_service.workers.compile_worker import agent_round_effort
+
+    settings = Settings(
+        _env_file=None, agent_reasoning_effort="medium", agent_reasoning_effort_episodes="low"
+    )
+
+    def effort_in_argv(kind: str) -> list[str]:
+        effort = agent_round_effort(settings, kind)
+        argv = build_argv(request(CODEX, tmp_path, reasoning_effort=effort), tmp_path / "wd")
+        return [argument for argument in argv if argument.startswith("model_reasoning_effort=")]
+
+    assert effort_in_argv("episodes") == ["model_reasoning_effort=low"]
+    assert effort_in_argv("compile") == ["model_reasoning_effort=medium"]
+    assert effort_in_argv("evolve") == ["model_reasoning_effort=medium"]
+    inherited = Settings(_env_file=None, agent_reasoning_effort="medium")
+    assert inherited.agent_reasoning_effort_episodes == ""
+    assert agent_round_effort(inherited, "episodes") == "medium"
+    assert agent_round_effort(Settings(_env_file=None), "episodes") == ""
+    with pytest.raises(ValidationError, match="ultra"):
+        Settings(_env_file=None, agent_reasoning_effort_episodes="ultra")
+
+
+def _global_render(directory: Path, backend: str) -> Path:
+    """What `pkchome skill install` leaves: the router SKILL.md with its version marker."""
+    directory.mkdir(parents=True)
+    (directory / "SKILL.md").write_text("---\nname: pkc-steward\n---\nglobal router\n")
+    (directory / "skill-version.json").write_text(json.dumps({"backend": backend}))
+    return directory / "SKILL.md"
+
+
+def test_a_codex_round_sees_only_its_library_s_skill_package(tmp_path, monkeypatch):
+    """Codex reads `~/.agents/skills` from HOME whatever `CODEX_HOME` says. On a machine where
+    that directory and `~/.claude/skills` are one directory behind symlinks, the Owner's global
+    Claude Code copy was listed beside the library's package and read first. The round's skill
+    roots are its per-job config home (which holds no skills), the manifest's HOME roots (whose
+    copies are switched off by path), and the project's own package."""
+    from pneuma_knowledge_service.coding_agent.launcher import (
+        foreign_skill_copies,
+        harness_env,
+        seed_config_home,
+    )
+
+    owner = tmp_path / "owner"
+    monkeypatch.setenv("HOME", str(owner))
+    shared = owner / ".mirasim" / "skills"
+    leaked = _global_render(shared / "pkc-steward", "claude-code")
+    for harness in (".agents", ".claude"):
+        (owner / harness).mkdir(parents=True)
+        (owner / harness / "skills").symlink_to(shared)
+    _global_render(owner / ".codex" / "skills" / "pkc-steward", "codex")
+    (owner / ".codex" / "auth.json").write_text("{}")
+    project = tmp_path / "project"
+    own = _global_render(project / CODEX.skill_dir, "codex")
+
+    assert CODEX.home_skill_roots == ("~/.agents/skills",)
+    through_home = str(owner / ".agents" / "skills" / "pkc-steward" / "SKILL.md")
+    hidden = foreign_skill_copies(CODEX, str(project))
+    assert hidden == (through_home, str(leaked.resolve()))
+    assert str(own) not in hidden and str(own.resolve()) not in hidden
+
+    argv = build_argv(request(CODEX, tmp_path, project_dir=str(project), hidden_skills=hidden),
+                      tmp_path / "wd")
+    override = argv[argv.index(f"skills.config=[{{path={json.dumps(through_home)}, enabled=false}}, "
+                                f"{{path={json.dumps(str(leaked.resolve()))}, enabled=false}}]") - 1]
+    assert override == "-c"
+    assert str(own) not in " ".join(argv)
+
+    # The Owner's `~/.codex/skills` copy is out of reach because the round's CODEX_HOME is not
+    # the Owner's: it is seeded with credentials and configuration, and no skills directory.
+    round_home = tmp_path / "round-home"
+    seed_config_home(CODEX, round_home)
+    assert sorted(path.name for path in round_home.iterdir()) == ["auth.json"]
+    assert harness_env(CODEX, config_home=str(round_home))["CODEX_HOME"] == str(round_home)
+
+    # Nothing foreign, nothing stated: the flag pair drops and the sandbox `-c` stands alone.
+    (shared / "pkc-steward" / "SKILL.md").unlink()
+    assert foreign_skill_copies(CODEX, str(project)) == ()
+    plain = build_argv(request(CODEX, tmp_path, project_dir=str(project)), tmp_path / "wd")
+    assert not [argument for argument in plain if argument.startswith("skills.config")]
+
+
+def test_a_library_reached_through_a_home_root_is_never_hidden_from_itself(tmp_path, monkeypatch):
+    """If the library's own package is what a HOME root resolves to, it is the one it keeps."""
+    from pneuma_knowledge_service.coding_agent.launcher import foreign_skill_copies
+
+    owner = tmp_path / "owner"
+    monkeypatch.setenv("HOME", str(owner))
+    project = tmp_path / "project"
+    _global_render(project / CODEX.skill_dir, "codex")
+    (owner / ".agents").mkdir(parents=True)
+    (owner / ".agents" / "skills").symlink_to(project / CODEX.skills_dir)
+    assert foreign_skill_copies(CODEX, str(project)) == ()
+
+
+def test_a_claude_round_reads_user_skills_only_from_its_own_config_home(tmp_path, monkeypatch):
+    """Claude Code's user-level skills live under `CLAUDE_CONFIG_DIR`, which a round gets per
+    job, seeded with credentials and settings only — so it names no HOME root and carries no
+    switch, and a global copy under `~/.claude/skills` is out of its reach."""
+    from pneuma_knowledge_service.coding_agent.launcher import foreign_skill_copies, seed_config_home
+
+    owner = tmp_path / "owner"
+    monkeypatch.setenv("HOME", str(owner))
+    _global_render(owner / ".claude" / "skills" / "pkc-steward", "claude-code")
+    assert CLAUDE_CODE.home_skill_roots == () and CLAUDE_CODE.render_hidden_skills is None
+    assert foreign_skill_copies(CLAUDE_CODE, str(tmp_path / "project")) == ()
+    round_home = tmp_path / "round-home"
+    seed_config_home(CLAUDE_CODE, round_home)
+    assert not (round_home / "skills").exists()
+    argv = build_argv(request(CLAUDE_CODE, tmp_path, hidden_skills=("/x/SKILL.md",)),
+                      tmp_path / "wd")
+    assert not [argument for argument in argv if "skills.config" in argument]
 
 
 def test_the_harness_gets_a_shell_and_not_the_open_world(tmp_path):

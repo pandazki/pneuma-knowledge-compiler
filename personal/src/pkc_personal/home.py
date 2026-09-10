@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from pneuma_knowledge_service.infra.ports import probe_free_ports
 from pneuma_knowledge_service.settings import AGENT_REASONING_EFFORTS
@@ -76,7 +76,7 @@ def asset_path(relative: str) -> Path:
     return installed if installed.exists() else package.parents[1] / relative
 
 
-def validated_effort(value: str) -> str:
+def validated_effort(value: str, key: str = "reasoning_effort") -> str:
     """One reasoning effort the harness will accept, or a refusal naming the whole set.
 
     The set is the service's own (`AGENT_REASONING_EFFORTS`), imported rather than restated:
@@ -86,8 +86,9 @@ def validated_effort(value: str) -> str:
     effort = value.strip()
     if effort and effort not in AGENT_REASONING_EFFORTS:
         raise ValueError(
-            f"reasoning_effort must be one of {', '.join(AGENT_REASONING_EFFORTS)}, "
-            "or empty for the harness default"
+            f"{key} must be one of {', '.join(AGENT_REASONING_EFFORTS)}, "
+            + ("or empty to inherit reasoning_effort" if key != "reasoning_effort"
+               else "or empty for the harness default")
         )
     return effort
 
@@ -147,12 +148,16 @@ class Choices(Model):
     # states them, and `set_config` restarts the engine so a running launcher obeys them.
     model: str = ""
     reasoning_effort: str = ""
+    # The effort of EPISODES rounds alone (L2 boundaries for one source): a simple judgement
+    # that costs a compile round's context when it thinks at a compile's effort. Empty
+    # inherits `reasoning_effort`.
+    reasoning_effort_episodes: str = ""
 
-    @field_validator("reasoning_effort")
+    @field_validator("reasoning_effort", "reasoning_effort_episodes")
     @classmethod
-    def known_effort(cls, value: str) -> str:
+    def known_effort(cls, value: str, info: ValidationInfo) -> str:
         """Checked on the record, so a hand-edited `library.yaml` is refused on load too."""
-        return validated_effort(value)
+        return validated_effort(value, info.field_name)
 
 
 #: Directories that hold scratch work rather than projects. They are the DEFAULT exclusions,

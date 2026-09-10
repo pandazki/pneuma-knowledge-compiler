@@ -638,10 +638,10 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
         if value.lower() not in {"on", "off", "true", "false"}:
             raise ValueError(f"{key} must be on or off")
         parsed = value.lower() in {"on", "true"}
-    elif key == "reasoning_effort":
-        # The one string choice with a set behind it, refused here in the same one-line shape
+    elif key in {"reasoning_effort", "reasoning_effort_episodes"}:
+        # The string choices with a set behind them, refused here in the same one-line shape
         # a bad boolean gets rather than as a validation report from two layers down.
-        parsed = validated_effort(value)
+        parsed = validated_effort(value, key)
     if library is None:
         config = home.config
         setattr(config.defaults, key, parsed)
@@ -674,12 +674,14 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
         if restart_engine(home, library):
             return f"engine {name} restarted; its worker is now {taken}"
         return f"engine {name} is not running; its worker will be {taken} when it starts"
-    if key in {"model", "reasoning_effort"}:
+    if key in {"model", "reasoning_effort", "reasoning_effort_episodes"}:
         # The launcher reads its settings once, at start, from the process environment
         # `home_environment` assembled — exactly as the posture does. So a model or an effort
         # recorded while the engine runs is one no round obeys until the process is replaced.
         name = library.state.name
-        taken = f"{key} {parsed}" if parsed else f"the harness default {key}"
+        taken = (f"{key} {parsed}" if parsed
+                 else "reasoning_effort for episodes too" if key == "reasoning_effort_episodes"
+                 else f"the harness default {key}")
         if restart_engine(home, library):
             return f"engine {name} restarted; its rounds now run at {taken}"
         return f"engine {name} is not running; its rounds will run at {taken} when it starts"
