@@ -975,6 +975,11 @@ _ZH: dict[str, str] = {
     "compile.task.block_line": "¶{index} {text}",
     "compile.task.section_context": "[来源章节路径，适用至下一章节：{path}]",
     "compile.task.block_context": "[¶{index} 的来源上下文，属于证据数据：{context}]",
+    "compile.task.source_truncated": (
+        "[任务展示的来源正文以 {chars} 个字符为限。{handle} 的 ¶{first}-{last} 块未在此展示；"
+        "`pkc source fetch {source_id} ¶{first}-{last} --page N` 可读取它们（N = 1, 2, …）。"
+        "引用时与其他块一样写作 {handle} ¶a-b。]"
+    ),
     "compile.task.context_unavailable": (
         "[消息或片段元数据无法与来源段落对齐，已省略。使用已有原文和章节，不要猜测缺失的消息时间或回复关系。]"
     ),

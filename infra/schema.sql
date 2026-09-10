@@ -132,6 +132,14 @@ ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS executor text;
 -- the wait costs nothing — no sleeping worker, no held claim, no in-memory timer that a
 -- restart forgets.
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS not_before timestamptz;
+-- What the HARNESS itself said about a round it did not run, bounded to its tail and
+-- scrubbed of anything credential-shaped before it ever reaches this column
+-- (`coding_agent/launcher.scrub`). `detail` says what the worker decided; this says what the
+-- process actually printed, which is the only thing that answers "why did exit 1 happen".
+-- Without it a failed unattended round was `harness_failed: exit 1` and nothing else: the
+-- words lived in a worker process that had already moved on. NULL = no harness said
+-- anything (every job that ran a model, and every row written before this column).
+ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS harness_output text;
 
 CREATE INDEX IF NOT EXISTS compile_jobs_claim
     ON compile_jobs (user_id, status, created_at);

@@ -1142,7 +1142,11 @@ fails the suite instead of compiling under different words.
 Versioning: `skill-version.json` beside the install records the framework version, the
 package hash, the backend and the language pack it was rendered under; `pkc skill install`
 regenerates; a session already running does not see a rewritten skill or workflow until it
-restarts, which the skill says.
+restarts, which the skill says. Because the inputs a package is rendered from are written
+after an install as readily as before one — the Owner's profile is seeded once the engine is
+up, the per-user schema manifest is materialized by the first compile — the unattended worker
+verifies the project's installed package before every round it launches and re-installs it in
+place when it has drifted, logging the one line that names the two hashes.
 
 **What was built differs from the sketch above in six places**, each because the code said so:
 
@@ -1322,8 +1326,32 @@ went around the gate is stopped before the next round builds on it, rather than 
   and it runs at exit 0 only when the harness's own protocol said the turn failed — the same
   words in a round's own output are a library about a venue, not a harness that is down.
   Both lists route into one backoff and one outcome; `unavailable_reason` is what keeps the
-  two sentences apart where a person reads them (`codex usage limit` / `codex at capacity`). The worker then completes the job `ok=false` (`rate_limited: Codex
-  usage limit; retry after <instant>`, or `harness_failed: exit <n>`), leaves its sources
+  two sentences apart where a person reads them (`codex usage limit` / `codex at capacity`).
+
+  **Three answers, two treatments.** The runner classifies every refusal before the worker
+  acts on it (`classify_refusal` → `rate_limited` / `unavailable` / `failed`), because "the
+  harness did not run the round" covers two different facts. `rate_limited` and `unavailable`
+  are about the PROVIDER — nothing else this tenant has queued can run either — and get the
+  wait described below. `failed` is a non-zero exit (or a declared `turn.failed`) with
+  neither marker in anything the harness printed: it is about THIS JOB, and treating it as a
+  limit was a real bug with a real cost. An `agent-session/v1` part of 24,439 blocks and 1.8M
+  characters killed every launch it was given; each failure re-queued itself behind a
+  fifteen-minute wall with `cooling_reason` on the row, so the console announced a cooling
+  tenant while the drain — whose ice is set on the rate-limit branch only — went on claiming.
+  A `failed` round now completes `ok=false` with the harness's own first line
+  (`harness_failed: exit 1 — Error: input is too long for the selected model`), cools
+  nothing, waits for nothing, and is re-queued at most `AGENT_RETRIES` times; the last
+  attempt says so (`… exit 1 after 3 attempts — …`) and the row is left for a person to read.
+  Sources stay undigested in all three cases.
+
+  **What the harness said** is kept beside what the worker decided: `compile_jobs.harness_output`
+  holds the last ~2 KB of the process's own output, scrubbed of anything credential-shaped by
+  the launcher (`scrub`) before it is ever stored, and surfaced by `GET /jobs` and
+  `pkc jobs --json`. `exit 1` names no cause; the words that do used to live only in a worker
+  process that had already moved on.
+
+  For the two provider answers the worker completes the job `ok=false` (`rate_limited: Codex
+  usage limit; retry after <instant>`), leaves its sources
   **undigested**, drops the draft the launch opened, and queues the same payload again as a
   new row carrying `not_before` — the instant the harness itself named (`try again at Sep
   15th, 2026 9:23 AM`, read in `PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE`), or a cooldown that

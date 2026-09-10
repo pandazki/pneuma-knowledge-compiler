@@ -896,7 +896,9 @@ skill 包的 sha256 盖进 agent 执行器产生的每一次正本提交，作�
 
 版本：安装旁的 `skill-version.json` 记录框架版本、包哈希、后端，以及渲染时所用的语言包；
 `pkc skill install` 重新生成；正在运行的会话看不到被改写的 skill 或 workflow，重启才见，skill
-里写明这一点。
+里写明这一点。渲染一个包所依据的那些输入，装好之后照样会被写——主体档案要等引擎起来才种下，
+每用户 schema 清单由第一次编译落地——所以无人值守的 worker 在每一次拉起之前都校验项目里已装的
+包，发现漂移就地重装，并打出那一行点名新旧两个哈希的日志。
 
 **真正落地的实现与上面的草图有六处不同**，每一处都是代码这么说的：
 
@@ -1032,8 +1034,27 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   （`UNAVAILABLE_MARKERS`），扫描同时读 stdout 和 stderr，并且只有在 harness 自己的协议说这一轮失败了
   的时候才在退出码 0 上扫——同样的字眼出现在一轮自己的输出里，说的是某个场地满了，不是 harness 挂了。
   两份清单汇入同一次退避、同一个结局；`unavailable_reason` 负责在人要读的地方把两句话分开
-  （`codex usage limit` / `codex at capacity`）。随后 worker 把作业以 `ok=false` 结束（`rate_limited: Codex usage limit;
-  retry after <时刻>`，或 `harness_failed: exit <n>`），**不**给它的来源盖消化戳，丢掉这次启动打开
+  （`codex usage limit` / `codex at capacity`）。
+
+  **三种答案，两种处置。** worker 动手之前，runner 先把每次拒绝分类（`classify_refusal` →
+  `rate_limited` / `unavailable` / `failed`），因为"harness 没有跑这一轮"底下是两件不同的事。
+  `rate_limited` 与 `unavailable` 是关于**提供方**的——这个租户排队的其他活同样跑不了——走下面那套
+  等待。`failed` 是非零退出（或自称 `turn.failed`）而 harness 打印的任何内容里都没有那两类标记：
+  它是关于**这一个作业**的，把它当成限流是一个有真实代价的缺陷。一份 24,439 个块、180 万字符的
+  `agent-session/v1` 分片让每一次启动都死掉；每次失败都把自己重新排到十五分钟的墙后面，行上还写着
+  `cooling_reason`，于是控制台宣告租户正在冷却，而 drain（它的冰只在限流分支上放）照样继续认领。
+  现在 `failed` 一轮以 `ok=false` 结束，带上 harness 自己的第一行
+  （`harness_failed: exit 1 — Error: input is too long for the selected model`），不冻结任何东西，
+  不等待任何东西，最多按 `AGENT_RETRIES` 重新入队；最后一次会说出来
+  （`… exit 1 after 3 attempts — …`），并把这行留给人读。三种情况下来源都不盖消化戳。
+
+  **harness 说了什么**与 worker 判了什么并排保存：`compile_jobs.harness_output` 存下进程自身输出的
+  最后约 2 KB，入库之前先由启动器（`scrub`）洗掉一切形如凭据的内容，并由 `GET /jobs` 与
+  `pkc jobs --json` 呈现。`exit 1` 说不出原因；能说出原因的那些字，从前只活在一个早已走远的
+  worker 进程里。
+
+  对提供方的那两种答案，worker 把作业以 `ok=false` 结束（`rate_limited: Codex usage limit;
+  retry after <时刻>`），**不**给它的来源盖消化戳，丢掉这次启动打开
   的草稿，并把同一份载荷作为新行重新入队，带上 `not_before`——harness 自己说出的那个时刻
   （`try again at Sep 15th, 2026 9:23 AM`，按 `PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE` 解读），或者一个
   从 `AGENT_RATE_LIMIT_COOLDOWN_S` 起、每次连续命中翻倍、上限六小时的冷却。`claim_next` 会跳过

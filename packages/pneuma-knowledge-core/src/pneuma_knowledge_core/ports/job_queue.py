@@ -140,6 +140,7 @@ class JobQueue(Protocol):
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
         claimed_by: str | None = None,
+        harness_output: str | None = None,
     ) -> None:
         """Mark a job finished once. A late completion never replaces a terminal outcome.
 
@@ -159,5 +160,11 @@ class JobQueue(Protocol):
         (docs/design/coding-agent-mode.md ruling 1). It is recorded beside the usage because
         the two answer one question together: an agent-executed job carries an executor and
         NO usage, since the harness's counters are the subscription's and not the library's,
-        and a zero there would be a claim that the round was free."""
+        and a zero there would be a claim that the round was free.
+
+        `harness_output` is what a launched harness itself printed about a round it did not
+        run — bounded to its tail and scrubbed of anything credential-shaped before it gets
+        here. `detail` is what the worker DECIDED; this is what the process SAID, and only
+        the second one answers "why did exit 1 happen" once the worker has moved on. `None`
+        states nothing, which is every job no harness refused."""
         ...

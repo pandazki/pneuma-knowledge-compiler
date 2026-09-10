@@ -56,9 +56,9 @@ from ..cli.draft import (
     require_owner,
     validate_brief,
 )
-from .backends import BackendManifest
+from .backends import BackendManifest, unavailable_reason
 from .install import SKILL_HASH_ENV, installed_hash
-from .launcher import LaunchRequest, LaunchResult, launch_round, resume_supported
+from .launcher import LaunchRequest, LaunchResult, launch_round, resume_supported, scrub
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +80,23 @@ ABANDONED = "the round was abandoned"
 #: its sources digested, and leave the library believing that material was compiled. That is
 #: what one night against a spent quota actually did, 296 times.
 HARNESS_UNAVAILABLE = "the harness did not run the round"
+
+#: WHY it did not — the three answers, because the worker does two different things about
+#: them and telling them apart is the difference between waiting for a subscription and
+#: waiting for a source that will never compile.
+#:
+#: `rate_limited` and `unavailable` are the provider saying "not now": the Owner's
+#: subscription is out of room, or the model has none. Waiting is the only thing that helps,
+#: so the tenant goes on ice and the job comes back behind a `not_before`.
+#:
+#: `failed` is neither. The harness exited non-zero (or declared its turn failed) with no
+#: marker of either kind in its output — it fell over on this job's own account, and one
+#: oversized source that kills every launch would, treated as a rate limit, put the whole
+#: tenant to sleep for longer on every retry. So a failure is REPORTED on the job, retried a
+#: bounded number of times, and costs the rest of the queue nothing.
+UNAVAILABLE_RATE_LIMITED = "rate_limited"
+UNAVAILABLE_AT_CAPACITY = "unavailable"
+UNAVAILABLE_FAILED = "failed"
 
 
 @dataclass(frozen=True)
@@ -104,8 +121,14 @@ class AgentRoundResult:
     exit_code: int = 0
     #: The harness's own output, for the one reader that needs its words rather than its
     #: exit code: the parser that reads WHEN the subscription's room comes back. Bounded to
-    #: the tail, because a job row is not a place to keep a transcript.
+    #: the tail and scrubbed of anything credential-shaped, because a job row is not a place
+    #: to keep a transcript and never a place to keep a key.
     output: str = ""
+    #: Which of the three `UNAVAILABLE_*` answers this was, when the outcome is
+    #: `HARNESS_UNAVAILABLE`; "" for every other outcome. Decided HERE, from the manifest's
+    #: own markers, so the worker branches on a classification rather than re-reading the
+    #: harness's prose.
+    harness_reason: str = ""
 
 
 def _sum_usage(
@@ -226,6 +249,7 @@ class AgentRoundRunner:
                     job_id, HARNESS_UNAVAILABLE, usage, cost, launches, timed_out,
                     rate_limited, exit_code=first.exit_code,
                     output=_tail(first.stderr, first.stdout),
+                    harness_reason=classify_refusal(self.manifest, first),
                 )
             if state is None:
                 return self._result(
@@ -423,6 +447,7 @@ class AgentRoundRunner:
         *,
         exit_code: int = 0,
         output: str = "",
+        harness_reason: str = "",
     ) -> AgentRoundResult:
         return AgentRoundResult(
             job_id=job_id,
@@ -434,6 +459,7 @@ class AgentRoundRunner:
             rate_limited=rate_limited,
             exit_code=exit_code,
             output=output,
+            harness_reason=harness_reason,
         )
 
 
@@ -468,9 +494,54 @@ def _never_ran(launch: LaunchResult, session: DraftSession) -> bool:
 
 
 def _tail(*parts: str) -> str:
-    """The tail of what the harness said, joined — its own words about why it did not run."""
+    """The tail of what the harness said, joined and scrubbed — its own words, no keys.
+
+    Scrubbed HERE and not at the reader, because this string is the one that travels: onto
+    the job row, through the jobs API, into a `pkc jobs --json` an Owner pastes somewhere.
+    """
     text = "\n".join(part for part in parts if part)
-    return text[-OUTPUT_TAIL_CHARS:]
+    return scrub(text[-OUTPUT_TAIL_CHARS:])
+
+
+def classify_refusal(manifest: BackendManifest, launch: LaunchResult) -> str:
+    """Which of the three `UNAVAILABLE_*` answers this launch was.
+
+    Mechanical, off the manifest's own marker lists — the same words `launcher._is_rate_limited`
+    matched to decide there was anything transient here at all. The launcher answers "is
+    waiting worth it"; this answers "waiting for WHAT", which is the question the worker has
+    to act on: a spent subscription and a busy model are a tenant-wide wait, and a harness
+    that fell over is one job's fault.
+    """
+    if not launch.rate_limited:
+        return UNAVAILABLE_FAILED
+    said = unavailable_reason(f"{launch.stderr}\n{launch.stdout}", manifest)
+    if said in ("at capacity", "unavailable"):
+        return UNAVAILABLE_AT_CAPACITY
+    # A rate-limit EXIT CODE names no words at all; the launcher already read it as a limit,
+    # and a limit is what it stays.
+    return UNAVAILABLE_RATE_LIMITED
+
+
+#: How much of a failure's own sentence reaches the job's detail. A detail is read in a list
+#: — a paragraph there would push every other row off the screen — and the whole tail is on
+#: the row beside it for anyone who wants the rest.
+FAILURE_LINE_CHARS = 200
+
+
+def failure_line(text: str) -> str:
+    """The one line from a harness's output that names what went wrong, or "".
+
+    The FIRST meaningful line of the tail, because the tail is built stderr-first and a
+    harness states its fault before it states its stack. Blank lines and pure punctuation
+    are skipped; nothing is interpreted, so what a person reads on the job row is the
+    harness's own sentence rather than this framework's guess about it.
+    """
+    for raw in (text or "").splitlines():
+        line = " ".join(raw.split())
+        if not line or not any(character.isalnum() for character in line):
+            continue
+        return line[:FAILURE_LINE_CHARS]
+    return ""
 
 
 def _add(left: float | None, right: float | None) -> float | None:
@@ -485,7 +556,12 @@ __all__ = [
     "FINISHED_BY_WORKER",
     "HARNESS_UNAVAILABLE",
     "REPAIRED",
+    "UNAVAILABLE_AT_CAPACITY",
+    "UNAVAILABLE_FAILED",
+    "UNAVAILABLE_RATE_LIMITED",
     "AgentRoundOpenRefused",
     "AgentRoundResult",
     "AgentRoundRunner",
+    "classify_refusal",
+    "failure_line",
 ]

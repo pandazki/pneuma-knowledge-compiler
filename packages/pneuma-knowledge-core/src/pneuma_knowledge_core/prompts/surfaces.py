@@ -1123,6 +1123,11 @@ SURFACES: tuple[Surface, ...] = (
                 "官方来源契约中与段落对齐的消息或片段上下文。",
             ),
             f(
+                "compile.task.source_truncated",
+                "Where a bounded agent-round task stops showing source text, and the fetch that reads the rest.",
+                "有上限的代理轮次任务在何处停止展示来源正文，以及读取其余部分的命令。",
+            ),
+            f(
                 "compile.task.context_unavailable",
                 "Explicit degradation when a retained envelope cannot be aligned safely.",
                 "保留的元数据无法安全对齐时明确说明退化。",

@@ -86,9 +86,13 @@ def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys, prov
                                     "semantic_retrieval": False, "embedding_key": "synthetic-key",
                                     "watch": [str(tmp_path)]}))
     setup.setup(home, answers)
-    # The order §3.1 names, and the engine last: nothing above it can stop it from starting.
-    # No "render": creating the library rendered its package, so the repair step is a no-op.
-    assert operations == ["up", "profile", "skill(refresh=True)", "engine"]
+    # The order §3.1 names: the engine before anything that needs the store it brings up, and
+    # the library's own package LAST — after the profile, because the package states the
+    # Owner and a render taken before that write is stale the moment setup finishes.
+    assert operations == ["up", "profile", "skill(refresh=True)", "engine", "render"]
+    line = capsys.readouterr().out
+    assert (line.index("engine on port") < line.index("profile (inferred")
+            < line.index("library skill package"))
     library = Library.load(home, "notes")
     assert library.state.choices.language == "zh" and library.state.choices.backend == "claude-code"
     assert library.state.steps.infra and library.state.steps.credentials
@@ -99,7 +103,7 @@ def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys, prov
     assert home.current == "notes"
     assert "synthetic-key" not in (home.path / "config.yaml").read_text()
     assert "synthetic-key" not in (library.path / "library.yaml").read_text()
-    output = capsys.readouterr().out
+    output = line
     # The machine's own answer about its Owner, written as an inference and reported as one,
     # and the checklist that asks the Owner to settle it.
     # The account's name from the machine, and the language from the Owner's own answers.
@@ -113,14 +117,50 @@ def test_setup_answers_and_owned_steps(home, monkeypatch, tmp_path, capsys, prov
     # second creation, and the engine start that a mid-list refusal used to skip.
     operations.clear()
     setup.setup(home, answers, no_skill=True)
-    assert operations == ["up", "profile", "engine"]
+    assert operations == ["up", "profile", "engine", "render"]
     assert "library notes (already present)" in capsys.readouterr().out
     assert Library.load(home, "notes").state.created == library.state.created
-    # A setup interrupted before its package was written repairs it on the next run.
+    # A setup interrupted before its package was written repairs it on the next run — the
+    # same last step, which is what makes the render idempotent rather than conditional.
     shutil.rmtree(library.skill_dir)
     operations.clear()
     setup.setup(home, answers, no_skill=True)
-    assert operations == ["up", "profile", "render", "engine"]
+    assert operations == ["up", "profile", "engine", "render"]
+
+
+def test_the_library_package_is_rendered_from_the_profile_setup_just_wrote(
+    home, monkeypatch, tmp_path, capsys, provider
+):
+    """The cold start's own defect, held: the package a harness reads must state the Owner.
+
+    A render taken before the profile is seeded is a rendering of a library whose Owner is
+    nobody, and thirteen minutes after `pkchome setup` finished the tray said `skill 包：
+    已过期` about exactly that. So the package is installed after the profile write, and what
+    proves it is the rendered file rather than the order of a list: the Owner's name, in the
+    instructions a compile round is handed.
+    """
+    monkeypatch.setattr(infra, "up", lambda *_: None)
+    monkeypatch.setattr(skill_install, "install", lambda *_, **__: None)
+    monkeypatch.setattr(setup, "persist_owner_profile", lambda *_, **__: False)
+    monkeypatch.setattr(setup.engine, "start", lambda *_: None)
+    monkeypatch.setattr(setup, "read_owner_hints", lambda: {})
+
+    def write_profile(_home, library, updates, *, provenance):
+        # What `pkc profile set` does that this render reads: the engine's persona file.
+        # Stubbed because the real command needs the store the engine would have brought up.
+        path = library.engine_dir / "persona" / "profile.yaml"
+        text = path.read_text(encoding="utf-8")
+        atomic_write(path, text.replace('display_name: "Owner"', 'display_name: "Ez Chan"'))
+
+    monkeypatch.setattr(setup, "profile_set", write_profile)
+    answers = tmp_path / "answers.yaml"
+    atomic_write(answers, yaml_text({"library": "notes", "language": "en", "backend": "codex",
+                                     "owner": {"display_name": "Ez Chan"}}))
+    library = setup.setup(home, answers)
+    capsys.readouterr()
+
+    instructions = library.skill_dir / "references" / "compile-instructions.md"
+    assert "Ez Chan" in instructions.read_text(encoding="utf-8")
 
 
 def test_setup_stops_before_any_infrastructure_when_the_key_is_refused(home, monkeypatch, tmp_path, capsys, provider):

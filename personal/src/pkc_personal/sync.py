@@ -34,7 +34,8 @@ def run(home: Home, library: Library, *, dry_run: bool = False, rewritten: str =
         library.show(), [item.model_dump() for item in library.state.watch],
         dry_run=dry_run, rewritten=rewritten, pkchome=pkchome_command(home),
         exclude=list(config.exclude), home=str(home.path),
-        options={key: getattr(config, key) for key in THRESHOLDS})
+        options={key: getattr(config, key) for key in THRESHOLDS},
+        max_part_chars=config.max_part_chars)
 
 
 def status(home: Home, library: Library) -> dict:

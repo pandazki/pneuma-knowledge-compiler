@@ -36,8 +36,14 @@ from pneuma_knowledge_service.coding_agent.round_runner import (
     FINISHED_BY_WORKER,
     HARNESS_UNAVAILABLE,
     REPAIRED,
+    UNAVAILABLE_AT_CAPACITY,
+    UNAVAILABLE_FAILED,
+    UNAVAILABLE_RATE_LIMITED,
     AgentRoundOpenRefused,
+    AgentRoundResult,
     AgentRoundRunner,
+    classify_refusal,
+    failure_line,
 )
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.workers import compile_worker
@@ -759,10 +765,35 @@ def usage_limit_saying(when: datetime) -> str:
 
 
 class UnavailableLaunch(SimpleNamespace):
-    """What `AgentRoundRunner` hands the worker when a launch never became a round."""
+    """What `AgentRoundRunner` hands the worker when a launch never became a round.
 
-    def __init__(self, *, output: str, rate_limited: bool = True, exit_code: int = 1) -> None:
-        super().__init__(output=output, rate_limited=rate_limited, exit_code=exit_code)
+    `harness_reason` is the runner's own classification (`classify_refusal`), and the worker
+    branches on it — a provider with no room is waited out, a harness that fell over is not.
+    """
+
+    def __init__(
+        self,
+        *,
+        output: str,
+        rate_limited: bool = True,
+        exit_code: int = 1,
+        harness_reason: str = UNAVAILABLE_RATE_LIMITED,
+    ) -> None:
+        super().__init__(
+            output=output, rate_limited=rate_limited, exit_code=exit_code,
+            harness_reason=harness_reason,
+        )
+
+
+class FailedLaunch(UnavailableLaunch):
+    """A harness that died on this job's own account: non-zero exit, no marker of either
+    transient kind in anything it printed."""
+
+    def __init__(self, *, output: str, exit_code: int = 1) -> None:
+        super().__init__(
+            output=output, rate_limited=False, exit_code=exit_code,
+            harness_reason=UNAVAILABLE_FAILED,
+        )
 
 
 async def _refused(ctx, jobs, user, result, *, executor="worker:codex:0001", kind="compile"):
@@ -878,11 +909,8 @@ async def test_one_launch_that_simply_died_does_not_take_the_tenant_off_the_air(
     user = UserId("u-agent")
     jobs = InMemoryJobQueue()
     ctx = WorkerCtx(worker_settings(), jobs)
-    await _refused(
-        ctx, jobs, user,
-        UnavailableLaunch(output="fatal: no such file", rate_limited=False, exit_code=2),
-    )
-    assert jobs.completed[-1]["detail"] == "harness_failed: exit 2"
+    await _refused(ctx, jobs, user, FailedLaunch(output="fatal: no such file", exit_code=2))
+    assert jobs.completed[-1]["detail"] == "harness_failed: exit 2 — fatal: no such file"
     assert compile_worker.agent_cooling(user) is None
 
 
@@ -970,3 +998,419 @@ async def test_the_ice_is_laid_during_the_drain_and_stops_the_rest_of_the_queue(
 
     assert handed == [queued[0]], "the drain kept feeding a subscription that had no room"
     assert [(await jobs.get_job(user, j)).status for j in queued[1:]] == ["queued", "queued"]
+
+
+# ───────────────────────────── the three answers a refusal carries, and what each costs
+
+
+AT_CAPACITY = (
+    '{"type":"turn.failed","error":{"message":'
+    '"Selected model is at capacity. Please try a different model."}}'
+)
+
+
+@pytest.mark.parametrize("launch, expected", [
+    (
+        LaunchResult(exit_code=1, stdout="", stderr=USAGE_LIMIT, rate_limited=True),
+        UNAVAILABLE_RATE_LIMITED,
+    ),
+    (
+        LaunchResult(exit_code=0, stdout=AT_CAPACITY, stderr="", rate_limited=True),
+        UNAVAILABLE_AT_CAPACITY,
+    ),
+    (
+        LaunchResult(exit_code=1, stdout="", stderr="Error: prompt is too long"),
+        UNAVAILABLE_FAILED,
+    ),
+    (
+        # The wall clock. Nothing transient was said, so nothing transient is claimed.
+        LaunchResult(exit_code=-1, stdout="", stderr="", timed_out=True),
+        UNAVAILABLE_FAILED,
+    ),
+])
+def test_a_refusal_states_which_of_the_three_it_was(launch, expected):
+    """The classification is mechanical, off the manifest's own markers — because the worker
+    does two different things with it, and guessing is how one unreadable source put a whole
+    tenant to sleep for six hours."""
+    assert classify_refusal(CODEX, launch) == expected
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("Error: prompt is too long\n  at Object.<anonymous>", "Error: prompt is too long"),
+    ("\n\n   \n----\nstream disconnected before completion", "stream disconnected before completion"),
+    ("", ""),
+])
+def test_the_failure_line_is_the_harnesss_own_first_sentence(text, expected):
+    assert failure_line(text) == expected
+
+
+def test_the_failure_line_is_bounded_so_a_job_listing_stays_a_listing():
+    assert len(failure_line("x" * 5000)) == 200
+
+
+async def test_a_harness_that_merely_failed_cools_nothing_and_comes_straight_back():
+    """The bug this repairs, in one job.
+
+    An `agent-session/v1` part of 24,439 blocks killed every launch it was given. Each
+    failure was treated as a rate limit: the row came back behind a fifteen-minute wall with
+    `cooling_reason` on it, so the console announced a cooling tenant, and the next failure
+    pushed the wall out again. Nothing about that source was ever going to be fixed by
+    waiting, and nothing about it says anything about the rest of the queue.
+    """
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(agent_retries=3), jobs)
+    await _refused(
+        ctx, jobs, user,
+        FailedLaunch(output="Error: input is too long for the selected model\n  at run()"),
+    )
+
+    done = jobs.completed[-1]
+    assert done["ok"] is False
+    assert done["detail"] == (
+        "harness_failed: exit 1 — Error: input is too long for the selected model"
+    )
+    assert compile_worker.agent_cooling(user) is None, "one dead launch iced the tenant"
+
+    (queued,) = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
+    assert queued["not_before"] is None, "a failure that waiting cannot fix was made to wait"
+    assert "cooling_reason" not in queued["payload"]
+    assert queued["payload"]["harness_failures"] == 1
+    # And the queue hands it straight back out: nothing is held back by a plain failure.
+    assert await jobs.claim_next(user) is not None
+
+
+async def test_a_round_that_keeps_failing_stops_coming_back_after_the_bound():
+    """`AGENT_RETRIES` bounds it. A job that cannot run is a thing for a person to read, not
+    a thing to hand the same harness forever."""
+    from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(agent_retries=3), jobs)
+    job_id = await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
+    details: list[str] = []
+    while job_id is not None:
+        job = await jobs.claim(user, job_id)
+        assert job is not None
+        executor = f"worker:codex:{len(details)}"
+        assert await jobs.attach_executor(user, job_id, executor)
+        await compile_worker._harness_unavailable(
+            ctx, user, job, FailedLaunch(output="Error: input is too long"),
+            rt=SimpleNamespace(drafts=InMemoryDraftStore(jobs)),
+            executor=executor,
+            manifest=CODEX,
+        )
+        details.append(jobs.completed[-1]["detail"])
+        queued = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
+        job_id = queued[0]["job_id"] if queued else None
+
+    assert len(details) == 3, "the bound was not the one AGENT_RETRIES states"
+    assert details[:2] == ["harness_failed: exit 1 — Error: input is too long"] * 2
+    assert details[-1] == (
+        "harness_failed: exit 1 after 3 attempts — Error: input is too long"
+    )
+    assert [r["status"] for r in await jobs.list_jobs(user)] == ["done"] * 3
+
+
+async def test_the_harnesss_own_words_are_kept_on_the_job_and_read_back_through_the_api():
+    """`exit 1` is not a diagnosis. The words that were one lived in a worker process that
+    had already moved on, so they are stored on the row and surfaced where a person looks."""
+    import httpx
+    from pneuma_knowledge_service.adapters.read_mock import InMemoryLibraryStore
+    from pneuma_knowledge_service.api.app import create_app
+    from pneuma_knowledge_service.wiring import executor_for
+
+    user = UserId("u-agent")
+    store = InMemoryLibraryStore()
+    config = worker_settings()
+    ctx = WorkerCtx(config, store)
+    await _refused(
+        ctx, store, user,
+        FailedLaunch(output="Error: input is too long for the selected model"),
+    )
+
+    (row,) = [r for r in await store.list_jobs(user) if r["status"] == "done"]
+    assert row["harness_output"] == "Error: input is too long for the selected model"
+
+    app = create_app()
+    app.state.ctx = SimpleNamespace(
+        store=store, settings=config, compile_executor=executor_for(config, "compile")
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(f"/v1/users/{user}/jobs")
+    assert response.status_code == 200, response.text
+    (item,) = [i for i in response.json()["items"] if i["status"] == "done"]
+    assert item["harness_output"] == "Error: input is too long for the selected model"
+    assert item["detail"].startswith("harness_failed: exit 1 — ")
+
+
+async def test_a_key_in_the_harnesss_output_never_reaches_the_job_row(tmp_path):
+    """What the tail carries is the harness's words, and a harness prints its environment
+    when it falls over. Scrubbed at the boundary that produces the string, once."""
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    spill = "fatal: request failed\nOPENAI_API_KEY=sk-live-abcdefghijklmnop0123\n"
+    fake = FakeHarness(h.rt, [["nothing"]], result=lambda: LaunchResult(
+        exit_code=1, stdout="", stderr=spill,
+    ))
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+
+    assert result.outcome == HARNESS_UNAVAILABLE
+    assert result.harness_reason == UNAVAILABLE_FAILED
+    assert "fatal: request failed" in result.output
+    assert "sk-live-abcdefghijklmnop0123" not in result.output
+
+
+async def test_a_rate_limit_during_a_drain_stops_every_harness_job_and_no_other(monkeypatch):
+    """The gate the queue actually rests on, driven through `drain_user` itself.
+
+    Three compile jobs and one index job for one tenant. The first compile job's harness says
+    the subscription has no room; the other two must not be claimed at all, and the index job
+    — which runs no harness — must still be drained. What made this worth a second test: the
+    ice used to be laid on the queue ROW (a `not_before` and a `cooling_reason` the API read)
+    while `_COOLING` itself was set on one branch only, so the console reported a cooling
+    tenant that the drain went on feeding.
+    """
+    from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    compiles = [
+        await jobs.enqueue(user, "compile", {"source_ids": [f"src-{n:02d}"]})
+        for n in range(3)
+    ]
+    index_id = await jobs.enqueue(user, "index", {"source_id": "src-01"})
+    handed: list[str] = []
+    indexed: list[str] = []
+
+    async def refusing(ctx, user_id, job):  # noqa: ANN001
+        """`process_agent_job`'s own tail: the runner said the round never ran."""
+        handed.append(job.job_id)
+        executor = f"worker:codex:{len(handed)}"
+        assert await ctx.store.attach_executor(user_id, job.job_id, executor)
+        result = AgentRoundResult(
+            job_id=job.job_id,
+            outcome=HARNESS_UNAVAILABLE,
+            rate_limited=True,
+            exit_code=1,
+            output=USAGE_LIMIT,
+            harness_reason=UNAVAILABLE_RATE_LIMITED,
+        )
+        await compile_worker._harness_unavailable(
+            ctx, user_id, job, result,
+            rt=SimpleNamespace(drafts=InMemoryDraftStore(ctx.store)),
+            executor=executor,
+            manifest=CODEX,
+        )
+
+    async def indexing(ctx, user_id, job):  # noqa: ANN001
+        indexed.append(job.job_id)
+        await ctx.store.complete(user_id, job.job_id, ok=True, detail="indexed")
+
+    monkeypatch.setattr(compile_worker, "process_agent_job", refusing)
+    monkeypatch.setattr(compile_worker, "process_index_job", indexing)
+    await compile_worker.drain_user(
+        WorkerCtx(worker_settings(), jobs), None, SimpleNamespace(), user
+    )
+
+    assert handed == [compiles[0]], "the drain kept feeding a subscription with no room"
+    assert indexed == [index_id], "the library stopped because the subscription did"
+    assert [(await jobs.get_job(user, j)).status for j in compiles[1:]] == [
+        "queued", "queued",
+    ]
+    assert compile_worker.agent_cooling(user) is not None
+
+
+# ───────────────────────────────────────── the words the executor was taught, on the commit
+
+
+#: A plausible package sha256. What matters is that it is the runtime's, not the process's.
+SKILL_DIGEST = "5c4e" * 16
+
+
+@pytest.mark.parametrize(
+    "script, outcome",
+    [([*CALLS, "finish"], COMMITTED_BY_HARNESS), ([*CALLS], FINISHED_BY_WORKER)],
+)
+async def test_an_agent_round_stamps_the_executor_skill_whoever_closed_it(
+    tmp_path, monkeypatch, script, outcome
+):
+    """`Executor-Skill:` names the words the executor read — and the round is the executor's
+    whether its own process typed `finish` or the worker did.
+
+    The harness's `pkc` inherits the hash from the shim; the WORKER's finish runs in a process
+    that never carried the variable, so the trailer used to be missing from every commit an
+    unattended round did not close itself. Observed on a real library: `git log
+    --format=%(trailers:key=Executor-Skill,valueonly)` empty for every compile of a night.
+    """
+    monkeypatch.delenv("PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH", raising=False)
+    h = await harness([source()])
+    h.rt.executor_skill = SKILL_DIGEST
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [script])
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+
+    assert result.outcome == outcome
+    assert f"Executor-Skill: {SKILL_DIGEST}" in h.store.messages[-1]
+
+
+async def test_a_round_whose_runtime_names_no_skill_stamps_no_trailer(tmp_path, monkeypatch):
+    """The langchain executor's commit is byte-for-byte what it has always been, and so is a
+    round nothing can identify: an absent hash is honestly absent, never guessed at."""
+    monkeypatch.delenv("PNEUMA_KNOWLEDGE_STEWARD_SKILL_HASH", raising=False)
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    await runner(FakeHarness(h.rt, [[*CALLS]]), tmp_path).run_job(h.rt, h.job_id)
+    assert "Executor-Skill" not in h.store.messages[-1]
+
+
+# ──────────────────────────────────── the package a round is about to be taught by (§7)
+
+
+@dataclass
+class FakePackage:
+    sha256: str = "b" * 64
+
+
+def _skill_doubles(monkeypatch, *, drift, installed="a" * 64):
+    """Stand in for the four functions `ensure_skill_package` resolves at call time."""
+    from pneuma_knowledge_service.coding_agent import deployment as deployment_mod
+    from pneuma_knowledge_service.coding_agent import install as install_mod
+
+    calls: dict[str, list] = {"install": [], "verify": []}
+
+    async def resolve(settings, *, user, parser_for):  # noqa: ANN001
+        return SimpleNamespace(framework_version="9.9")
+
+    def packages(deployment, names, *, project=None):  # noqa: ANN001
+        return [(CODEX, FakePackage())]
+
+    def verify(project, manifest, package):  # noqa: ANN001
+        calls["verify"].append(project)
+        return list(drift)
+
+    def install(project, manifest, package, version, **kwargs):  # noqa: ANN001
+        calls["install"].append(package.sha256)
+        return []
+
+    monkeypatch.setattr(deployment_mod, "resolve_deployment", resolve)
+    monkeypatch.setattr(deployment_mod, "packages", packages)
+    monkeypatch.setattr(install_mod, "verify_skill_package", verify)
+    monkeypatch.setattr(install_mod, "install_skill_package", install)
+    monkeypatch.setattr(install_mod, "installed_hash", lambda *_: installed)
+    monkeypatch.setattr(compile_worker, "_skill_package_installed", {})
+    return calls
+
+
+async def test_a_drifted_skill_package_is_re_rendered_before_the_round_and_said_once(
+    tmp_path, monkeypatch, capsys
+):
+    """A cold start writes the profile and the schema manifest AFTER the install, so the
+    package a harness reads is stale within minutes of a setup. The worker checks it with the
+    same function `pkc skill verify --project` exits 4 on, and re-installs in place."""
+    calls = _skill_doubles(monkeypatch, drift=["AGENTS.md"])
+    settings = Settings(_env_file=None)
+
+    await compile_worker.ensure_skill_package(
+        settings, UserId("u1"), project_dir=str(tmp_path), backend="codex"
+    )
+    assert calls["install"] == ["b" * 64]
+    assert capsys.readouterr().out.strip() == (
+        "[compile-worker] skill package re-rendered for codex (aaaaaaaa → bbbbbbbb)"
+    )
+
+    # Still drifted, same bytes: something outside rewrites them, and a re-install per job
+    # would be a loop with a log line in it.
+    await compile_worker.ensure_skill_package(
+        settings, UserId("u1"), project_dir=str(tmp_path), backend="codex"
+    )
+    assert calls["install"] == ["b" * 64]
+    assert capsys.readouterr().out == ""
+
+
+async def test_a_fresh_skill_package_is_neither_re_installed_nor_mentioned(
+    tmp_path, monkeypatch, capsys
+):
+    calls = _skill_doubles(monkeypatch, drift=[])
+    await compile_worker.ensure_skill_package(
+        Settings(_env_file=None), UserId("u1"), project_dir=str(tmp_path), backend="codex"
+    )
+    assert calls["verify"] and calls["install"] == []
+    assert capsys.readouterr().out == ""
+
+
+async def test_a_project_that_never_installed_a_package_is_not_given_one(
+    tmp_path, monkeypatch, capsys
+):
+    """The worker refreshes an install; it does not decide that a directory wants one.
+
+    `skill-version.json` is the record of that choice, exactly as it is for the engine's own
+    apply hook. Without the rule the worker would write a skill package — and a `pkc:start`
+    block in an `AGENTS.md` — into whatever directory it happened to be started in.
+    """
+    calls = _skill_doubles(monkeypatch, drift=["AGENTS.md"], installed="")
+    await compile_worker.ensure_skill_package(
+        Settings(_env_file=None), UserId("u1"), project_dir=str(tmp_path), backend="codex"
+    )
+    assert calls["verify"] == [] and calls["install"] == []
+    assert list(tmp_path.iterdir()) == []
+    assert capsys.readouterr().out == ""
+
+
+async def test_a_verify_that_cannot_run_does_not_stop_the_round(tmp_path, monkeypatch, caplog):
+    """No project, no renderable deployment: the round goes on with what is installed."""
+    from pneuma_knowledge_service.coding_agent import deployment as deployment_mod
+
+    _skill_doubles(monkeypatch, drift=["AGENTS.md"])
+
+    async def refuses(settings, *, user, parser_for):  # noqa: ANN001
+        raise deployment_mod.SkillRenderError("this deployment states no compile contract")
+
+    monkeypatch.setattr(deployment_mod, "resolve_deployment", refuses)
+    with caplog.at_level(logging.WARNING):
+        await compile_worker.ensure_skill_package(
+            Settings(_env_file=None), UserId("u1"), project_dir=str(tmp_path), backend="codex"
+        )
+    assert "no compile contract" in caplog.text
+
+
+# ──────────────────────────────────── an agent's task stops at a bound and names the rest
+
+
+async def test_a_twenty_thousand_block_source_yields_a_bounded_task_that_names_the_rest():
+    """The April session put 1.8M characters of numbered blocks in front of one round. An
+    agent has a second way to read material, so its task stops at the bound and states the
+    exact command that reads what it does not show — by the id that command takes."""
+    import re as _re
+
+    bound = 60_000
+    big = await harness([source(n_blocks=20_000)])
+    big.rt.task_structure_chars = bound
+    code, _system, task = await draft_cmd.open_round(big.rt, big.job_id)
+    assert code == 0
+
+    small = await harness([source(n_blocks=1)])
+    small.rt.task_structure_chars = bound
+    _code, _system, overhead = await draft_cmd.open_round(small.rt, small.job_id)
+
+    assert len(task) <= bound + len(overhead) + 400, "the task was not bounded"
+    shown = _re.search(r"Blocks ¶(\d+)-19999 of (s\d+) are not shown here", task)
+    assert shown, "the task does not say where it stopped"
+    first, handle = int(shown.group(1)), shown.group(2)
+    assert 0 < first < 20_000
+    assert f"`pkc source fetch src-01 ¶{first}-19999 --page N`" in task, (
+        "the fetch line names the round's handle rather than the library's id"
+    )
+    assert f"Cite them as {handle} ¶a-b" in task
+
+
+async def test_an_unbounded_runtime_renders_every_block_as_it_always_did():
+    """0 is the default a test-assembled runtime gets: the task is whole, and no line about
+    truncation appears — the byte-equality suites compare the same bytes they always did."""
+    h = await harness([source(n_blocks=300)])
+    _code, _system, task = await draft_cmd.open_round(h.rt, h.job_id)
+    assert "are not shown here" not in task
+    assert "b299" in task

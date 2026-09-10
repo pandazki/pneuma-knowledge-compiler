@@ -1336,12 +1336,16 @@ class PostgresStore:
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
         claimed_by: str | None = None,
+        harness_output: str | None = None,
     ) -> None:
         async with self._pool.connection() as conn:
             await conn.execute(
                 "UPDATE compile_jobs SET status = 'done', completed_at = %s, "
                 "ok = %s, detail = %s, snapshot_ref = %s, "
                 "token_usage = coalesce(%s, token_usage), "
+                # What the harness printed, when one ran and refused. COALESCE for the same
+                # reason as the two above: a second, later completion knows none of it.
+                "harness_output = coalesce(%s, harness_output), "
                 # A job can be completed TWICE — the round's own `pkc draft finish` writes the
                 # real record, and the worker's catch-all error path writes a second one if
                 # anything after it raises. The second caller knows neither the usage nor the
@@ -1358,6 +1362,7 @@ class PostgresStore:
                     # nothing rather than a count it did not measure.
                     #
                     Jsonb(dict(token_usage)) if token_usage else None,
+                    harness_output or None,
                     executor or None,
                     str(user_id),
                     job_id,
@@ -1427,7 +1432,8 @@ class PostgresStore:
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
                 "SELECT id, kind, payload, status, created_at, claimed_at, "
-                "completed_at, ok, detail, snapshot_ref, token_usage, executor "
+                "completed_at, ok, detail, snapshot_ref, token_usage, executor, "
+                "harness_output "
                 "FROM compile_jobs WHERE user_id = %s ORDER BY created_at DESC",
                 (str(user_id),),
             )).fetchall()
@@ -1445,6 +1451,7 @@ class PostgresStore:
                 "snapshot_ref": r[9],
                 "token_usage": r[10] or {},
                 "executor": r[11],
+                "harness_output": r[12],
             }
             for r in rows
         ]
@@ -1498,7 +1505,8 @@ class PostgresStore:
             )).fetchone()
             rows = await (await conn.execute(
                 "SELECT id, kind, payload, status, created_at, claimed_at, "
-                "completed_at, ok, detail, snapshot_ref, token_usage, executor "
+                "completed_at, ok, detail, snapshot_ref, token_usage, executor, "
+                "harness_output "
                 "FROM compile_jobs "
                 f"WHERE {page_where} "
                 "ORDER BY created_at DESC, id DESC LIMIT %s",
@@ -1522,6 +1530,7 @@ class PostgresStore:
                     "snapshot_ref": r[9],
                     "token_usage": r[10] or {},
                     "executor": r[11],
+                    "harness_output": r[12],
                 }
                 for r in rows
             ],

@@ -175,6 +175,12 @@ class SyncConfig(Model):
     min_owner_turns: int = Field(default=3, ge=3)
     min_owner_chars: int = Field(default=200, ge=0)
     ack_max_words: int = Field(default=1, ge=1)
+    # How much Owner+agent text one ingested part may carry. A bound on a compile ROUND's
+    # context, never a judgement about the material: a longer increment is cut into
+    # consecutive parts at Owner turns (`agent_sessions.split_parts`) and every part is
+    # ingested and compiled in order. The floor keeps a typo from cutting every session into
+    # one-exchange parts.
+    max_part_chars: int = Field(default=400_000, ge=1000)
 
 
 class Config(Model):
