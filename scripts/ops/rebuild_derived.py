@@ -48,6 +48,7 @@ from pneuma_knowledge_service.access_stats import (
     run_recall_projection_job,
     run_recall_rebuild_job,
 )
+from pneuma_knowledge_service.adapters.postgres import CLAIM_FIRST_KINDS
 from pneuma_knowledge_service.projection import rebuild_projection
 from pneuma_knowledge_service.settings import Settings, get_settings
 from pneuma_knowledge_service.wiring import build_context, embed_l2_chunks
@@ -155,9 +156,11 @@ async def rebuild_component_projections(ctx, user_id: UserId) -> None:
 
     The job is drained HERE rather than left for the worker, so an operator who runs this
     against a stack with no worker up still gets a rebuild, and so the script can report
-    what happened. It claims only its own kinds: a compile job at the head of this user's
-    queue is reported and left alone (this script has no model and no skill), and the worker
-    will pick the rebuild up behind it.
+    what happened. It claims only its own kinds: a job the claim would hand out first that is
+    not one of them — an index job queued earlier, or a compile with nothing claim-first
+    queued — is reported and left alone (this script has no model and no skill), and the
+    worker will pick the rebuild up behind it. A compile round queued earlier does not stand
+    in its way: the claim hands the rebuild out first.
 
     It is also the ONLY place a timezone change is allowed to re-normalize already-written
     rows: explicit, operator-run, and reported.
@@ -168,9 +171,13 @@ async def rebuild_component_projections(ctx, user_id: UserId) -> None:
         queued = [j for j in reversed(jobs) if j["status"] == "queued"]  # oldest first
         if not queued:
             return
-        if queued[0]["kind"] not in _DRAINABLE:
+        # The job `claim_next` will hand out: the oldest of the claim-first kinds, else the
+        # oldest of the rest. (A claim-first job never carries an inherited `order_at`, so
+        # creation order is its queue order.)
+        head = next((j for j in queued if j["kind"] in CLAIM_FIRST_KINDS), queued[0])
+        if head["kind"] not in _DRAINABLE:
             print(
-                f"  C   a {queued[0]['kind']} job is ahead in the queue; the rebuild is "
+                f"  C   a {head['kind']} job is ahead in the queue; the rebuild is "
                 "enqueued and the worker will run it"
             )
             return

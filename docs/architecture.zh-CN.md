@@ -210,7 +210,7 @@ fast 面的 claim 检索带两个可选阶段（都默认关；关闭路径字�
 四个中间件容器（Postgres、Qdrant、Meilisearch、RustFS）加两个无状态进程：
 
 - **API**（FastAPI / uvicorn）—— 摄入、检索、评审界面；同时承载 SSE 流与 live-context WebSocket。
-- **Worker** —— 按用户严格串行地排空任务队列（`FOR UPDATE SKIP LOCKED`；每用户同时至多一个在飞任务，这同时就是正本库的单写者保证）。八种任务：`compile`、`index`、`challenge`、`evolve`、`evolve_adopt`、`groom`、`recall_projection`、`recall_rebuild`——`compile` 同时也是缺省，认不出的种类会被当成编译而不是被丢弃。组件不是任务，它搭已有的那几种：index 任务告诉每个启用的组件某个来源索引完成，`recall_projection` 按事件幂等地投递咨询开场或答案，`recall_rebuild` 重新推导记录之上的投影，compile 任务则以 `prepare` 开场——正是这一次调用，让组件那些同步的缝读得到另一个进程写下的投影。重启时自动回收孤儿任务；任何异常都以失败完结，绝不留下悬挂的占用，而一次挂死的模型调用由 `COMPILE_CALL_TIMEOUT` 兜底，断掉的连接不会把一个 worker 占到下次重启。
+- **Worker** —— 按用户严格串行地排空任务队列（`FOR UPDATE SKIP LOCKED`；每用户同时至多一个在飞任务，这同时就是正本库的单写者保证）。下一个领取谁按等级排，而非严格先进先出：`index`、`recall_projection`、`recall_rebuild` 只写派生层，不拉起 harness，也从不写正本，因此先于其他一切被领取——L1 可达性是无条件的（I3），不能在编译轮次后面等上几个小时；其余种类仍按各自在队列中的位置（`COALESCE(order_at, created_at)`）先进先出，而 index 任务把本来源的 `episodes` 判断排在自己的位置上，使这份判断先于该来源的编译。串行化不变。八种任务：`compile`、`index`、`challenge`、`evolve`、`evolve_adopt`、`groom`、`recall_projection`、`recall_rebuild`——`compile` 同时也是缺省，认不出的种类会被当成编译而不是被丢弃。组件不是任务，它搭已有的那几种：index 任务告诉每个启用的组件某个来源索引完成，`recall_projection` 按事件幂等地投递咨询开场或答案，`recall_rebuild` 重新推导记录之上的投影，compile 任务则以 `prepare` 开场——正是这一次调用，让组件那些同步的缝读得到另一个进程写下的投影。重启时自动回收孤儿任务；任何异常都以失败完结，绝不留下悬挂的占用，而一次挂死的模型调用由 `COMPILE_CALL_TIMEOUT` 兜底，断掉的连接不会把一个 worker 占到下次重启。
 
 Git 二进制是运行时必备（正本适配器通过子进程调用它）。异步纪律贯穿全栈：端口及一切触及端口的代码都是 `async`；纯计算辅助函数保持同步；不可避免的阻塞操作（git 子进程、分块）在适配器内包线程执行。
 

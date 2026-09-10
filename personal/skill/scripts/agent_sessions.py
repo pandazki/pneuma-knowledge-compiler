@@ -430,6 +430,31 @@ def triage(session: Session, *, min_owner_turns: int = 3, min_owner_chars: int =
                            "ack_max_words": ack_max_words}}
 
 
+def part_triage(part: Session, verdict: dict) -> dict:
+    """The triage record of one part of a SPLIT increment: the increment's verdict, inherited.
+
+    Splitting is a fact about a round's context, not about the material, so it never changes
+    what the material is judged to be: the thresholds are judged once, on the whole increment
+    (`verdict`), and every part carries that verdict and its `canonical_treatment`. Judging a
+    part on its own would demote a session to searchable-only merely for being long — three
+    Owner turns cut into three parts of one each. The one mechanical exception: a part with no
+    Owner turn at all has no Owner words to compile and is index-only
+    (`no_owner_turns_in_part`). The counts describe the PART, so the record stays truthful
+    about what it carries; `verdict_from` and `increment` name where the verdict came from.
+    """
+    owners = [turn["text"] for turn in part.turns if turn["role"] == "owner"]
+    inherited, reasons = verdict["verdict"], list(verdict["reasons"])
+    if not owners:
+        reasons.append("no_owner_turns_in_part")
+        if inherited == "compile":
+            inherited = "index"
+    return {**verdict, "verdict": inherited,
+            "canonical_treatment": "full" if inherited == "compile" else "none",
+            "reasons": reasons, "owner_turns": len(owners),
+            "owner_chars": sum(len(text) for text in owners), "verdict_from": "increment",
+            "increment": {"owner_turns": verdict["owner_turns"], "owner_chars": verdict["owner_chars"]}}
+
+
 def claude_cwd(path: Path) -> Path | None:
     """The directory a Claude Code transcript was opened in, read from its own rows.
 
@@ -939,9 +964,10 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
             # pass emits the NEXT part and never a part twice.
             beyond = int(entry.get("split_turns") or 0)
             try:
-                increment = pending_turns(session, earlier, entry["exported_turns"] - beyond)
-                if beyond:
-                    increment = replace(increment, turns=increment.turns[beyond:])
+                # `whole` is the increment the split was cut from — the one its verdict is
+                # judged on, so a resumed part inherits the same verdict its siblings carried.
+                whole = pending_turns(session, earlier, entry["exported_turns"] - beyond)
+                increment = replace(whole, turns=whole.turns[beyond:]) if beyond else whole
             except ValueError:
                 if rewritten != "reingest":
                     raise
@@ -950,10 +976,10 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                 old_ids = entry["source_ids"]
                 entry = empty_cursor(session)
                 entry["source_ids"] = old_ids
-                increment = session
+                increment = whole = session
                 beyond = 0
             steward = steward_work(session, roots)
-            verdict = triage(increment, **options, steward=steward)
+            verdict = triage(whole, **options, steward=steward)
             cursor = {**entry, "file": str(path), "file_size": len(data), "prefix_hash": digest(data)}
             line["triage"] = verdict
             if steward:
@@ -971,9 +997,10 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                 report["unchanged"] += 1
             elif not beyond and (verdict["owner_turns"] < verdict["thresholds"]["min_owner_turns"]
                   or verdict["owner_chars"] < verdict["thresholds"]["min_owner_chars"]):
-                # (A split already in progress is never held: the increment passed the
-                # thresholds when it was cut, and holding its tail would strand the parts
-                # that are already in the library without the rest of their exchange.)
+                # The thresholds hold the WHOLE increment, before any split: an increment that
+                # would be held unsplit is held, never cut into parts. (A split already in
+                # progress is never held: the increment passed the thresholds when it was cut,
+                # and holding its tail would strand the parts already in the library.)
                 cursor["held"] = {"owner_turns": verdict["owner_turns"], "chars": verdict["owner_chars"]}
                 line.update(status="held", held=cursor["held"])
                 report["held"] += 1
@@ -991,13 +1018,13 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                         line["parts"] = len(parts)
                     report["sessions"].append(line)
                     continue
+                split = len(parts) > 1 or bool(beyond)
                 for number, part in enumerate(parts):
                     last = number == len(parts) - 1
-                    # One part is the increment itself, and its verdict is the one above —
-                    # byte for byte what an unsplit increment always carried. A split part is
-                    # triaged on its own with the same thresholds, so a part the rules would
-                    # index-only is index-only; no verdict is invented for size.
-                    part_verdict = verdict if len(parts) == 1 else triage(part, **options, steward=steward)
+                    # An unsplit increment carries the verdict above, byte for byte what it
+                    # always carried. A part of a split (the tail of a resumed split included)
+                    # inherits that whole-increment verdict: size never changes the judgement.
+                    part_verdict = part_triage(part, verdict) if split else verdict
                     payload = part.payload(owner_id, part_verdict, owner_name)
                     payload["metadata"].update(from_turn=part.turns[0]["turn_id"],
                                                part=len(entry["source_ids"]) + 1)

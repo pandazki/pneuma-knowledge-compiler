@@ -29,6 +29,7 @@ class JobQueue(Protocol):
         payload: dict[str, Any],
         *,
         not_before: datetime | None = None,
+        order_at: datetime | None = None,
     ) -> str:
         """Queue one job for this user. None/omitted `not_before` means "now", as ever.
 
@@ -38,6 +39,12 @@ class JobQueue(Protocol):
         and must not come back immediately. Expressed on the row rather than as a wait inside
         a worker, so nothing sleeps, nothing holds a claim while it waits, and a restarted
         process reads the same answer the one that wrote it would have.
+
+        `order_at` states the job's PLACE in the queue; None means the moment it was
+        written. It is passed by work that queues work — an index job queueing its source's
+        episode judgement, a job re-queued because its harness never ran — so the follow-up
+        inherits the place of the job that caused it instead of joining the end, behind every
+        compile round already waiting. It never rewrites when the row was created.
         """
         ...
 
@@ -49,6 +56,14 @@ class JobQueue(Protocol):
         tenants: Sequence[str] = (),
     ) -> Job | None:
         """Claim the next per-user job (FOR UPDATE SKIP LOCKED, serial per user).
+
+        "Next" has two keys. First the kind: work that launches no harness, runs no compile
+        model and never writes canonical (index, the recall projection and rebuild) is
+        handed out ahead of everything else, because L1 reachability is unconditional (I3)
+        and must not wait hours behind compile rounds. Then the place — `order_at`, else the
+        moment the job was written — oldest first, so every other kind stays FIFO and a job
+        that inherited a place keeps it. Serialization is unchanged: still one job in flight
+        per user.
 
         An open draft also reserves the tenant even if its job was accidentally requeued.
         Finished jobs (including a row carrying a completion timestamp) are never claimed.

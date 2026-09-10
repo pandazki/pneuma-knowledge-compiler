@@ -569,3 +569,77 @@ def test_the_bound_is_configuration_the_owner_sets_and_the_pass_applies(home, ma
     # Below the floor is refused rather than quietly applied.
     assert cli.main(["config", "set", "sync.max_part_chars", "10"]) == 2
     assert home.config.sync.max_part_chars == 50_000
+
+
+# ───────────────────────────────────── a split part inherits the whole increment's verdict
+
+
+def test_a_split_session_that_passes_the_thresholds_whole_compiles_every_part(provider_files, importer):
+    """Three Owner turns, about a million characters: three parts of one Owner turn each.
+
+    Judged part by part each would fall below `min_owner_turns` and be searchable-only — the
+    session that would have compiled unsplit would never compile at all. The thresholds are
+    judged on the whole increment and every part inherits that verdict; each part's record
+    still counts only its own Owner words and names where its verdict came from."""
+    giant_claude_session(provider_files, [330_000, 330_000, 330_000])
+    report = importer.run(max_part_chars=400_000)
+    parts = claude_parts(importer)
+    assert len(parts) == 3
+    records = [p["metadata"]["triage"] for p in parts]
+    assert [r["verdict"] for r in records] == ["compile"] * 3
+    assert [r["canonical_treatment"] for r in records] == ["full"] * 3
+    assert [r["owner_turns"] for r in records] == [1, 1, 1]
+    assert sum(r["owner_chars"] for r in records) == sum(len(t) for t in OWNER_TEXTS)
+    assert {r["verdict_from"] for r in records} == {"increment"}
+    assert {r["increment"]["owner_turns"] for r in records} == {3}
+    # Compiled, so ingested at full intake: no `--intake searchable` on any part.
+    assert not any("--intake" in command for command, payload in zip(importer.commands, importer.payloads)
+                   if payload["provider"] == "claude-code")
+    lines = [r for r in report["sessions"] if r.get("provider") == "claude-code"]
+    assert [r["triage"]["verdict"] for r in lines] == ["compile"] * 3
+
+
+def test_a_resumed_split_part_inherits_the_verdict_its_siblings_carried(provider_files, importer, monkeypatch):
+    """The tail a resumed pass emits is judged as the whole increment was, not on its own."""
+    giant_claude_session(provider_files, [330_000, 330_000, 330_000])
+    real_run = sessions.subprocess.run
+    calls = {"claude": 0}
+
+    def lose_second(command, **kwargs):
+        if claude_ingest(command):
+            calls["claude"] += 1
+            if calls["claude"] == 2:
+                return SimpleNamespace(returncode=1, stdout="", stderr="synthetic failure")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(sessions.subprocess, "run", lose_second)
+    importer.run(max_part_chars=400_000)
+    monkeypatch.setattr(sessions.subprocess, "run", real_run)
+    importer.run(max_part_chars=400_000)
+    records = {p["metadata"]["part"]: p["metadata"]["triage"] for p in claude_parts(importer)}
+    assert sorted(records) == [1, 2, 3]
+    assert {r["verdict"] for r in records.values()} == {"compile"}
+    assert {r["increment"]["owner_turns"] for r in records.values()} == {3}
+
+
+def test_a_split_increment_below_the_thresholds_is_held_whole_and_never_cut(provider_files, importer):
+    """Held is judged before splitting: two Owner turns stay held however large the increment."""
+    giant_claude_session(provider_files, [330_000, 330_000])
+    size = provider_files.claude_file.stat().st_size
+    report = importer.run(max_part_chars=400_000)
+    assert claude_parts(importer) == []
+    assert report["split_parts"] == 0
+    held = cursor(importer)
+    assert held["exported_turns"] == 0 and held["exported_bytes"] == 0 and held["source_ids"] == []
+    assert held["held"] == {"owner_turns": 2, "chars": sum(len(t) for t in OWNER_TEXTS[:2])}
+    assert held["file_size"] == size and not held.get("split_turns")
+    line = next(r for r in report["sessions"] if r.get("provider") == "claude-code")
+    assert line["status"] == "held" and "parts" not in line
+
+
+def test_an_ordinary_growth_increment_keeps_its_own_triage_record(provider_files, importer):
+    """Not split, not touched: no inherited-verdict fields ride on an ordinary increment."""
+    importer.run()
+    record = claude_parts(importer)[0]["metadata"]["triage"]
+    assert record["verdict"] == "compile"
+    assert "verdict_from" not in record and "increment" not in record

@@ -1016,7 +1016,12 @@ async def _harness_unavailable(
     if requeue:
         if reason:
             payload["cooling_reason"] = reason
-        await ctx.store.enqueue(user_id, kind, payload, not_before=not_before)
+        # Back at the ORIGINAL job's place, not at the end: a round that never ran has not
+        # had its turn. `not_before`, when the provider named one, still gates it.
+        await ctx.store.enqueue(
+            user_id, kind, payload, not_before=not_before,
+            order_at=getattr(job, "order_at", None),
+        )
     else:
         log.warning("[compile-worker] job %s is not coming back: %s", job_id, detail)
 
@@ -1116,7 +1121,14 @@ async def process_index_job(
             pending = await ctx.store.list_jobs(user_id)
             if not any(j["kind"] == "episodes" and j["status"] in ("queued", "claimed")
                        and j["payload"].get("source_id") == str(source_id) for j in pending):
-                await ctx.store.enqueue(user_id, "episodes", {"source_id": str(source_id)})
+                # At THIS job's place in the queue. The compile of this source was queued
+                # after its index job, so the judgement lands ahead of that compile — rather
+                # than behind every compile already waiting, which left nearly every round
+                # compiling a source whose semantic episodes did not exist yet.
+                await ctx.store.enqueue(
+                    user_id, "episodes", {"source_id": str(source_id)},
+                    order_at=getattr(job, "order_at", None),
+                )
         chunks = await full_l2_chunks(ctx, source_id, ns.blocks, ns.structure, user_id, raw=ns.raw)
     elif semantic == "full":
         chunks = await full_l2_chunks(
@@ -1260,7 +1272,8 @@ async def drain_user(
 ) -> int:
     """Claim + process this user's queued jobs until the queue is empty.
 
-    Kind-agnostic claim (claim_next orders by created_at): dispatch by job.kind —
+    Kind-agnostic claim — index and the recall projection kinds first, then everything else
+    in queue order (`CLAIM_FIRST_KINDS`, adapters/postgres.py); dispatch by job.kind —
     "index" → process_index_job (L1/L2), "evolve"/"evolve_adopt" → the schema-evolve flow,
     "groom" → one document rollover, "archive" → one confirmed archive proposal (a move, no
     model), "recall_projection"/"recall_rebuild" → the use-side ledger (no model, no skill),

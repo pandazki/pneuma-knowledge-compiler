@@ -37,7 +37,7 @@ from pneuma_knowledge_core.recall.projection import ProjectedClaim
 from psycopg.types.json import Json, Jsonb
 from psycopg_pool import AsyncConnectionPool
 
-from ..access_stats import RECALL_PROJECTION_JOB_KIND
+from ..access_stats import RECALL_PROJECTION_JOB_KIND, RECALL_REBUILD_JOB_KIND
 from ..snapshot_tenant import RESERVED_PREFIX
 
 
@@ -87,16 +87,49 @@ JOB_STATUS_QUERY_VALUES = ("queued", "claimed", "done", "succeeded", "failed")
 #: bigint space — its only job is that every process picks the SAME number.
 _SCHEMA_LOCK_KEY = 0x504E_4B43_0001  # "PNKC" + 1
 
+#: The job kinds a claim hands out BEFORE every other queued job of the same user
+#: (`claim_next`). The rule for membership: the job launches no harness, runs no compile
+#: model, and never writes canonical — so taking it first delays no round by more than its
+#: own seconds, and a sync that queued hundreds of sources does not leave lexical search
+#: (I3, unconditional) waiting hours behind compilation.
+#:
+#:   index              L1 always, L2 per IntakePlan: derived only (at most an embedding or
+#:                      chunking call), and I3 says L1 may not wait on anything.
+#:   recall_projection  one consultation folded into the use-side ledger: derived, no model.
+#:   recall_rebuild     the same ledger re-derived from the kept records: derived, no model.
+#:
+#: Everything else keeps its FIFO place (`COALESCE(order_at, created_at)`), each for a
+#: reason: `episodes` launches the compile harness; `evolve` and `challenge` run a model;
+#: `compile`, `evolve_adopt`, `groom` and `archive` write canonical. Ranking a canonical
+#: writer first would reorder the library's history, which is the one thing a queue's order
+#: must not be casual about. The per-user single claim is untouched: this changes WHICH job
+#: is next, never how many are in flight.
+CLAIM_FIRST_KINDS: tuple[str, ...] = (
+    "index",
+    RECALL_PROJECTION_JOB_KIND,
+    RECALL_REBUILD_JOB_KIND,
+)
+
+
 class _JobRow:
     """Concrete JobQueue.Job — attributes match the Job protocol."""
 
     def __init__(
-        self, job_id: str, user_id: UserId, kind: str, payload: dict[str, Any]
+        self,
+        job_id: str,
+        user_id: UserId,
+        kind: str,
+        payload: dict[str, Any],
+        order_at: datetime | None = None,
     ) -> None:
         self.job_id = job_id
         self.user_id = user_id
         self.kind = kind
         self.payload = payload
+        #: This job's place in its user's queue — `COALESCE(order_at, created_at)`. A job
+        #: that queues follow-up work passes it on (`enqueue(order_at=…)`), so the follow-up
+        #: inherits a place instead of joining the end.
+        self.order_at = order_at
         #: Only `get_job` fills this in; the Job protocol does not carry it, and a claimed
         #: row handed out by `claim`/`claim_next` is 'claimed' by definition.
         self.status = "claimed"
@@ -1084,19 +1117,23 @@ class PostgresStore:
         payload: dict[str, Any],
         *,
         not_before: datetime | None = None,
+        order_at: datetime | None = None,
     ) -> str:
-        """Queue one job. `not_before` holds it back until that instant (default: now).
+        """Queue one job. `not_before` holds it back until that instant (default: now);
+        `order_at` places it in the queue at that instant (default: its `created_at`).
 
         The delay is a COLUMN and not a sleeping worker: a wait that lives in a process is
         forgotten by a restart and holds nothing while it lasts, whereas a row that states
         when it may be claimed is read the same way by every body and survives everything.
+        The place is a column for the same reason, and it is a separate one: `created_at`
+        stays the true record of when the row was written.
         """
         job_id = uuid.uuid4().hex
         async with self._pool.connection() as conn:
             await conn.execute(
-                "INSERT INTO compile_jobs (id, user_id, kind, payload, not_before) "
-                "VALUES (%s, %s, %s, %s, %s)",
-                (job_id, str(user_id), kind, Json(payload), not_before),
+                "INSERT INTO compile_jobs (id, user_id, kind, payload, not_before, order_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (job_id, str(user_id), kind, Json(payload), not_before, order_at),
             )
         return job_id
 
@@ -1180,8 +1217,13 @@ class PostgresStore:
         exclude_kinds: Sequence[str] = (),
         tenants: Sequence[str] = (),
     ) -> _JobRow | None:
-        """Claim the oldest queued job for this user, but only if the user has no
-        job already in flight — per-user serialization (§5, single git writer).
+        """Claim this user's next queued job, but only if the user has no job already
+        in flight — per-user serialization (§5, single git writer).
+
+        "Next" is `CLAIM_FIRST_KINDS` first, then everything else, each group in queue
+        order `COALESCE(order_at, created_at)`. At an equal instant a row that inherited
+        its place (`order_at` set) goes first, so an episodes job that took its index job's
+        place still precedes a compile written in that same microsecond.
 
         `exclude_kinds` narrows WHICH row this claim will take, and nothing else: same
         advisory lock, same `FOR UPDATE SKIP LOCKED`, same ordering, same refusal while
@@ -1212,7 +1254,8 @@ class PostgresStore:
                     "SELECT pg_advisory_xact_lock(hashtext(%s))", (str(user_id),)
                 )
                 row = await (await conn.execute(
-                    "SELECT id, kind, payload FROM compile_jobs "
+                    "SELECT id, kind, payload, COALESCE(order_at, created_at) "
+                    "FROM compile_jobs "
                     "WHERE user_id = %s AND status = 'queued' AND completed_at IS NULL "
                     # A job asked to wait is not yet a job this claim may take. Skipped in
                     # the SAME predicate as everything else it will not take, for the same
@@ -1224,12 +1267,18 @@ class PostgresStore:
                     + "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
                     "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
                     "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
-                    "ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1",
+                    # Rank, then place. The rank lets derived-only work past a queue of
+                    # compile rounds (CLAIM_FIRST_KINDS says which and why); the place keeps
+                    # FIFO within each rank, with an inherited place winning a tie.
+                    "ORDER BY (CASE WHEN kind = ANY(%s) THEN 0 ELSE 1 END), "
+                    "COALESCE(order_at, created_at), (order_at IS NULL) "
+                    "FOR UPDATE SKIP LOCKED LIMIT 1",
                     (
                         str(user_id),
                         *((allowed,) if allowed else ()),
                         *((skip,) if skip else ()),
                         str(user_id), str(user_id),
+                        list(CLAIM_FIRST_KINDS),
                     ),
                 )).fetchone()
                 if row is None:
@@ -1239,7 +1288,7 @@ class PostgresStore:
                     "claimed_at = %s, claimed_by = %s WHERE id = %s",
                     (datetime.now(timezone.utc), "worker", row[0]),
                 )
-        return _JobRow(row[0], user_id, row[1], row[2])
+        return _JobRow(row[0], user_id, row[1], row[2], row[3])
 
     async def claim(
         self, user_id: UserId, job_id: str, *, claimed_by: str = "worker"
@@ -1268,7 +1317,7 @@ class PostgresStore:
                     "SELECT pg_advisory_xact_lock(hashtext(%s))", (str(user_id),)
                 )
                 row = await (await conn.execute(
-                    "SELECT id, kind, payload FROM compile_jobs "
+                    "SELECT id, kind, payload, COALESCE(order_at, created_at) FROM compile_jobs "
                     "WHERE user_id = %s AND id = %s AND status = 'queued' AND completed_at IS NULL "
                     "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
                     "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
@@ -1283,7 +1332,7 @@ class PostgresStore:
                     "claimed_at = %s, claimed_by = %s WHERE id = %s",
                     (datetime.now(timezone.utc), claimed_by, row[0]),
                 )
-        return _JobRow(row[0], user_id, row[1], row[2])
+        return _JobRow(row[0], user_id, row[1], row[2], row[3])
 
     async def attach_executor(self, user_id: UserId, job_id: str, executor: str) -> bool:
         async with self._pool.connection() as conn:
@@ -1314,13 +1363,13 @@ class PostgresStore:
         from "no such job"."""
         async with self._pool.connection() as conn:
             row = await (await conn.execute(
-                "SELECT id, kind, payload, status, claimed_by FROM compile_jobs "
-                "WHERE user_id = %s AND id = %s",
+                "SELECT id, kind, payload, status, claimed_by, COALESCE(order_at, created_at) "
+                "FROM compile_jobs WHERE user_id = %s AND id = %s",
                 (str(user_id), job_id),
             )).fetchone()
         if row is None:
             return None
-        job = _JobRow(row[0], user_id, row[1], row[2])
+        job = _JobRow(row[0], user_id, row[1], row[2], row[5])
         job.status = row[3]
         job.claimed_by = row[4]
         return job

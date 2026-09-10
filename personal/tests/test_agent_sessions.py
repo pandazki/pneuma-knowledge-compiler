@@ -1,6 +1,7 @@
 """Synthetic provider fixtures: no transcript content from the machine is test data."""
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime
 import importlib.util
 import io
@@ -551,3 +552,49 @@ def test_one_exchange_past_the_bound_is_one_whole_part():
 def test_a_bound_below_the_floor_is_refused_rather_than_applied():
     with pytest.raises(ValueError, match="max-part-chars"):
         sessions.split_parts(exchanges_session([100]), 10)
+
+
+def test_a_split_part_inherits_the_whole_verdict_and_a_part_without_owner_words_is_index_only():
+    """The inheritance is pure: counts describe the part, the verdict comes from the increment.
+
+    `split_parts` never yields a part without an Owner turn, and the contract refuses such a
+    source, so this exception is a mechanical guard rather than a path sync walks today."""
+    whole = exchanges_session([3_000, 3_000, 3_000])
+    verdict = sessions.triage(whole)
+    assert verdict["verdict"] == "compile"
+    siblings = sessions.split_parts(whole, 4_000)
+    # Judged alone, a one-Owner-turn part would not even be indexed: its Owner words fall
+    # under `min_owner_chars`.
+    assert len(siblings) == 3 and sessions.triage(siblings[0])["verdict"] == "skip"
+    agent_only = replace(siblings[1], turns=[t for t in siblings[1].turns if t["role"] == "agent"])
+    records = [sessions.part_triage(part, verdict) for part in (siblings[0], agent_only, siblings[2])]
+    assert [r["verdict"] for r in records] == ["compile", "index", "compile"]
+    assert [r["canonical_treatment"] for r in records] == ["full", "none", "full"]
+    assert records[1]["reasons"] == ["no_owner_turns_in_part"]
+    assert "no_owner_turns_in_part" not in records[0]["reasons"]
+    assert [r["owner_turns"] for r in records] == [1, 0, 1]
+    assert records[0]["owner_chars"] == len(OWNER_TEXTS[0]) and records[1]["owner_chars"] == 0
+    assert all(r["verdict_from"] == "increment" for r in records)
+    assert all(r["increment"] == {"owner_turns": 3, "owner_chars": verdict["owner_chars"]} for r in records)
+    # A verdict below compile is never raised by inheritance.
+    index = {**verdict, "verdict": "index", "canonical_treatment": "none", "reasons": ["research_session"]}
+    assert sessions.part_triage(siblings[0], index)["verdict"] == "index"
+    assert sessions.part_triage(agent_only, index)["reasons"] == ["research_session", "no_owner_turns_in_part"]
+
+
+def test_list_and_export_judge_the_whole_session_however_large(provider_files, tmp_path, capsys):
+    rows = []
+    for index in range(3):
+        rows.append(claude_row("user", OWNER_TEXTS[index], 2 * index + 1, cwd=str(provider_files.project)))
+        rows.append(claude_row("assistant", [{"type": "text", "text": "x" * 330_000}], 2 * index + 2))
+    write_jsonl(provider_files.claude_file, rows)
+    assert sessions.main(["list", *common_args(provider_files), "--session-id", "momo-claude"]) == 0
+    listed = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert len(listed) == 1 and listed[0]["verdict"] == "compile" and listed[0]["owner_turns"] == 3
+    assert "verdict_from" not in listed[0]
+    output = tmp_path / "exported"
+    assert sessions.main(["export", *common_args(provider_files), "--out", str(output),
+                          "--session-id", "momo-claude", "--owner-id", "lib-notes"]) == 0
+    [path] = output.glob("*.json")
+    payload = json.loads(path.read_text())
+    assert len(payload["turns"]) == 6 and "verdict_from" not in payload["metadata"]["triage"]

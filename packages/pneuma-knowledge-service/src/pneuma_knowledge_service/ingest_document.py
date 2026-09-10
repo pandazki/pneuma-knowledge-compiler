@@ -281,8 +281,9 @@ async def ingest_document(
     # Indexing (L1 + L2) is deferred to the background worker — ingest is enqueue-only so
     # the HTTP request never touches Meili/Qdrant/the configured model. Enqueue an "index" job carrying just
     # the source_id; the worker re-reads the stored NormalizedSource + its intake_plan to run
-    # L1 (unconditional) and L2 (by semantic_indexing). Enqueued BEFORE the compile job so
-    # recall (L1/L2) drains first — claim_next orders by created_at (§5).
+    # L1 (unconditional) and L2 (by semantic_indexing). claim_next hands index jobs out
+    # ahead of compile rounds (§5); enqueued BEFORE the compile job so the episodes
+    # judgement it may queue, at its own place, precedes this source's compile.
     await ctx.store.enqueue(user_id, "index", {"source_id": str(source_id)})
 
     # Compile job: only when the plan asks for canonical treatment. Payload carries the

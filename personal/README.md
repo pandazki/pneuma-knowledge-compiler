@@ -183,8 +183,10 @@ characters killed every launch it was given, saying nothing the worker could rea
 increment is cut into consecutive parts at Owner turns only (an Owner turn and the agent turns
 after it are one unit; a cut never lands inside a turn), and each part is ingested in order in
 the same pass as an ordinary growth part — `continues`, `from_turn`, `part` — so the per-user
-queue compiles them in order, each with the pages the previous part wrote as context. Each
-part is triaged on its own with the thresholds above. The cursor advances part by part
+queue compiles them in order, each with the pages the previous part wrote as context. The
+thresholds above are judged once, on the whole increment (one held unsplit is held, not
+split), and every part inherits that verdict; only a part without any Owner turn is
+searchable-only. The cursor advances part by part
 (`split_turns` in `sync-state.json` counts the turns already ingested past the byte
 boundary), so a pass that dies between parts resumes at the next one. The report counts
 `split_parts`; one exchange larger than the bound is ingested whole as its own part and

@@ -903,6 +903,43 @@ async def test_a_model_at_capacity_is_named_as_itself_and_not_as_a_spent_quota()
     assert row["payload"]["cooling_reason"] == "codex at capacity"
 
 
+async def test_a_requeued_job_takes_the_original_jobs_place_not_the_end_of_the_queue():
+    """A round that never ran has not had its turn. The retry sorts where the original did —
+    ahead of a compile queued after it — and a provider's `not_before` still gates it."""
+    from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(), jobs)
+
+    async def refuse(result):  # noqa: ANN001
+        job = await jobs.claim_next(user)
+        assert await jobs.attach_executor(user, job.job_id, "worker:codex:0001")
+        await compile_worker._harness_unavailable(
+            ctx, user, job, result,
+            rt=SimpleNamespace(drafts=InMemoryDraftStore(jobs)),
+            executor="worker:codex:0001", manifest=CODEX,
+        )
+        return job
+
+    await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
+    await jobs.enqueue(user, "compile", {"source_ids": ["src-02"]})
+    died = await refuse(FailedLaunch(output="fatal: no such file", exit_code=2))
+    retry = await jobs.claim_next(user)
+    assert retry.payload["source_ids"] == ["src-01"], "the retry dropped to the end"
+    assert retry.order_at == died.order_at
+    await jobs.complete(user, retry.job_id, ok=True)
+
+    compile_worker._COOLING.pop(str(user), None)
+    limited = await refuse(UnavailableLaunch(output="stream error: 429 Too Many Requests"))
+    compile_worker._COOLING.pop(str(user), None)
+    queued = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
+    assert len(queued) == 1 and queued[0]["payload"]["source_ids"] == ["src-02"]
+    assert queued[0]["not_before"] is not None, "the provider's wait no longer gates it"
+    assert (await jobs.get_job(user, queued[0]["job_id"])).order_at == limited.order_at
+    assert await jobs.claim_next(user) is None, "a job on ice was handed out"
+
+
 async def test_one_launch_that_simply_died_does_not_take_the_tenant_off_the_air():
     """A harness that fell over is not a subscription with no room. The job comes back; the
     tenant does not go on ice, because one failure is no evidence about the next launch."""
