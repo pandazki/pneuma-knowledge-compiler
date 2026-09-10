@@ -409,6 +409,7 @@ def test_home_configuration_reaches_the_pass_and_holds_below_its_own_floor(provi
     monkeypatch.setattr(script, "sync_pass", spy)
     report = sync.run(home, importer.library, dry_run=True)
     assert captured["options"] == {"min_owner_turns": 5, "min_owner_chars": 200, "ack_max_words": 1}
+    assert captured["max_part_chars"] == 400_000
     assert captured["exclude"] == ["/synthetic/**", "/nowhere/**"]
     assert captured["home"] == str(home.path)
     # Three Owner turns, and a fourth appended: still under the floor the home now states.
@@ -446,3 +447,125 @@ def test_watch_scope_forms_and_sync_settings_round_trip(home, make_library, tmp_
     # The converter's own floors are the model's floors; a value below them is refused.
     assert cli.main(["config", "set", "sync.min_owner_turns", "2"]) == 2
     assert cli.main(["config", "set", "sync.ack_max_words", "0"]) == 2
+
+
+
+def giant_claude_session(files, agent_sizes):
+    """One synthetic Claude session: one Owner turn, then one agent turn of each given size."""
+    rows = []
+    for index, size in enumerate(agent_sizes):
+        rows.append(claude_row("user", OWNER_TEXTS[index % 3], 2 * index + 1,
+                               cwd=str(files.project)))
+        rows.append(claude_row("assistant", [{"type": "text", "text": "x" * size}], 2 * index + 2))
+    write_jsonl(files.claude_file, rows)
+
+
+def claude_parts(importer):
+    return [p for p in importer.payloads if p["provider"] == "claude-code"]
+
+
+def claude_ingest(command):
+    """Is this `pkc ingest` call carrying the Claude session's part? Read off the payload."""
+    return json.loads(Path(command[command.index("--file") + 1]).read_text())["provider"] == "claude-code"
+
+
+def test_a_session_too_large_for_a_round_is_ingested_as_consecutive_parts(
+    provider_files, importer, monkeypatch
+):
+    """The April session, in miniature: three Owner turns and about a million characters.
+
+    Cut at Owner turns only, ingested in order in one pass, each part an ordinary growth part
+    — `from_turn`, `part`, `continues` — so the serial queue compiles them in order, each with
+    the pages the previous part wrote as context. The cursor advances part by part."""
+    giant_claude_session(provider_files, [330_000, 330_000, 330_000])
+    real_run = sessions.subprocess.run
+    cursors = []
+
+    def watching(command, **kwargs):
+        if claude_ingest(command):
+            state = json.loads(importer.state.read_text()) if importer.state.exists() else {"sessions": {}}
+            cursors.append([dict(e) for e in state["sessions"].values() if e["provider"] == "claude-code"])
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(sessions.subprocess, "run", watching)
+    report = importer.run(max_part_chars=400_000)
+
+    parts = claude_parts(importer)
+    assert [p["metadata"]["part"] for p in parts] == [1, 2, 3]
+    assert report["split_parts"] == 3 and report["oversized_parts"] == 0
+    # Contiguous turn ranges, never a turn cut: each part starts where the last one ended,
+    # at an Owner turn.
+    first = [int(p["metadata"]["from_turn"][1:]) for p in parts]
+    sizes = [len(p["turns"]) for p in parts]
+    assert first == [1, 1 + sizes[0], 1 + sizes[0] + sizes[1]]
+    assert all(p["turns"][0]["role"] == "owner" for p in parts)
+    assert all(t["text"] == "x" * 330_000 for p in parts for t in p["turns"] if t["role"] == "agent")
+    # Each part names the one before it.
+    ids = [importer.accepted[sessions.digest(sessions.encoded_json(p).encode())] for p in parts]
+    assert "continues" not in parts[0]["metadata"]
+    assert [p["metadata"]["continues"] for p in parts[1:]] == ids[:-1]
+
+    # The cursor as each part's ingest found it: the parts before it, and no further.
+    exported = [entry[0]["exported_turns"] if entry else 0 for entry in cursors]
+    assert exported == [0, sizes[0], sizes[0] + sizes[1]]
+    final = cursor(importer)
+    assert final["exported_turns"] == sum(sizes) and final["split_turns"] == 0
+    assert final["source_ids"] == ids
+    assert final["file_size"] == provider_files.claude_file.stat().st_size
+
+    # Nothing is owed, so nothing is emitted.
+    again = importer.run(max_part_chars=400_000)
+    assert again["ingested"] == 0 and len(claude_parts(importer)) == 3
+
+
+def test_a_pass_that_dies_between_parts_resumes_at_the_next_part(provider_files, importer, monkeypatch):
+    giant_claude_session(provider_files, [330_000, 330_000, 330_000])
+    real_run = sessions.subprocess.run
+    calls = {"claude": 0}
+
+    def failing_second(command, **kwargs):
+        if claude_ingest(command):
+            calls["claude"] += 1
+            if calls["claude"] == 2:
+                return SimpleNamespace(returncode=1, stdout="", stderr="synthetic failure")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(sessions.subprocess, "run", failing_second)
+    importer.run(max_part_chars=400_000)
+    stopped = cursor(importer)
+    first_part = claude_parts(importer)[0]
+    assert stopped["exported_turns"] == len(first_part["turns"])
+    assert stopped["split_turns"] == len(first_part["turns"]), "the cursor claimed the byte boundary"
+    assert len(stopped["source_ids"]) == 1
+
+    monkeypatch.setattr(sessions.subprocess, "run", real_run)
+    importer.run(max_part_chars=400_000)
+    parts = claude_parts(importer)
+    # Part 2 was journaled and is replayed byte for byte (the library deduplicates it);
+    # part 3 follows. No part is emitted twice with different bytes, none is skipped.
+    numbers = [p["metadata"]["part"] for p in parts]
+    assert sorted(set(numbers)) == [1, 2, 3]
+    final = cursor(importer)
+    assert final["split_turns"] == 0 and len(final["source_ids"]) == 3
+    assert importer.run(max_part_chars=400_000)["ingested"] == 0
+
+
+def test_one_turn_larger_than_the_bound_is_its_own_part_whole_and_reported(provider_files, importer):
+    giant_claude_session(provider_files, [2_000, 500_000, 2_000])
+    report = importer.run(max_part_chars=400_000)
+    parts = claude_parts(importer)
+    assert len(parts) == 3 and report["oversized_parts"] == 1
+    assert any(t["text"] == "x" * 500_000 for t in parts[1]["turns"]), "the giant turn was cut"
+    lines = [r for r in report["sessions"] if r.get("provider") == "claude-code"]
+    assert [r.get("oversized") for r in lines] == [None, parts and sum(
+        len(t["text"]) for t in parts[1]["turns"]), None]
+
+
+def test_the_bound_is_configuration_the_owner_sets_and_the_pass_applies(home, make_library):
+    """A bound the Owner sets and the pass ignores is worse than no bound."""
+    assert cli.main(["config", "set", "sync.max_part_chars", "50000"]) == 0
+    assert home.config.sync.max_part_chars == 50_000
+    assert cli.main(["config", "get", "sync.max_part_chars"]) == 0
+    # Below the floor is refused rather than quietly applied.
+    assert cli.main(["config", "set", "sync.max_part_chars", "10"]) == 2
+    assert home.config.sync.max_part_chars == 50_000

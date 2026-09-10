@@ -113,6 +113,7 @@ pkchome config get sync.exclude
 pkchome config set sync.min_owner_turns 5
 pkchome config set sync.min_owner_chars 200
 pkchome config set sync.ack_max_words 1
+pkchome config set sync.max_part_chars 400000
 ```
 
 Setup answers 可包含 `watch: [/path/to/momo]`。每库在 `library.yaml` 中保存自己的
@@ -154,7 +155,17 @@ held 会话同时计入这两个字段。
 
 每份待处理增量默认要求三次 Owner 发言和 200 个 Owner 文本字符；`sync.min_owner_turns`
 （下限 3）、`sync.min_owner_chars` 和 `sync.ack_max_words` 说明这台机器实际要求多少。
-任一阈值不足都保持 HELD，不推进导出游标，后续增长继续累积。转换器的 `--min-owner-turns`、`--min-owner-chars`
+任一阈值不足都保持 HELD，不推进导出游标，后续增长继续累积。
+
+`sync.max_part_chars`（默认 400,000，下限 1,000）是另一种界：一个入库分片最多携带多少
+Owner 与代理文本。它是关于**一轮编译的上下文**的事实，而不是对材料的评判——真实的一次四月
+会话有 24,439 次发言、180 万字符，它让每一次启动都死掉，且没有留下 worker 读得懂的话。
+更长的增量只在 Owner 发言处切成连续的分片（一次 Owner 发言连同其后的代理发言是一个单位，
+切口绝不落在一次发言内部），每个分片在同一次同步里按顺序作为普通的增长分片入库——
+`continues`、`from_turn`、`part`——于是按用户串行的队列按顺序编译它们，每一片都以前一片写下
+的页面为上下文。每个分片按上面的阈值各自分流。游标逐片推进（`sync-state.json` 里的
+`split_turns` 记下字节边界之后已入库的发言数），所以在分片之间中断的一次同步会从下一片
+接着来。报告以 `split_parts` 计数；单个超过界限的交换会整片入库，并记在 `oversized_parts` 下。转换器的 `--min-owner-turns`、`--min-owner-chars`
 和 `--ack-max-words` 仍可配置其手动分流（次数下限 3、字符下限 0，确认语默认限 1 词）。
 数值阈值满足后，仅命令/已知确认语和显式研究/闲聊只索引。子代理和目录冲突被排除。
 Owner 原话与代理叙述逐字保留；工具缩为有长度上限的动作短句，排除参数、结果、思考
@@ -181,6 +192,10 @@ Owner 原话与代理叙述逐字保留；工具缩为有长度上限的动作�
 ~/.local/bin/               pkchome（uv tool）与并列的 pkc 启动器
 ~/.codex/skills/pkc-steward/、~/.claude/skills/pkc-steward/    全局技能
 ```
+
+一座库自己的技能包在 setup 中**最后**渲染——排在主体档案之后，因为包里就写着主体；
+无人值守的每一轮开跑前，worker 都会校验它，发现漂移就地重渲，让宿主读到的措辞始终是
+这套部署今天渲染出的措辞。
 
 ## 卸载
 

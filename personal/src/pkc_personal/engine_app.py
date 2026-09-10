@@ -219,6 +219,8 @@ def main(argv: list[str] | None = None) -> None:
             await run_engine(
                 settings, host=args.host, port=args.port,
                 worker=not args.no_worker, app=app,
+                # The edition's own lines reach the same engine log as the library's.
+                extra_loggers=("pkc_personal",),
             )
         finally:
             refresher.cancel()

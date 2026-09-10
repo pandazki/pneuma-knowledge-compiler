@@ -97,6 +97,11 @@ _COOLING: dict[str, tuple[datetime, str]] = {}
 #: on it, and the first round that actually runs forgets it.
 _RATE_LIMIT_HITS: dict[str, int] = {}
 
+#: How much of a refusing harness's own output is kept on the job row (`harness_output`).
+#: Enough to hold the failure and the lines around it; small enough that a job listing which
+#: selects the column is still a listing. The words themselves are the launcher's, scrubbed.
+HARNESS_OUTPUT_CHARS = 2000
+
 
 def agent_cooling(user_id: UserId) -> tuple[datetime, str] | None:
     """This tenant's cooling window — `(until, reason)` — or None once it has passed."""
@@ -712,6 +717,80 @@ def unattended(ctx: AppContext, role: str = "compile") -> bool:
     return bool(executor_for(ctx.settings, role).is_agent and ctx.settings.agent_unattended)
 
 
+#: The package sha256 this process last installed under a `(project, backend)`. A verify is a
+#: byte comparison over a handful of small files, so it is paid once per claimed agent job;
+#: what the cache buys is that a drift already answered once is not re-installed — and not
+#: logged — on every job after it.
+_skill_package_installed: dict[tuple[str, str], str] = {}
+
+
+async def ensure_skill_package(
+    settings: Settings, user_id: UserId, *, project_dir: str, backend: str
+) -> None:
+    """Re-render the project's installed skill package when it has drifted, before the round.
+
+    The package is a rendering of the deployment — the contract, the wording, the components,
+    and the Owner's own profile — and several of those are written AFTER the install a cold
+    start does: the profile is seeded once the engine is up, the per-user schema manifest is
+    materialized by the first compile. So the words a harness reads go stale within minutes
+    of a setup, and the round runs on a package no `pkc skill verify` recognises — while the
+    commit's `Executor-Skill:` trailer says the executor read what this deployment renders.
+    Verified here, with the same function `pkc skill verify --project` exits 4 on, and
+    re-installed with the same function `pkc skill install` writes.
+
+    A refresh, never a decision: a project with no `skill-version.json` for this backend is
+    one nobody installed into, and it is left alone. A verify that cannot run at all — a
+    deployment that renders nothing — must never cost the round either: it is logged and the
+    round goes on with what is installed.
+    """
+    from ..coding_agent.backends import backend as backend_manifest
+    from ..coding_agent.deployment import (
+        SkillRenderError,
+        default_parser,
+        packages,
+        resolve_deployment,
+    )
+    from ..coding_agent.install import (
+        SkillWriteRefused,
+        install_skill_package,
+        installed_hash,
+        verify_skill_package,
+    )
+
+    key = (os.path.abspath(project_dir), backend)
+    try:
+        manifest = backend_manifest(backend)
+        # A REFRESH, never a decision: `skill-version.json` is the record that this project
+        # chose to have a package, and a directory without one is a directory nobody
+        # installed into — a worker started somewhere else, a checkout under test. Read
+        # first, so nothing below can write a package into it.
+        previous = installed_hash(project_dir, manifest)
+        if not previous:
+            return
+        deployment = await resolve_deployment(
+            settings, user=str(user_id), parser_for=default_parser
+        )
+        ((_, package),) = packages(deployment, [backend], project=project_dir)
+        if not verify_skill_package(project_dir, manifest, package):
+            return
+        if _skill_package_installed.get(key) == package.sha256:
+            # These exact bytes were written once already and the disk still disagrees:
+            # something outside this process rewrites them, and re-installing per job would
+            # be a loop with a log line in it.
+            return
+        install_skill_package(project_dir, manifest, package, deployment.framework_version)
+        _skill_package_installed[key] = package.sha256
+        print(
+            f"[compile-worker] skill package re-rendered for {backend} "
+            f"({previous[:8]} → {package.sha256[:8]})",
+            flush=True,
+        )
+    except (SkillRenderError, SkillWriteRefused, OSError, LookupError, ValueError) as exc:
+        log.warning(
+            "could not verify the %s skill package in %s: %s", backend, project_dir, exc
+        )
+
+
 async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> None:
     """One claimed compile job, run through a launched coding agent (§9).
 
@@ -741,6 +820,11 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
         from ..cli.evolve import build_runtime
     elif kind == "episodes":
         from ..cli.episodes import build_runtime
+    # Before anything is launched: the package the harness is about to be taught by must be
+    # what this deployment renders today, or the round reads words nobody wrote for it.
+    await ensure_skill_package(
+        ctx.settings, user_id, project_dir=os.getcwd(), backend=str(executor.backend)
+    )
     rt = await build_runtime(ctx, user_id, executor=executor.spec)
     runner = AgentRoundRunner(
         manifest=backend_manifest(str(executor.backend)),
@@ -820,8 +904,26 @@ async def _harness_unavailable(
 
     And one more, which is what keeps the other three from being paid for 315 times: the
     tenant is put on ice, so this body stops claiming work no harness can run.
+
+    **What the ice is for, and what it is not for** (`round_runner.UNAVAILABLE_*`). A spent
+    subscription and a model at capacity are facts about the PROVIDER: nothing else this
+    tenant has queued can run either, so the tenant waits and the job comes back behind a
+    `not_before`. A harness that simply died is a fact about THIS JOB. Cooling on it was a
+    real bug with a real cost: an `agent-session/v1` part of 24,439 blocks killed every
+    launch it was given, and each failure re-queued itself behind a fifteen-minute wall and
+    wrote `cooling_reason` onto the row the API reads — so the console announced a cooling
+    tenant that the drain was not honouring (the ice was never laid: `_COOLING` was only ever
+    set on the rate-limit branch), and every retry pushed the wall out again. A failure now
+    cools nothing, states the harness's own first line on the job, and is retried at most
+    `AGENT_RETRIES` times before the row is left failed for a person to read.
     """
     from ..coding_agent.backends import unavailable_reason, usage_limit_deadline
+    from ..coding_agent.round_runner import (
+        UNAVAILABLE_AT_CAPACITY,
+        UNAVAILABLE_FAILED,
+        UNAVAILABLE_RATE_LIMITED,
+        failure_line,
+    )
 
     job_id = getattr(job, "job_id")
     kind = getattr(job, "kind", COMPILE_JOB_KIND)
@@ -829,8 +931,18 @@ async def _harness_unavailable(
     now = datetime.now(timezone.utc)
     label = getattr(manifest, "display_label", "") or getattr(manifest, "name", "harness")
     backend_name = getattr(manifest, "name", "harness")
+    # What the harness said, bounded and already scrubbed by the runner. Kept on the row
+    # because `exit 1` is not a diagnosis, and the words that were a diagnosis lived only in
+    # a worker process that has since moved on.
+    harness_output = (getattr(result, "output", "") or "")[-HARNESS_OUTPUT_CHARS:]
+    # The runner classifies; this only falls back for a caller that predates the field.
+    refusal = str(getattr(result, "harness_reason", "") or "") or (
+        UNAVAILABLE_RATE_LIMITED if getattr(result, "rate_limited", False)
+        else UNAVAILABLE_FAILED
+    )
+    requeue = True
 
-    if getattr(result, "rate_limited", False):
+    if refusal in (UNAVAILABLE_RATE_LIMITED, UNAVAILABLE_AT_CAPACITY):
         hits = _RATE_LIMIT_HITS.get(str(user_id), 0) + 1
         _RATE_LIMIT_HITS[str(user_id)] = hits
         output = getattr(result, "output", "") or ""
@@ -862,15 +974,31 @@ async def _harness_unavailable(
         started = agent_cooling(user_id) is None
         _COOLING[str(user_id)] = (not_before, reason)
     else:
-        # A harness that died for its own reasons. Same treatment minus the tenant-wide ice:
-        # one launch failing is not evidence that the next one will.
-        not_before = now + timedelta(seconds=int(ctx.settings.agent_rate_limit_cooldown_s))
-        detail = f"harness_failed: exit {getattr(result, 'exit_code', 0)}"
-        reason = f"{backend_name} did not run the round"
+        # A harness that died for its own reasons. No ice, no wall: one launch failing is
+        # evidence about this job and about nothing else in the queue. It comes straight back
+        # a bounded number of times, and then it stays failed — a job that cannot run is a
+        # thing to read, not a thing to retry forever.
+        attempts = int(payload.get("harness_failures", 0) or 0) + 1
+        bound = max(1, int(ctx.settings.agent_retries))
+        requeue = attempts < bound
+        not_before = None
+        reason = ""
         started = False
+        said = failure_line(harness_output)
+        detail = f"harness_failed: exit {getattr(result, 'exit_code', 0)}"
+        if not requeue:
+            detail += f" after {attempts} attempt{'s' if attempts != 1 else ''}"
+        if said:
+            detail += f" — {said}"
+        if requeue:
+            payload["harness_failures"] = attempts
+        # A cooling reason left by an earlier rate limit is not this row's; the queue reads
+        # it back as the tenant's wait and this job states no wait at all.
+        payload.pop("cooling_reason", None)
 
     await ctx.store.complete(
-        user_id, job_id, ok=False, detail=detail, claimed_by=executor
+        user_id, job_id, ok=False, detail=detail, claimed_by=executor,
+        harness_output=harness_output or None,
     )
     # The draft this launch opened reserves the tenant's whole queue while it exists, and it
     # holds a round nobody is going to continue. Dropped here, under the same lock the error
@@ -885,8 +1013,12 @@ async def _harness_unavailable(
             ):
                 await drafts.delete(user_id, job_id, executor=executor)
 
-    payload["cooling_reason"] = reason
-    await ctx.store.enqueue(user_id, kind, payload, not_before=not_before)
+    if requeue:
+        if reason:
+            payload["cooling_reason"] = reason
+        await ctx.store.enqueue(user_id, kind, payload, not_before=not_before)
+    else:
+        log.warning("[compile-worker] job %s is not coming back: %s", job_id, detail)
 
     if started:
         waiting = sum(

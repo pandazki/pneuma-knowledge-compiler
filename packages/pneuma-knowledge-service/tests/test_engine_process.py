@@ -294,3 +294,96 @@ async def test_the_worker_starts_only_after_the_api_finished_starting(engine, mo
     with pytest.raises(asyncio.CancelledError):
         await task
     assert order == ["api-context", "worker"]
+
+
+# ─────────────────────────────────────────────── the engine's own log lines reach stderr
+
+
+@pytest.fixture
+def clean_engine_loggers():
+    """Logging is process state; a test that configures it must leave nothing behind."""
+    import logging
+
+    before = {
+        name: (
+            logging.getLogger(name).level,
+            list(logging.getLogger(name).handlers),
+            logging.getLogger(name).propagate,
+        )
+        for name in (*engine_process.ENGINE_LOGGERS, "synthetic_application")
+    }
+    yield
+    for name, (level, handlers, propagate) in before.items():
+        logger = logging.getLogger(name)
+        logger.setLevel(level)
+        logger.handlers = handlers
+        logger.propagate = propagate
+
+
+def test_a_workers_own_line_reaches_the_engine_log(capsys, clean_engine_loggers):
+    """The gap this closes: the compile worker's account of an unattended round —
+    `round finished: exit 1`, `cooling until …` — went to a logger nobody had configured, so
+    the one file an Owner reads held uvicorn's requests and nothing about the work."""
+    import logging
+
+    engine_process.configure_logging(Settings(_env_file=None))
+    logging.getLogger("pneuma_knowledge_service.workers.compile_worker").info(
+        "job j-01: the harness did not run the round"
+    )
+    captured = capsys.readouterr()
+    assert "job j-01: the harness did not run the round" in captured.err
+    assert "pneuma_knowledge_service.workers.compile_worker" in captured.err
+    assert captured.out == "", "an engine log line went to stdout"
+
+
+def test_the_level_is_the_deployments_and_an_unknown_name_is_not_a_reason_to_refuse_to_start(
+    capsys, clean_engine_loggers
+):
+    import logging
+
+    engine_process.configure_logging(Settings(_env_file=None, log_level="warning"))
+    logging.getLogger("pneuma_knowledge_service.adapters").info("chatter")
+    logging.getLogger("pneuma_knowledge_service.adapters").warning("the library is dirty")
+    captured = capsys.readouterr()
+    assert "chatter" not in captured.err and "the library is dirty" in captured.err
+
+    engine_process.configure_logging(Settings(_env_file=None, log_level="not-a-level"))
+    assert logging.getLogger("pneuma_knowledge_service").level == logging.INFO
+
+
+def test_configuring_twice_does_not_print_every_line_twice(capsys, clean_engine_loggers):
+    import logging
+
+    engine_process.configure_logging(Settings(_env_file=None))
+    engine_process.configure_logging(Settings(_env_file=None))
+    logging.getLogger("pneuma_knowledge_service").info("once")
+    assert capsys.readouterr().err.count("once") == 1
+
+
+def test_uvicorns_own_lines_are_not_doubled(clean_engine_loggers):
+    """Uvicorn configures its own handlers. The engine adds none to the root, so nothing it
+    prints passes through this configuration at all."""
+    import logging
+
+    root_handlers = list(logging.getLogger().handlers)
+    engine_process.configure_logging(Settings(_env_file=None))
+    assert logging.getLogger().handlers == root_handlers
+    assert logging.getLogger("uvicorn").handlers == logging.getLogger("uvicorn").handlers
+    assert all(
+        not logging.getLogger(name).propagate for name in engine_process.ENGINE_LOGGERS
+    )
+
+
+def test_an_application_names_its_own_loggers_and_the_library_names_none(
+    capsys, clean_engine_loggers
+):
+    """Dependency direction: the library configures its own logger and whatever an
+    application hands it, and knows no application by name."""
+    import logging
+
+    assert engine_process.ENGINE_LOGGERS == ("pneuma_knowledge_service",)
+    engine_process.configure_logging(
+        Settings(_env_file=None), extra_loggers=("synthetic_application",)
+    )
+    logging.getLogger("synthetic_application.sync").info("the edition's own line")
+    assert "synthetic_application.sync: the edition's own line" in capsys.readouterr().err

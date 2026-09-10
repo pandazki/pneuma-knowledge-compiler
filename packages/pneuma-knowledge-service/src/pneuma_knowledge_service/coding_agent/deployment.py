@@ -143,7 +143,7 @@ async def resolve_deployment(  # noqa: ANN001
     """
     from importlib.metadata import PackageNotFoundError, version as package_version
 
-    from pneuma_knowledge_core.components import registered_components
+    from pneuma_knowledge_core.components import register_component, registered_components
     from pneuma_knowledge_core.skill import load_skill_base
 
     from ..engine.contract import CONTRACT_FILE, register_engine_contract
@@ -198,6 +198,12 @@ async def resolve_deployment(  # noqa: ANN001
         canonical = GitCanonicalStore(root)
     skill = await composed_skill_readonly(settings, canonical, user_id)
 
+    # A rendering needs the components' FACES, so they are registered with no store and no
+    # library. In a process that already wired them to real ones — the worker verifying its
+    # own installed package before a round, the engine's apply hook — that registration would
+    # otherwise replace the live components by name and leave every projection after it
+    # indexing into nothing. So what was registered before this call is put back after it.
+    live = tuple(registered_components())
     try:
         register_components(settings, store=None, canonical=None)
     except Exception:  # noqa: BLE001 — a component that cannot register leaves the package
@@ -205,6 +211,8 @@ async def resolve_deployment(  # noqa: ANN001
         # install of everything else.
         pass
     components = tuple(registered_components())
+    for component in live:
+        register_component(component)
 
     owner, zone, zone_source = owner_from_engine(engine_dir)
     if not zone:

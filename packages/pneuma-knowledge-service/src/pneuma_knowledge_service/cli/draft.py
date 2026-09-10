@@ -161,6 +161,13 @@ class DraftRuntime:
     #: worker answers with its model spec; usage is deliberately absent either way, because
     #: a harness's counters belong to the Owner's subscription and a zero would be a claim.
     executor: str = "agent"
+    #: The sha256 of the skill package the round's executor was taught with, when this
+    #: process is not the one that read it. The worker finishes a round its launched harness
+    #: drove (`coding_agent/round_runner.py`), and the variable the harness carried was never
+    #: in the worker's own environment — so without this the commit that ends an agent round
+    #: the harness did not close carries no `Executor-Skill:` trailer at all. Empty means the
+    #: process answers for itself, which is what an Owner's own terminal session needs.
+    executor_skill: str = ""
     draft_executor: str = field(default_factory=draft_executor)
     compile_draft_ttl: int = 6 * 60 * 60
     worker_posture: str = ""
@@ -176,6 +183,10 @@ class DraftRuntime:
     owner_is_placeholder: bool = False
     owner_profile_notice: str = ""
     owner_authored_blocks: dict[str, list[int]] = field(default_factory=dict)
+    #: How much numbered source text the round's task carries before it stops and names the
+    #: rest (`AGENT_TASK_STRUCTURE_CHARS`). 0 = unbounded, which is what a runtime assembled
+    #: by a test gets, so every existing byte-equality check still compares whole tasks.
+    task_structure_chars: int = 0
     out: TextIO = field(default_factory=lambda: sys.stdout)
     err: TextIO = field(default_factory=lambda: sys.stderr)
 
@@ -463,6 +474,10 @@ def _render_surfaces(
         owner=inputs.owner,
         time=inputs.time,
         image_mode="caption",
+        # An agent can read what the task does not show, so its task stops at a bound and
+        # names the rest by the id `pkc source fetch` takes — the library's, not the handle.
+        max_source_chars=rt.task_structure_chars,
+        fetch_ids=aliased.real_by_handle,
     )
     return system_text, _as_text(task)
 
@@ -751,6 +766,7 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
             violations=violations,
             rounds=2 if session.round == "repair" else 1,
             tool_calls=session.spent,
+            executor_skill=rt.executor_skill,
         )
 
     await _persist(rt, session, result)

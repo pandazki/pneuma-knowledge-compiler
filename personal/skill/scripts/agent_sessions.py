@@ -347,6 +347,56 @@ def steward_work(session: Session, roots=()) -> bool:
     return any(turn["kind"] == "action" and steward_action(turn["text"]) for turn in session.turns)
 
 
+#: How much Owner+agent text one ingested PART may carry. A fact about a compile round's
+#: context, never a judgement about the material: one real session of 24,439 turns and 1.8M
+#: characters killed every launch it was handed, with the harness saying nothing the worker
+#: could read. Such an increment is cut into consecutive parts (`split_parts`) and each is
+#: ingested as an ordinary growth part — `continues`, `from_turn`, `part` — so the per-user
+#: serial queue compiles them in order, each with the previous parts' pages as context.
+MAX_PART_CHARS = 400_000
+#: Below this a "bound" would cut every session into one-exchange parts; refused, not applied.
+MIN_PART_CHARS = 1000
+
+
+def turn_chars(turns: list[dict]) -> int:
+    """What a run of turns puts in front of a round: Owner words, agent prose, action stubs."""
+    return sum(len(turn["text"]) for turn in turns)
+
+
+def split_parts(session: Session, max_chars: int) -> list[Session]:
+    """`session` as consecutive parts of at most `max_chars`, cut at Owner turns only.
+
+    Mechanical and lossless. The unit is an EXCHANGE — one Owner turn and every agent turn
+    after it up to the next Owner turn; agent turns ahead of the first Owner turn ride with
+    it — so a cut never lands inside a turn and every part carries at least one Owner turn
+    (an agent-session part without one is not a valid source). Exchanges are packed in order
+    while they fit. One exchange larger than the bound is its own part, whole: truncating it
+    would lose material, and the report names it instead (`oversized_parts`).
+
+    At or under the bound the session comes back as the one part it is, untouched.
+    """
+    if max_chars < MIN_PART_CHARS:
+        raise ValueError(f"max-part-chars must be >= {MIN_PART_CHARS}")
+    if turn_chars(session.turns) <= max_chars:
+        return [session]
+    exchanges: list[list[dict]] = []
+    for turn in session.turns:
+        if (turn["role"] == "owner" and exchanges
+                and any(prior["role"] == "owner" for prior in exchanges[-1])):
+            exchanges.append([turn])
+        elif exchanges:
+            exchanges[-1].append(turn)
+        else:
+            exchanges.append([turn])
+    parts: list[list[dict]] = []
+    for exchange in exchanges:
+        if parts and turn_chars(parts[-1]) + turn_chars(exchange) <= max_chars:
+            parts[-1] = parts[-1] + exchange
+        else:
+            parts.append(list(exchange))
+    return [replace(session, turns=turns) for turns in parts]
+
+
 def triage(session: Session, *, min_owner_turns: int = 3, min_owner_chars: int = 200,
            ack_max_words: int = 1, purpose: str = "project", steward: bool = False) -> dict:
     if min_owner_turns < 3 or min_owner_chars < 0 or ack_max_words < 1:
@@ -566,7 +616,7 @@ def selected_library(name: str | None) -> dict:
 
 
 SYNC_COUNTS = ("scanned", "new", "increments", "held", "unchanged", "rewritten", "ingested",
-               "skipped", "skipped_steward", "project_missing")
+               "skipped", "skipped_steward", "project_missing", "split_parts", "oversized_parts")
 
 
 def digest(data: bytes) -> str:
@@ -695,7 +745,8 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
               codex_root: Path | None = None, options: dict | None = None,
               owner_id: str | None = None, session_ids: list[str] | None = None,
               pkchome: str = "pkchome", owner_name: str | None = None,
-              exclude: list[str] | None = None, home: str | None = None) -> dict:
+              exclude: list[str] | None = None, home: str | None = None,
+              max_part_chars: int = MAX_PART_CHARS) -> dict:
     """One edition-owned pass. Ingest is its only library write door."""
     directory = Path(library["path"])
     state_path = directory / "sync-state.json"
@@ -707,11 +758,14 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
                           options=options or {}, owner_id=owner_id or library["tenant"],
                           owner_name=owner_name or library.get("owner_name") or None,
                           session_ids=session_ids, pkchome=pkchome,
-                          exclude=exclude or (), home=home)
+                          exclude=exclude or (), home=home, max_part_chars=max_part_chars)
 
 
 def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root, codex_root,
-               options, owner_id, owner_name, session_ids, pkchome, exclude, home):
+               options, owner_id, owner_name, session_ids, pkchome, exclude, home,
+               max_part_chars=MAX_PART_CHARS):
+    if max_part_chars < MIN_PART_CHARS:
+        raise ValueError(f"max-part-chars must be >= {MIN_PART_CHARS}")
     state = read_sync_state(state_path)
     report = {**dict.fromkeys(SYNC_COUNTS, 0), "sessions": [], "dry_run": dry_run}
     state.setdefault("legacy", {})
@@ -780,6 +834,10 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
         try:
             if not dry_run:
                 ingest(key, None, entry, line)
+                # A replayed part of a SPLIT increment leaves parts still owed; the file stays
+                # in this pass so the next part follows it rather than waiting a whole pass.
+                if state["sessions"][key].get("split_turns"):
+                    recovered.discard((entry["provider"], entry["file"]))
         except (OSError, ValueError) as exc:
             line.update(status="error", error=str(exc))
             report["skipped"] += 1
@@ -875,8 +933,15 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                 continue
             entry = entry or empty_cursor(session)
             earlier = read_session(provider, path, project, data[:entry["exported_bytes"]])
+            # A split increment stops its cursor between parts: `split_turns` of the turns
+            # past `exported_bytes` are already in the library. They are numbered from the
+            # boundary exactly as the first pass numbered them, then dropped, so a resumed
+            # pass emits the NEXT part and never a part twice.
+            beyond = int(entry.get("split_turns") or 0)
             try:
-                increment = pending_turns(session, earlier, entry["exported_turns"])
+                increment = pending_turns(session, earlier, entry["exported_turns"] - beyond)
+                if beyond:
+                    increment = replace(increment, turns=increment.turns[beyond:])
             except ValueError:
                 if rewritten != "reingest":
                     raise
@@ -886,6 +951,7 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                 entry = empty_cursor(session)
                 entry["source_ids"] = old_ids
                 increment = session
+                beyond = 0
             steward = steward_work(session, roots)
             verdict = triage(increment, **options, steward=steward)
             cursor = {**entry, "file": str(path), "file_size": len(data), "prefix_hash": digest(data)}
@@ -903,31 +969,64 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
             elif not increment.turns:
                 line["status"] = "unchanged"
                 report["unchanged"] += 1
-            elif (verdict["owner_turns"] < verdict["thresholds"]["min_owner_turns"]
+            elif not beyond and (verdict["owner_turns"] < verdict["thresholds"]["min_owner_turns"]
                   or verdict["owner_chars"] < verdict["thresholds"]["min_owner_chars"]):
+                # (A split already in progress is never held: the increment passed the
+                # thresholds when it was cut, and holding its tail would strand the parts
+                # that are already in the library without the rest of their exchange.)
                 cursor["held"] = {"owner_turns": verdict["owner_turns"], "chars": verdict["owner_chars"]}
                 line.update(status="held", held=cursor["held"])
                 report["held"] += 1
             else:
                 kind = "increments" if entry["exported_turns"] else "new"
                 report[kind] += 1
+                parts = split_parts(increment, max_part_chars)
+                if len(parts) > 1:
+                    report["split_parts"] += len(parts)
+                oversized = [n for n, part in enumerate(parts) if turn_chars(part.turns) > max_part_chars]
+                report["oversized_parts"] += len(oversized)
                 if dry_run:
                     line["status"] = "would_ingest"
+                    if len(parts) > 1:
+                        line["parts"] = len(parts)
                     report["sessions"].append(line)
                     continue
-                payload = increment.payload(owner_id, verdict, owner_name)
-                part = len(entry["source_ids"]) + 1
-                payload["metadata"].update(from_turn=increment.turns[0]["turn_id"], part=part)
-                if entry["exported_turns"]:
-                    payload["metadata"]["continues"] = entry["source_ids"][-1]
-                if was_rewritten:
-                    payload["metadata"]["rewritten"] = True
-                cursor.update(exported_turns=entry["exported_turns"] + len(increment.turns),
-                              last_turn_id=increment.turns[-1]["turn_id"], last_at=increment.turns[-1]["at"],
-                              exported_bytes=len(data), held=None)
-                line["status"] = "ingested"
-                ingest(key, payload, cursor, line)
-                report["sessions"].append(line)
+                for number, part in enumerate(parts):
+                    last = number == len(parts) - 1
+                    # One part is the increment itself, and its verdict is the one above —
+                    # byte for byte what an unsplit increment always carried. A split part is
+                    # triaged on its own with the same thresholds, so a part the rules would
+                    # index-only is index-only; no verdict is invented for size.
+                    part_verdict = verdict if len(parts) == 1 else triage(part, **options, steward=steward)
+                    payload = part.payload(owner_id, part_verdict, owner_name)
+                    payload["metadata"].update(from_turn=part.turns[0]["turn_id"],
+                                               part=len(entry["source_ids"]) + 1)
+                    if entry["exported_turns"]:
+                        payload["metadata"]["continues"] = entry["source_ids"][-1]
+                    if was_rewritten and number == 0:
+                        payload["metadata"]["rewritten"] = True
+                    exported = entry["exported_turns"] + len(part.turns)
+                    if last:
+                        step = {**cursor, "exported_bytes": len(data), "split_turns": 0}
+                    else:
+                        # Between parts the byte boundary and the file identity stay where
+                        # they were: the pass must not read this file as unchanged while
+                        # parts of it are still owed.
+                        step = {**entry, "file": str(path),
+                                "split_turns": int(entry.get("split_turns") or 0) + len(part.turns)}
+                    step.update(exported_turns=exported, last_turn_id=part.turns[-1]["turn_id"],
+                                last_at=part.turns[-1]["at"], held=None,
+                                source_ids=list(entry["source_ids"]))
+                    part_line = dict(line)
+                    part_line["status"] = "ingested"
+                    if len(parts) > 1:
+                        part_line.update(part=number + 1, parts=len(parts),
+                                         from_turn=part.turns[0]["turn_id"])
+                    if number in oversized:
+                        part_line["oversized"] = turn_chars(part.turns)
+                    ingest(key, payload, step, part_line)
+                    report["sessions"].append(part_line)
+                    entry = state["sessions"][key]
                 continue
             # Observation advances the file fingerprint, never the export cursor.
             if not was_rewritten:
@@ -984,6 +1083,7 @@ def ingest_sessions(args, library: dict, *, dry_run: bool) -> int:
                        claude_root=args.claude_root, codex_root=args.codex_root,
                        options={key: getattr(args, key) for key in
                                 ("min_owner_turns", "min_owner_chars", "ack_max_words", "purpose")},
+                       max_part_chars=args.max_part_chars,
                        owner_id=args.owner_id, owner_name=args.owner_name, session_ids=args.session_id)
     for row in report["sessions"]:
         print(json.dumps(row, ensure_ascii=False, sort_keys=True))
@@ -1005,6 +1105,9 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--min-owner-chars", type=int, default=200,
                              help="skip sessions below this owner-text length; 0 disables the length filter")
         command.add_argument("--ack-max-words", type=int, default=1)
+        command.add_argument("--max-part-chars", type=int, default=MAX_PART_CHARS,
+                             help="ingest: an increment longer than this is split into consecutive "
+                                  "parts at Owner turns (a round's context, not a quality judgement)")
         command.add_argument("--purpose", choices=("project", "research", "chat"), default="project",
                              help="research/chat sessions are index-only")
         if verb in {"export", "ingest"}:
@@ -1024,8 +1127,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.min_owner_turns < 3 or args.min_owner_chars < 0 or args.ack_max_words < 1:
-            raise ValueError("thresholds require min-owner-turns >= 3, min-owner-chars >= 0, ack-max-words >= 1")
+        if (args.min_owner_turns < 3 or args.min_owner_chars < 0 or args.ack_max_words < 1
+                or args.max_part_chars < MIN_PART_CHARS):
+            raise ValueError("thresholds require min-owner-turns >= 3, min-owner-chars >= 0, "
+                             f"ack-max-words >= 1, max-part-chars >= {MIN_PART_CHARS}")
         if args.command == "ingest":
             library = selected_library(args.library)
             return ingest_sessions(args, library, dry_run=args.dry_run)

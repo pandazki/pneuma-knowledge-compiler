@@ -272,9 +272,10 @@ class InMemoryJobQueue:
                     "snapshot_ref": record.get("snapshot_ref"),
                     "executor": record.get("executor"),
                     "token_usage": dict(record.get("token_usage") or {}),
+                    "harness_output": record.get("harness_output"),
                 }
         return {"ok": None, "detail": None, "snapshot_ref": None, "executor": None,
-                "token_usage": {}}
+                "token_usage": {}, "harness_output": None}
 
     async def queue_cooling(self, user_id):  # noqa: ANN001
         """The earliest future `not_before` among this user's queued jobs, and its reason."""
@@ -324,6 +325,7 @@ class InMemoryJobQueue:
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
         claimed_by: str | None = None,
+        harness_output: str | None = None,
     ) -> None:
         for job in self.jobs:
             if job.job_id == job_id and str(job.user_id) == str(user_id):
@@ -341,6 +343,7 @@ class InMemoryJobQueue:
                 "snapshot_ref": snapshot_ref,
                 "token_usage": token_usage,
                 "executor": executor,
+                "harness_output": harness_output,
             }
         )
 

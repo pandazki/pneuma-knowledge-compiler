@@ -508,3 +508,46 @@ def test_converter_output_through_library_ingest_when_contract_is_available(prov
     assert str(user) == "lib-notes" and intake is None
     assert [turn.text for turn in parsed.turns if turn.role == "owner"] == OWNER_TEXTS
     assert json.loads(out.getvalue())["contract_schema"] == SCHEMA
+
+
+
+# ───────────────────────────────────────── material too large for one round, cut at turns
+
+
+def exchanges_session(sizes, *, lead=0):
+    """Owner turn, agent turn of each size; `lead` agent characters ahead of the first Owner."""
+    session = sessions.Session("codex", "synthetic", Path("synthetic.jsonl"), Path("/synthetic/momo"))
+    session.last_at = sessions.timestamp("2026-09-01T10:00:00+08:00")
+    if lead:
+        session.add("agent", "narrative", "l" * lead)
+    for index, size in enumerate(sizes):
+        session.add("owner", "say", OWNER_TEXTS[index % 3])
+        session.add("agent", "narrative", "x" * size)
+    return session.finish()
+
+
+def test_a_session_under_the_bound_is_its_own_single_part_untouched():
+    session = exchanges_session([100, 100])
+    assert sessions.split_parts(session, 400_000) == [session]
+
+
+def test_parts_are_cut_at_owner_turns_only_and_cover_every_turn_once():
+    session = exchanges_session([3_000, 3_000, 3_000, 3_000], lead=50)
+    parts = sessions.split_parts(session, 7_000)
+    assert [turn for part in parts for turn in part.turns] == session.turns
+    assert all(part.turns[0]["role"] == "owner" for part in parts[1:])
+    # Agent turns ahead of the first Owner turn ride with it: no part lacks an Owner turn.
+    assert all(any(t["role"] == "owner" for t in part.turns) for part in parts)
+    assert all(sessions.turn_chars(part.turns) <= 7_000 for part in parts)
+    assert len(parts) == 2
+
+
+def test_one_exchange_past_the_bound_is_one_whole_part():
+    parts = sessions.split_parts(exchanges_session([500, 5_000, 500]), 2_000)
+    assert [len(part.turns) for part in parts] == [2, 2, 2]
+    assert parts[1].turns[1]["text"] == "x" * 5_000
+
+
+def test_a_bound_below_the_floor_is_refused_rather_than_applied():
+    with pytest.raises(ValueError, match="max-part-chars"):
+        sessions.split_parts(exchanges_session([100]), 10)

@@ -125,6 +125,7 @@ pkchome config get sync.exclude
 pkchome config set sync.min_owner_turns 5
 pkchome config set sync.min_owner_chars 200
 pkchome config set sync.ack_max_words 1
+pkchome config set sync.max_part_chars 400000
 ```
 
 Setup answers can include `watch: [/path/to/momo]`. Each library records its own
@@ -174,6 +175,20 @@ Each pending increment needs three Owner turns and 200 Owner-text characters by 
 `sync.min_owner_turns` (floor 3), `sync.min_owner_chars` and `sync.ack_max_words` state what
 this home asks for. Below either threshold an increment is HELD without advancing the
 exported cursor, so later growth accumulates.
+
+`sync.max_part_chars` (default 400,000, floor 1,000) is a different kind of bound: how much
+Owner+agent text one ingested part may carry. It is a fact about a compile ROUND's context,
+never a judgement about the material — one real April session of 24,439 turns and 1.8M
+characters killed every launch it was given, saying nothing the worker could read. A longer
+increment is cut into consecutive parts at Owner turns only (an Owner turn and the agent turns
+after it are one unit; a cut never lands inside a turn), and each part is ingested in order in
+the same pass as an ordinary growth part — `continues`, `from_turn`, `part` — so the per-user
+queue compiles them in order, each with the pages the previous part wrote as context. Each
+part is triaged on its own with the thresholds above. The cursor advances part by part
+(`split_turns` in `sync-state.json` counts the turns already ingested past the byte
+boundary), so a pass that dies between parts resumes at the next one. The report counts
+`split_parts`; one exchange larger than the bound is ingested whole as its own part and
+counted under `oversized_parts`.
 The converter's `--min-owner-turns`, `--min-owner-chars` and `--ack-max-words` still configure
 its manual triage (turn floor 3, character floor 0, default acknowledgement limit 1 word).
 Once the numeric thresholds are met, only slash commands/known acknowledgements and explicit
@@ -205,6 +220,10 @@ All of this is edition state; canonical still changes only through the library's
 ~/.local/bin/               pkchome (uv tool) and the pkc launcher beside it
 ~/.codex/skills/pkc-steward/, ~/.claude/skills/pkc-steward/    the global skill
 ```
+
+A library's own package is rendered LAST in a setup — after the profile, which it states in
+its own prose — and the worker verifies it before every unattended round and re-renders it in
+place when it has drifted, so the words a harness reads are the words this deployment renders.
 
 ## Uninstall
 

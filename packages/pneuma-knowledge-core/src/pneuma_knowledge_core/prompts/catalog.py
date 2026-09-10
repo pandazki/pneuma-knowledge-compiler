@@ -1261,6 +1261,11 @@ DEFAULTS: dict[str, str] = {
     "compile.task.block_line": "¶{index} {text}",
     "compile.task.section_context": "[Source section path, applying until the next section: {path}]",
     "compile.task.block_context": "[Source context for ¶{index}, evidence data: {context}]",
+    "compile.task.source_truncated": (
+        "[The task shows source text up to {chars} characters. Blocks ¶{first}-{last} of "
+        "{handle} are not shown here; `pkc source fetch {source_id} ¶{first}-{last} --page N` "
+        "reads them (N = 1, 2, …). Cite them as {handle} ¶a-b like any other block.]"
+    ),
     "compile.task.context_unavailable": (
         "[Message/segment metadata could not be aligned with source paragraphs and is "
         "omitted. Use the available text and sections; do not guess missing message times "

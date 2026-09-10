@@ -157,22 +157,14 @@ def setup(home: Home, answers: str | Path | None = None, *, no_skill: bool = Fal
     if persist_owner_profile(home, library, only_if_missing=True):
         completed.append("owner profile (placeholder persisted)")
 
-    # 5. the library's own package, installed into the library directory in the harness's
-    # convention — that directory is the project an unattended round stands in.
-    # `create_library` installs a new one; an existing library that never got one (an
-    # interrupted setup) gets it here.
-    if not library.skill_dir.is_dir():
-        render_library(home, library)
-        completed.append("library skill package")
-
-    # 6. the global router skill, refreshed rather than refused: the installer has usually
+    # 5. the global router skill, refreshed rather than refused: the installer has usually
     # just written this exact package, and re-rendering our own bytes is not a replacement
     # of anyone's work. A directory with no marker of ours is still refused.
     if not no_skill:
         skill_install.install(home, refresh=True)
         completed.append("harness skill")
 
-    # 7. the console's built page, BEFORE the engine, because the engine decides at start
+    # 6. the console's built page, BEFORE the engine, because the engine decides at start
     # whether it serves one. A machine that cannot reach the release keeps its setup: the
     # step is reported as skipped and the next `pkchome console` fetches it.
     try:
@@ -182,21 +174,52 @@ def setup(home: Home, answers: str | Path | None = None, *, no_skill: bool = Fal
     except (ConsoleUnavailable, ValueError) as exc:
         completed.append(f"console skipped: {exc}")
 
-    # 8. this library's engine, last, so nothing above can stop it from starting.
+    # 7. this library's engine, so nothing below can stop it from starting.
     engine.start(home, library)
     completed.append(f"engine on port {library.state.engine.port}")
 
-    # 9. the profile, after the engine, because `pkc profile set` writes the engine file and
-    # the persisted record in one move and needs the store the engine brought up. It is the
-    # last step for the same reason it is a step at all: a machine already knows its Owner's
-    # name, clock and language, and a setup that leaves the profile blank answers them in
-    # English on a machine whose every other application does not.
+    # 8. the profile, after the engine, because `pkc profile set` writes the engine file and
+    # the persisted record in one move and needs the store the engine brought up. It is a
+    # step at all because a machine already knows its Owner's name, clock and language, and
+    # a setup that leaves the profile blank answers them in English on a machine whose every
+    # other application does not.
     completed.append(seed_profile(home, library, selected, language_stated=language_stated))
+
+    # 9. the library's own package, installed into the library directory in the harness's
+    # convention — that directory is the project an unattended round stands in. LAST, and
+    # after the profile: the package states the Owner in its own prose, so a render taken
+    # before step 8 wrote them is stale the moment setup finishes, and the tray says so
+    # thirteen minutes later. `create_library` rendered one from a blank profile; this
+    # renders the one the harness will actually read.
+    completed.append(refresh_skill_package(home, library))
 
     print("Setup: " + "; ".join(completed) + ".")
     print()
     print(onboarding(home, library))
     return library
+
+
+def refresh_skill_package(home: Home, library: Library) -> str:
+    """Re-render the library's installed package. Never fails what has already been done.
+
+    The package carries the Owner in its own prose — the display name, the role, the language
+    the Steward is to be answered in — so every write of the profile makes the installed
+    bytes a rendering of a profile that no longer exists, and `pkc skill verify` calls that
+    drift. Which it is: the tray showed `skill 包：已过期` thirteen minutes into a cold start
+    for exactly this reason. So whichever face writes the profile re-renders afterwards,
+    from the one function that installs a library's package.
+
+    Idempotent: `pkc skill install` purges and rewrites, so a render over an unchanged
+    profile writes the same bytes and moves no hash.
+    """
+    try:
+        render_library(home, library)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        # A package that could not be re-rendered is a stale package, not a failed setup:
+        # everything above stands, the worker re-renders before its next round, and the
+        # reason is named rather than swallowed.
+        return f"library skill package skipped: {exc}"
+    return "library skill package"
 
 
 def seed_profile(home: Home, library: Library, selected: Answers, *,
@@ -328,6 +351,10 @@ def seed_hints(home: Home, library: Library, profile: dict) -> tuple[list[str], 
         # Same verdict as `seed_profile`: a profile that could not be written is not a failed
         # checklist. The questions below stand, and the reason is named rather than swallowed.
         return [], f"profile skipped: {exc}"
+    # The profile the package states just changed, so the package is re-rendered here for the
+    # same reason `setup` renders it after step 8 — otherwise the tray reads "stale" from this
+    # write until the worker's next round notices.
+    refresh_skill_package(home, library)
     return _ordered(updates), ""
 
 

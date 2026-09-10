@@ -8,16 +8,19 @@ runtime's questions, and the fact that every one of them is the worker's own cod
 
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 from pneuma_knowledge_core.domain.ids import SourceId, UserId
 from pneuma_knowledge_core.domain.source import NormalizedSource
 
 from ..adapters.postgres import PostgresDraftStore
+from ..coding_agent.backends import backend as backend_manifest
+from ..coding_agent.install import installed_hash, steward_skill_hash
 from ..persona_profile import is_placeholder, profile_notice
 from ..skills import skill_for_user, composed_skill_readonly
 from ..source_authorship import load_owner_authored_blocks
-from ..wiring import AppContext
+from ..wiring import AppContext, executor_for
 from ..workers.compile_worker import (
     _search_knowledge_port,
     _search_source_port,
@@ -41,6 +44,16 @@ async def build_runtime(
     skill = (await composed_skill_readonly(ctx.settings, ctx.canonical, user_id)
              if kind in ("evolve", "episodes") else await skill_for_user(ctx, user_id))
     label = executor or agent_executor(ctx.settings)
+    # WHICH WORDS the executor of this round was taught, resolved once here so every command
+    # that ends a round states the same one. The shim exports it for a session it started; a
+    # process it did not start — the worker finishing a round its harness left open — reads
+    # the same fact off the install the harness was pointed at. Only under an agent executor:
+    # a langchain round is not taught a skill package, and guessing one for it would be a
+    # trailer that claims an executor the commit never had.
+    selected = executor_for(ctx.settings, "evolve" if kind == "evolve" else "compile")
+    executor_skill = steward_skill_hash()
+    if not executor_skill and selected.is_agent:
+        executor_skill = installed_hash(os.getcwd(), backend_manifest(str(selected.backend)))
     # Asked once, here, from the same provider the round's own contract is rendered from
     # (`compile_inputs`): does this library's profile name its Owner? A lookup that fails is
     # not a finding — the notice exists to catch the generator's placeholder, not to report
@@ -103,6 +116,7 @@ async def build_runtime(
         search_source=_search_source_port(ctx, user_id),
         persist=persist,
         executor=label,
+        executor_skill=executor_skill,
         compile_draft_ttl=ctx.settings.compile_draft_ttl,
         worker_posture="unattended" if ctx.settings.agent_unattended else "interactive",
         kind=kind,
@@ -110,4 +124,5 @@ async def build_runtime(
         owner_is_placeholder=owner_placeholder,
         owner_profile_notice=owner_notice,
         owner_authored_blocks=await load_owner_authored_blocks(ctx.store, user_id, skill),
+        task_structure_chars=int(ctx.settings.agent_task_structure_chars),
     )

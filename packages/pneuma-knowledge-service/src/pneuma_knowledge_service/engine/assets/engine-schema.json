@@ -1053,6 +1053,7 @@
             "compile.task.retrieved_note",
             "compile.task.section_context",
             "compile.task.source_heading",
+            "compile.task.source_truncated",
             "compile.task.sources_header",
             "compile.task.time_header",
             "compile.task.time_multi_day",

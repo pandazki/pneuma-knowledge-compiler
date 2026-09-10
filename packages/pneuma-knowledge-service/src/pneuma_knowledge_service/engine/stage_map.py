@@ -1341,6 +1341,9 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # The engine directory pointer itself. It cannot live in the engine directory
         # (nothing would know where to look), and it is deployment wiring, not strategy.
         "engine_dir",
+        # How loud the process's own logging is. Operational, not strategy: it changes what
+        # an operator can read about a run, never what a round compiles.
+        "log_level",
         # Infrastructure: connection targets and the canonical root. These belong to the
         # deployment and are explicitly NOT versioned with the engine (Ruling 1).
         "pg_dsn",
@@ -1431,6 +1434,11 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # provider states beats it anyway.
         "agent_rate_limit_cooldown_s",
         "agent_rate_limit_cooldown_max_s",
+        # How much source text an AGENT's task carries before it names the rest. What the
+        # round may read is unchanged — every block is one `pkc source fetch` away and the gate
+        # bounds citations against L0, not against the task — so this is about fitting a
+        # harness's context, the same kind of statement as the timeout it would otherwise hit.
+        "agent_task_structure_chars",
         # The last two are the same kind of statement, and the borderline one: the model and
         # the reasoning effort of the harness the launcher spawns. `models.compile` already
         # says `agent:<backend>` and deliberately says no more — §8's ruling is that WHICH

@@ -236,6 +236,28 @@ async def test_jobs_reports_the_queue():
     assert row["job_id"] == job_id and row["status"] == "queued"
 
 
+async def test_jobs_reports_what_a_refusing_harness_itself_said():
+    """`harness_failed: exit 1` names no cause. The words that do are on the row beside it,
+    scrubbed and bounded, and a Steward reads them where they read everything else."""
+    lib = _lib()
+    job_id = await lib.store.enqueue(USER, "compile", {"source_ids": ["s-01"]})
+    await lib.store.complete(
+        USER, job_id, ok=False,
+        detail="harness_failed: exit 1 — Error: input is too long",
+        harness_output="Error: input is too long for the selected model",
+    )
+    code, out, _err = await run(lib, "jobs", "--json")
+    assert code == 0
+    row = json.loads(out)["jobs"][0]
+    assert row["harness_output"] == "Error: input is too long for the selected model"
+
+    # A job no harness refused says nothing rather than an empty string.
+    other = await lib.store.enqueue(USER, "index", {"source_id": "s-01"})
+    await lib.store.complete(USER, other, ok=True, detail="indexed")
+    rows = {r["job_id"]: r for r in json.loads((await run(lib, "jobs", "--json"))[1])["jobs"]}
+    assert rows[other]["harness_output"] is None
+
+
 # ────────────────────────────────────────────────────────────── putting work back
 
 #: The exact shape a compile job carried the night a spent quota was recorded as work: the

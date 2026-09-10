@@ -31,7 +31,6 @@ from . import draft as shared
 @dataclass
 class EpisodesRuntime(shared.DraftRuntime):
     ctx: object = None
-    executor_skill: str = ""
 
 
 async def build_runtime(ctx, user_id, *, executor=None) -> EpisodesRuntime:
@@ -42,7 +41,7 @@ async def build_runtime(ctx, user_id, *, executor=None) -> EpisodesRuntime:
     digest = steward_skill_hash()
     if not digest and selected.is_agent:
         digest = installed_hash(os.getcwd(), backend(selected.backend))
-    return EpisodesRuntime(**vars(rt), ctx=ctx, executor_skill=digest)
+    return EpisodesRuntime(**{**vars(rt), "executor_skill": digest}, ctx=ctx)
 
 
 def _source_surface(source) -> str:

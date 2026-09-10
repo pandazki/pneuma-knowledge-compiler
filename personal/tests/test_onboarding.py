@@ -292,6 +292,30 @@ def test_the_librarys_own_language_is_what_the_seeding_writes(home, make_library
     ]
 
 
+def test_onboarding_re_renders_the_package_after_it_seeds(
+    home, make_library, pkc, machine, monkeypatch
+):
+    """A profile write leaves the installed skill package stating a profile that is gone.
+
+    The package carries the Owner in its own prose, so whichever face writes the profile
+    re-renders after it — `setup` as its last step, this one here. Without it the tray reads
+    `skill 包：已过期` from the moment of the write until some later round notices.
+    """
+    library = make_library()
+    rendered = []
+    monkeypatch.setattr(setup, "render_library", lambda *_: rendered.append("render"))
+    pkc.answer("profile show", stdout=_blank())
+    pkc.then("profile show", stdout=_profile("en"))
+    setup.onboarding(home, library)
+    assert rendered == ["render"]
+    # Idempotent, and by the same rule that makes the seeding idempotent: a pass that writes
+    # nothing renders nothing.
+    rendered.clear()
+    pkc.answer("profile show", stdout=_profile("en"))
+    setup.onboarding(home, library)
+    assert rendered == []
+
+
 def test_a_second_onboarding_seeds_nothing(home, make_library, pkc, machine):
     library = make_library()
     pkc.answer("profile show", stdout=_profile("en"))

@@ -2226,6 +2226,11 @@ class JobOut(BaseModel):
     cost: CostOut | None = None
     executor: str | None = None
     waiting_for: Literal["worker", "steward"] | None = None
+    #: What a launched harness itself printed about a round it did not run — bounded to its
+    #: tail and scrubbed before it was stored. `detail` says what the worker decided about
+    #: the refusal; this says what the process said, which is the only thing that tells an
+    #: exhausted subscription from a source no harness can chew. Null on every other job.
+    harness_output: str | None = None
 
 
 class JobPageOut(BaseModel):
@@ -2323,6 +2328,7 @@ async def list_jobs(
             token_usage=dict(r.get("token_usage") or {}),
             cost=_cost_out(lane_cost(ctx.settings, "compile", r.get("token_usage"))),
             executor=r.get("executor"),
+            harness_output=r.get("harness_output") or None,
             waiting_for=(
                 compile_waits_for
                 if r["status"] == "queued" and r["kind"] == "compile"

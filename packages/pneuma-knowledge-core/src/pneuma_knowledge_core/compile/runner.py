@@ -306,11 +306,20 @@ def _render_task(
     source_preamble: Mapping[str, str] | None = None,
     retrieved: str | None = None,
     time: TimeContext | None = None,
+    *,
+    max_source_chars: int = 0,
+    fetch_ids: Mapping[str, str] | None = None,
 ) -> str:
     treatments = treatments or {}
     source_guidance = source_guidance or {}
     source_preamble = source_preamble or {}
     parts: list[str] = []
+    # The numbered source text is the one part of the task that grows with the material
+    # rather than with the library's shape: a 24,439-block session put 1.8M characters in
+    # front of a round that could not hold them. Bounded here — across ALL sources, in block
+    # order — and only when the caller has a second way to read what is cut (0 = unbounded).
+    source_budget = max(0, int(max_source_chars or 0))
+    source_spent = 0
 
     # First-party per-type guidance is a per-ORIGIN constant, so it is stated ONCE per job
     # rather than re-pasted under every source. It used to repeat verbatim per source, so a
@@ -379,23 +388,25 @@ def _render_task(
         if context.misaligned:
             parts.append(prompt("compile.task.context_unavailable"))
         previous_section: list[str] = []
+        cut_at: int | None = None
         for b in s.blocks:
+            lines: list[str] = []
             if b.section_path != previous_section:
-                parts.append(prompt(
+                lines.append(prompt(
                     "compile.task.section_context",
                     path=json.dumps(b.section_path, ensure_ascii=False),
                 ))
                 previous_section = b.section_path
             if context.blocks.get(b.index):
-                parts.append(prompt(
+                lines.append(prompt(
                     "compile.task.block_context", index=b.index,
                     context=json.dumps(context.blocks[b.index], ensure_ascii=False),
                 ))
-            parts.append(prompt("compile.task.block_line", index=b.index, text=b.text))
+            lines.append(prompt("compile.task.block_line", index=b.index, text=b.text))
             for image in b.images:
                 if image.derived:
                     for derived in image.derived:
-                        parts.append(
+                        lines.append(
                             prompt(
                                 "compile.task.image_derived",
                                 image_id=image.image_id,
@@ -405,12 +416,29 @@ def _render_task(
                             )
                         )
                 else:
-                    parts.append(
+                    lines.append(
                         prompt(
                             "compile.task.image_without_derived",
                             image_id=image.image_id,
                         )
                     )
+            if source_budget:
+                size = sum(len(line) + 1 for line in lines)
+                if source_spent + size > source_budget:
+                    cut_at = b.index
+                    break
+                source_spent += size
+            parts.extend(lines)
+        if cut_at is not None:
+            handle = str(s.raw.source_id)
+            parts.append(prompt(
+                "compile.task.source_truncated",
+                handle=handle,
+                source_id=(fetch_ids or {}).get(handle, handle),
+                first=cut_at,
+                last=s.blocks[-1].index,
+                chars=source_budget,
+            ))
         parts.append("")
     parts.append(prompt("compile.task.outline_header"))
     parts.append(prompt("compile.task.outline_note"))
@@ -436,6 +464,8 @@ def _render_task_content(
     *,
     image_mode: Literal["caption", "native"] = "caption",
     image_payloads: Mapping[str, bytes] | None = None,
+    max_source_chars: int = 0,
+    fetch_ids: Mapping[str, str] | None = None,
 ) -> str | list[dict]:
     """Render caption-only text or standard LangChain native image content blocks."""
 
@@ -447,6 +477,8 @@ def _render_task_content(
         source_preamble,
         retrieved,
         time,
+        max_source_chars=max_source_chars,
+        fetch_ids=fetch_ids,
     )
     images = [
         (source, block, image)
@@ -510,7 +542,9 @@ def executor_skill_hash() -> str:
     return os.environ.get(STEWARD_SKILL_HASH_ENV, "").strip()
 
 
-def _with_skill_trailer(message: str, skill: SkillVersion) -> str:
+def _with_skill_trailer(
+    message: str, skill: SkillVersion, *, executor_skill: str = ""
+) -> str:
     """Append a git trailer block recording which skill version compiled this snapshot.
 
     A free git audit trace (architecture.md §9 M5): a blank line then `Key: value`
@@ -534,7 +568,12 @@ def _with_skill_trailer(message: str, skill: SkillVersion) -> str:
     # (docs/design/coding-agent-mode.md §7). Absent for the langchain executor, whose process
     # nothing exports it into — so a model-compiled commit's trailer is byte-for-byte what it
     # has always been.
-    executor_skill = executor_skill_hash()
+    # Stated by the caller when the body that read those words is not THIS process: a round
+    # a coding agent drove and the worker finished on its behalf commits here, and the
+    # variable the harness carried was never in the worker's own environment
+    # (`coding_agent/round_runner.py`). Unstated, the process answers for itself, which is
+    # what a Steward's own `pkc draft finish` and the langchain executor both need.
+    executor_skill = (executor_skill or "").strip() or executor_skill_hash()
     if executor_skill:
         trailers.append(f"Executor-Skill: {executor_skill}")
     # Third axis: WHICH components were in the room — their gate checks, outline lines and
@@ -854,8 +893,16 @@ def render_compile_messages(
     time: TimeContext | None = None,
     image_mode: Literal["caption", "native"] = "caption",
     image_payloads: Mapping[str, bytes] | None = None,
+    max_source_chars: int = 0,
+    fetch_ids: Mapping[str, str] | None = None,
 ) -> tuple[str, str | list[dict]]:
     """The two surfaces one compile round is given: `(system text, task content)`.
+
+    `max_source_chars` bounds the numbered source text in the task (0 = unbounded, which is
+    every model-executed round: its bytes are exactly what they always were). A coding agent
+    has a second way to read material — `pkc source fetch` — so its task can stop at a bound
+    and say where the rest is; `fetch_ids` maps each `sNN` handle to the id that command
+    takes, because the handle is the round's and the command's argument is the library's.
 
     `sources` are the ALIASED sources — the handles the model will cite. Called inside the
     component window, because the task carries every enabled component's `source_preamble`
@@ -875,6 +922,8 @@ def render_compile_messages(
             time,
             image_mode=image_mode,
             image_payloads=image_payloads,
+            max_source_chars=max_source_chars,
+            fetch_ids=fetch_ids,
         ),
     )
 
@@ -945,6 +994,11 @@ async def finalize_compile(
     rounds: int = 1,
     tool_calls: int = 0,
     token_usage: Mapping[str, int] | None = None,
+    #: The sha256 of the skill package the EXECUTOR was taught with, when the process making
+    #: this commit is not the process that read those words — the worker finishing a round a
+    #: launched harness drove. Empty means "ask this process", which is the answer for a
+    #: Steward's own `pkc draft finish` and for the langchain executor alike.
+    executor_skill: str = "",
 ) -> CompileResult:
     """The end of a compile round, whichever executor drove it: gate → commit | abort | noop.
 
@@ -1004,7 +1058,9 @@ async def finalize_compile(
     files = {p: resolve_handles(b, resolved) for p, b in files.items()}
     new_bodies = {p: resolve_handles(b, resolved) for p, b in draft.new_bodies().items()}
     snapshot = await store.commit_patch(
-        user_id, files, message=_with_skill_trailer(commit_message, skill)
+        user_id,
+        files,
+        message=_with_skill_trailer(commit_message, skill, executor_skill=executor_skill),
     )
     events = derive_events(draft.base_bodies(), new_bodies)
     return CompileResult(

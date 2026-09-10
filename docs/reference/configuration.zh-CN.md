@@ -67,6 +67,7 @@
 | `AGENT_UNATTENDED` | `true` | **worker 自己**是否通过编码代理来跑编译与演进作业。worker 按定义就是无人值守的——它运行的地方没有人守着——所以在 `agent:` 执行体下它会认领编译作业、打开草稿，并交给自己拉起的 harness（[coding-agent-mode](../design/coding-agent-mode.md) §9）。`false` 是交互姿态：agent 编译与演进作业留在队列里，由所有者自己的会话用各自的 draft open 打开，其余作业照常流转。在模型执行体下这个开关不决定任何事。不是引擎旋钮（属于部署接线） |
 | `AGENT_PROBE_ON_START` | `true` | 启动时探测所配置的编译 harness，不可用就拒绝启动。装了但没登录的 harness 会掉进交互式登录流程并永远等下去，所以「它是否活着」应当在排队派活之前问清楚，而不是等第一次编译才发现。探测的是**活性**，绝不比较版本。只有无人值守姿态会探测——`pkc` 进程从不拉起 harness，所以它从不探测。测试与 CI 用 `false`：那里 PATH 上的是假二进制，登录这件事根本不存在。不是引擎旋钮 |
 | `AGENT_RETRIES` | `3` | 当 harness 以**限流**拒绝一轮时，无人值守启动器最多可以重新拉起几次——仅限这一种。其他任何拒绝都只上报不重试（再试一次还是会被拒），超时同样不重试，因为墙钟本身就是「这一轮结束了」的声明。等待按指数增长并带抖动，受启动器自身的上限约束；每一次等待都写日志。`0` 表示只试一次、不退避。不是引擎旋钮 |
+| `AGENT_TASK_STRUCTURE_CHARS` | `60000` | 编码代理的编译任务最多携带多少带编号的来源正文，超过就停下并指明其余部分：每个被截断的来源有一行，说明哪些块未展示，以及读取它们的确切命令 `pkc source fetch <id> ¶a-b --page N`——用的是库里的 id，而不是本轮的 `sNN` 句柄。只有代理轮次有上限——模型执行者没有第二种读取材料的途径，它的任务逐字节不变。可以引用的范围也不变：闸门按 L0 而不是按任务核对引用。`0` = 不设上限。不是引擎旋钮 |
 | `AGENT_RATE_LIMIT_COOLDOWN_S` | `900` | 当 harness 说订阅没额度了、又没说什么时候回来时，worker 把这个租户走 agent 的作业晾多久。每次连续命中翻倍，上限为 `AGENT_RATE_LIMIT_COOLDOWN_MAX_S`；第一轮真正跑起来的轮次会把它忘掉。它是兜底，不是规则：harness 自己点名了时刻时（Codex 会打印 `try again at Sep 15th, 2026 9:23 AM`，按 `DEFAULT_TIMEZONE` 解读），以那个时刻为准，因为那是服务商自己的答案，而这只是猜测。等待表现为重新入队那一行上的 `not_before`，所以没有任何东西在睡觉，重启后读到的也是同一个答案。不是引擎旋钮 |
 | `AGENT_RATE_LIMIT_COOLDOWN_MAX_S` | `21600` | 翻倍停在哪里——六小时。猜短了才是贵的那个错误：在这条存在之前，853 个作业在四小时里穿过了一份已经死掉的额度。不是引擎旋钮 |
 | `AGENT_MODEL` | （空） | 拉起的 harness 跑**哪个模型**，作为启动模板的模型参数（`-m` / `--model`）传入。留空则交给 harness 自己——也就是所有者的全局 harness 配置，因为每个作业的配置目录正是从那里播种的。当一个知识库的编译轮不该继承所有者为自己终端所设的东西时，就在这里点名。不是引擎旋钮 |
@@ -252,6 +253,7 @@ API 生成的简报，其输入只有机械记录——从 diff 推导出的 cla
 | 配置 | 默认 | 含义 |
 |---|---|---|
 | `DEFAULT_TIMEZONE` | `UTC` | 画像未声明时区时统计"日历天"用的兜底时区 |
+| `LOG_LEVEL` | `INFO` | 这套部署自己的日志有多响——`pneuma_knowledge_service`，以及站在库之上的应用启动引擎时点名的它自己的 logger。在组装引擎进程的那一处统一配置（`engine_process.configure_logging`），输出到 stderr，每行带上 logger 名字；uvicorn 保留自己的 handler，不会被重复打印。在此之前，worker 对一次无人值守轮次的交代（`round finished: exit 1`、`cooling until …`）发给了没人配置过的 logger，于是引擎日志里只有 `print()` 出来的行和 uvicorn 的 INFO。名字不认识就按 `INFO` 读，而不是拒绝启动。不是引擎旋钮 |
 | `USER_SCHEMA_PACKS` | `true` | 每用户 schema pack 组合 |
 | `USER_SCHEMA_MATRIX_PATH` | 未设 | 部署自带的 pack matrix JSON；未设用内置 |
 | `CONTEXT_STREAM_RENDER_ROLES` | `true` | 摄入时渲染 owner/participant 标签 |

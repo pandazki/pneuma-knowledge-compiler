@@ -846,6 +846,9 @@ async def cmd_jobs(
             # is the same as not storing it (the unattended launcher's whole reason for
             # reading the harness's own counters).
             "token_usage": r.get("token_usage") or None,
+            # What the harness said when it refused, for the one question `detail` cannot
+            # answer on its own: exit 1 with the words that came with it.
+            "harness_output": r.get("harness_output") or None,
             "source_ids": [str(s) for s in (r.get("payload") or {}).get("source_ids", [])],
             "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
         }

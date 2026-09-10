@@ -38,10 +38,11 @@ import atexit
 import logging
 import os
 import random
+import re
 import shutil
 import tempfile
 import weakref
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -85,6 +86,48 @@ BACKOFF_JITTER = 0.25
 
 #: How long after TERM the group gets before KILL, per §8 ("reaped TERM→KILL").
 KILL_AFTER_S = 1.0
+
+#: What `scrub` replaces a credential with. A marker rather than deletion, because a line
+#: that lost a word silently reads as the harness having said something it did not.
+REDACTED = "«redacted»"
+
+#: What a credential looks like in a harness's own output. Two families: a value stated
+#: after a name that says what it is (`OPENAI_API_KEY=sk-…`, `"authorization": "Bearer …"`),
+#: and a token whose SHAPE is the whole tell (`sk-…`, a JWT). Neither list is a guarantee —
+#: nothing can be — but the output of a failed launch travels onto a job row and out of a
+#: `pkc jobs --json`, and a launcher that carried the environment's secrets there would have
+#: made the failure report the leak.
+_SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"(?i)\b([A-Za-z0-9_.\-]*(?:api[_-]?key|apikey|secret|token|password|passwd|"
+        r"credential)[A-Za-z0-9_.\-]*)\s*([=:]\s*)[\"']?([^\s\"',]{6,})",
+    ),
+    re.compile(r"(?i)\b(bearer|basic)\s+([A-Za-z0-9._\-+/=]{12,})"),
+    re.compile(r"\b(sk|rk|pk|xoxb|xoxp|ghp|gho|ghu|ghs|github_pat)[-_][A-Za-z0-9_\-]{12,}"),
+    re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]+"),
+)
+
+
+def scrub(text: str, *, secrets: Sequence[str] = ()) -> str:
+    """A harness's own words with anything credential-shaped taken out of them.
+
+    One function, because there is one rule: output that leaves this process — onto a job
+    row, into a log line, through the jobs API — is scrubbed at the boundary rather than
+    wherever somebody remembers to. `secrets` are exact values the caller already knows
+    (a resolved setting's key), masked literally; the patterns catch the rest by shape.
+    """
+    if not text:
+        return ""
+    out = text
+    for value in secrets:
+        if value and len(str(value)) >= 6:
+            out = out.replace(str(value), REDACTED)
+    out = _SECRET_PATTERNS[0].sub(lambda m: f"{m.group(1)}{m.group(2)}{REDACTED}", out)
+    out = _SECRET_PATTERNS[1].sub(lambda m: f"{m.group(1)} {REDACTED}", out)
+    for pattern in _SECRET_PATTERNS[2:]:
+        out = pattern.sub(REDACTED, out)
+    return out
+
 
 #: Every live harness process this interpreter spawned, so exit can reap them. A weak set:
 #: a finished process must not be kept alive by the bookkeeping that watches it.
@@ -519,6 +562,7 @@ __all__ = [
     "connection_env",
     "harness_env",
     "launch_round",
+    "scrub",
     "seed_config_home",
     "resume_supported",
     "stdin_text",

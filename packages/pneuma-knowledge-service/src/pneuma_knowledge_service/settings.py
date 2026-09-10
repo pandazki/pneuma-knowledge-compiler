@@ -32,6 +32,16 @@ class Settings(BaseSettings):
         env_prefix="PNEUMA_KNOWLEDGE_", env_file=".env", extra="ignore"
     )
 
+    # How loud this deployment's own loggers are — `pneuma_knowledge_service`, and any logger
+    # an application standing over the library adds when it starts the engine. Configured
+    # once where the engine process is assembled (`engine_process.configure_logging`) and
+    # nowhere else: before that, a worker's
+    # `log.info("round finished: exit …")` went to a root logger nobody had configured, so
+    # the engine log held uvicorn's requests and the `print()`ed lines and NOTHING about what
+    # the compile worker was doing. An unknown name reads as INFO rather than raising; a log
+    # level is not a thing worth refusing to start over.
+    log_level: str = "INFO"
+
     pg_dsn: str = "postgresql://pneuma_knowledge:pneuma_knowledge@localhost:15432/pneuma_knowledge"
     qdrant_url: str = "http://localhost:16333"
     # The Qdrant collection holding L2 chunk vectors. A single collection has one fixed
@@ -146,6 +156,15 @@ class Settings(BaseSettings):
     # was written — so the ceiling is hours rather than minutes.
     agent_rate_limit_cooldown_s: int = 900
     agent_rate_limit_cooldown_max_s: int = 6 * 60 * 60
+
+    # How much numbered source text a coding agent's compile task carries before it stops and
+    # names the rest. A model executor has no second way to read material, so its task is
+    # never bounded; an agent does — `pkc source fetch <id> ¶a-b --page N` — so its task can
+    # end at this many characters with one line saying which blocks are not shown and the
+    # exact command that reads them. The session that made it necessary: 24,439 blocks and
+    # 1.8M characters in one task, handed to a harness that died on it every time. 0 = no
+    # bound.
+    agent_task_structure_chars: int = 60_000
 
     # Keep the launcher's per-round working directory (the system text, the task, the
     # harness's last message) instead of deleting it. Debugging only: those files hold the
