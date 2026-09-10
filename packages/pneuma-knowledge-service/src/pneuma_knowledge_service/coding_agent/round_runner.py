@@ -73,6 +73,13 @@ COMMITTED_BY_HARNESS = "finished by the harness"
 FINISHED_BY_WORKER = "the harness stopped; the worker finished the round"
 REPAIRED = "the harness repaired the round"
 ABANDONED = "the round was abandoned"
+#: The launch never became a round. The harness refused before it read anything — the
+#: subscription is out of room, or the process died on its own account — so there is nothing
+#: to judge and nothing to finish. It is NOT an outcome of the work, which is the whole point:
+#: a draft the worker "finishes" here would commit an empty round, complete the job ok, stamp
+#: its sources digested, and leave the library believing that material was compiled. That is
+#: what one night against a spent quota actually did, 296 times.
+HARNESS_UNAVAILABLE = "the harness did not run the round"
 
 
 @dataclass(frozen=True)
@@ -88,7 +95,17 @@ class AgentRoundResult:
     #: How many harness processes this job cost — 1 normally, 2 with a repair round.
     launches: int = 0
     timed_out: bool = False
+    #: A launch refused for a reason waiting fixes: the subscription is out of room, or the
+    #: model has no capacity (`launcher.LaunchResult.rate_limited`).
     rate_limited: bool = False
+    #: What the last launch exited with. Carried out of the runner because a
+    #: `HARNESS_UNAVAILABLE` result is reported to an operator as a fault, and "exit 1" is
+    #: the whole of what the harness said about a failure it had no words for.
+    exit_code: int = 0
+    #: The harness's own output, for the one reader that needs its words rather than its
+    #: exit code: the parser that reads WHEN the subscription's room comes back. Bounded to
+    #: the tail, because a job row is not a place to keep a transcript.
+    output: str = ""
 
 
 def _sum_usage(
@@ -191,6 +208,25 @@ class AgentRoundRunner:
             rate_limited = rate_limited or first.rate_limited
 
             state = await self._open_state(rt, job_id)
+            if state is not None and _never_ran(first, state[1]):
+                # A launch that refused and typed NOTHING. There is no round here to judge,
+                # so nothing is finished and nothing is abandoned: the worker completes the
+                # job as a fault and queues the same work for later.
+                #
+                # Both halves are load-bearing. A refusal alone is not it — a harness that
+                # wrote three claims and then hit the limit left real work, and the gate
+                # judges that exactly as it judges any round its process walked out of. And
+                # an untouched draft alone is not it either — a harness that read the
+                # material and decided there was nothing to record is a legitimate empty
+                # round, which is why `first.rate_limited or exit != 0` has to be true too.
+                # Together they are the one shape that cannot be work: the harness was told
+                # no before it read anything.
+                last_message = ""  # the harness wrote no brief; it wrote a refusal
+                return self._result(
+                    job_id, HARNESS_UNAVAILABLE, usage, cost, launches, timed_out,
+                    rate_limited, exit_code=first.exit_code,
+                    output=_tail(first.stderr, first.stdout),
+                )
             if state is None:
                 return self._result(
                     job_id, COMMITTED_BY_HARNESS, usage, cost, launches, timed_out, rate_limited
@@ -384,6 +420,9 @@ class AgentRoundRunner:
         launches: int,
         timed_out: bool,
         rate_limited: bool,
+        *,
+        exit_code: int = 0,
+        output: str = "",
     ) -> AgentRoundResult:
         return AgentRoundResult(
             job_id=job_id,
@@ -393,6 +432,8 @@ class AgentRoundRunner:
             launches=launches,
             timed_out=timed_out,
             rate_limited=rate_limited,
+            exit_code=exit_code,
+            output=output,
         )
 
 
@@ -409,6 +450,29 @@ class AgentRoundOpenRefused(RuntimeError):
         self.reason = reason
 
 
+#: How much of a refusing harness's output travels out of the round. Enough to hold the
+#: sentence that names the deadline, and nowhere near enough to be a transcript.
+OUTPUT_TAIL_CHARS = 4000
+
+
+def _never_ran(launch: LaunchResult, session: DraftSession) -> bool:
+    """Did this launch refuse before it became a round at all?
+
+    Two mechanical facts, both required: the launch could not run (a transient refusal the
+    launcher already waited out, or a non-zero exit), and the draft it was handed still has
+    every one of its calls unspent — the harness typed nothing. The second is what keeps a
+    partially-written round out of this branch, and the first is what keeps a deliberate
+    empty round out of it.
+    """
+    return (launch.rate_limited or launch.exit_code != 0) and session.spent == 0
+
+
+def _tail(*parts: str) -> str:
+    """The tail of what the harness said, joined — its own words about why it did not run."""
+    text = "\n".join(part for part in parts if part)
+    return text[-OUTPUT_TAIL_CHARS:]
+
+
 def _add(left: float | None, right: float | None) -> float | None:
     if left is None:
         return right
@@ -419,6 +483,7 @@ __all__ = [
     "ABANDONED",
     "COMMITTED_BY_HARNESS",
     "FINISHED_BY_WORKER",
+    "HARNESS_UNAVAILABLE",
     "REPAIRED",
     "AgentRoundOpenRefused",
     "AgentRoundResult",

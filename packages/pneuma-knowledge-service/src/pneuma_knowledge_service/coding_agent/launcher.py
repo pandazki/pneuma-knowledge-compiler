@@ -111,6 +111,10 @@ class LaunchResult:
     #: What the harness said the round cost in money, when it prices itself at all.
     cost_usd: float | None = None
     timed_out: bool = False
+    #: The launch failed for a reason that waiting fixes — the subscription is out of room,
+    #: or the model has no capacity. One flag for both because the launcher and the worker do
+    #: the same thing about them; `backends.unavailable_reason` is what tells them apart when
+    #: a person has to be told which it was.
     rate_limited: bool = False
     #: The session the round ran under, when the harness names one — what a repair round
     #: resumes.
@@ -323,13 +327,32 @@ def stdin_text(request: LaunchRequest) -> str:
     return f"{system}\n\n{request.task_text}" if system else request.task_text
 
 
-def _is_rate_limited(manifest: BackendManifest, code: int, output: str) -> bool:
+def _is_rate_limited(
+    manifest: BackendManifest, code: int, output: str, *, failed: bool = False
+) -> bool:
+    """Did this launch fail for a reason that WAITING fixes?
+
+    Two families, one answer: the Owner's subscription is out of room (`rate_limit_markers`)
+    or the model itself has none (`unavailable_markers`). Both are transient, both are worth
+    a backoff, and neither is anything the framework can work around — the terms are the
+    provider's (§13).
+
+    `failed` is the harness's own protocol saying the turn did not complete, and it is what
+    lets the scan run at exit code 0. That case is real: `codex exec` printed
+    `{"type":"turn.failed" … "Selected model is at capacity"}` on stdout with no tool calls
+    and a return code a launcher would have read as success. The scan is still gated on it
+    rather than run unconditionally, because the same words can appear in a round's own
+    output — a library about a venue at capacity is not a library whose harness is down.
+    """
     if code in manifest.rate_limit_exit_codes:
         return True
-    if code == 0:
+    if code == 0 and not failed:
         return False
     haystack = output.lower()
-    return any(marker.lower() in haystack for marker in manifest.rate_limit_markers)
+    return any(
+        marker.lower() in haystack
+        for marker in (*manifest.rate_limit_markers, *manifest.unavailable_markers)
+    )
 
 
 def backoff_wait(attempt: int, *, rng: random.Random | None = None) -> float:
@@ -411,7 +434,14 @@ async def _run_once(request: LaunchRequest, workdir: Path) -> LaunchResult:
         usage=report.usage,
         cost_usd=report.cost_usd,
         timed_out=timed_out,
-        rate_limited=_is_rate_limited(manifest, code, f"{stdout}\n{stderr}"),
+        # stdout as well as stderr, and deliberately: Codex states a failed turn as a JSON
+        # event on stdout, and a scan that read only stderr would see nothing at all.
+        rate_limited=_is_rate_limited(
+            manifest,
+            code,
+            f"{stdout}\n{stderr}\n{report.failure_message}",
+            failed=report.failed,
+        ),
         session_id=report.session_id,
         last_message=report.last_message or last_message,
     )

@@ -137,12 +137,18 @@ class InMemoryDraftStore:
 class _Job:
     """The `Job` protocol as an attribute bag (`ports/job_queue.py`)."""
 
-    def __init__(self, job_id: str, user_id, kind: str, payload: dict) -> None:  # noqa: ANN001
+    def __init__(  # noqa: ANN001
+        self, job_id: str, user_id, kind: str, payload: dict,
+        not_before: datetime | None = None,
+    ) -> None:
         self.job_id = job_id
         self.user_id = user_id
         self.kind = kind
         self.payload = payload
         self.status = "queued"
+        #: The earliest instant a claim may take it; None = now, as a queue has always meant.
+        self.not_before = not_before
+        self.created_at = datetime.now(timezone.utc)
 
 
 class InMemoryJobQueue:
@@ -156,9 +162,11 @@ class InMemoryJobQueue:
         self._seq = 0
         self.drafts = None
 
-    async def enqueue(self, user_id, kind: str, payload: dict) -> str:  # noqa: ANN001
+    async def enqueue(  # noqa: ANN001
+        self, user_id, kind: str, payload: dict, *, not_before: datetime | None = None
+    ) -> str:
         self._seq += 1
-        job = _Job(f"job-{self._seq:02d}", user_id, kind, dict(payload))
+        job = _Job(f"job-{self._seq:02d}", user_id, kind, dict(payload), not_before)
         self.jobs.append(job)
         return job.job_id
 
@@ -174,12 +182,14 @@ class InMemoryJobQueue:
             return None
         skip = {k for k in exclude_kinds if k}
         allowed = {t for t in tenants if t}
+        now = datetime.now(timezone.utc)
         for job in self.jobs:
             if (
                 job.status == "queued"
                 and str(job.user_id) == str(user_id)
                 and (not allowed or str(job.user_id) in allowed)
                 and job.kind not in skip
+                and (job.not_before is None or job.not_before <= now)
             ):
                 job.status = "claimed"
                 job.claimed_by = claimed_by
@@ -243,10 +253,41 @@ class InMemoryJobQueue:
                 "kind": job.kind,
                 "payload": dict(job.payload),
                 "status": job.status,
+                "not_before": job.not_before,
+                "created_at": job.created_at,
+                # The OUTCOME as this queue recorded it, so a reader that selects on what a
+                # job DID — `pkc jobs requeue --empty-rounds` — is testable keyless.
+                **self._outcome_of(user_id, job.job_id),
             }
             for job in reversed(self.jobs)
             if str(job.user_id) == str(user_id)
         ]
+
+    def _outcome_of(self, user_id, job_id: str) -> dict[str, Any]:  # noqa: ANN001
+        for record in reversed(self.completed):
+            if record["job_id"] == job_id and record["user_id"] == str(user_id):
+                return {
+                    "ok": record.get("ok"),
+                    "detail": record.get("detail"),
+                    "snapshot_ref": record.get("snapshot_ref"),
+                    "executor": record.get("executor"),
+                    "token_usage": dict(record.get("token_usage") or {}),
+                }
+        return {"ok": None, "detail": None, "snapshot_ref": None, "executor": None,
+                "token_usage": {}}
+
+    async def queue_cooling(self, user_id):  # noqa: ANN001
+        """The earliest future `not_before` among this user's queued jobs, and its reason."""
+        now = datetime.now(timezone.utc)
+        waiting = [
+            job for job in self.jobs
+            if str(job.user_id) == str(user_id) and job.status == "queued"
+            and job.not_before is not None and job.not_before > now
+        ]
+        if not waiting:
+            return None
+        first = min(waiting, key=lambda job: job.not_before)
+        return first.not_before, str(first.payload.get("cooling_reason") or "")
 
     async def get_job(self, user_id, job_id: str):  # noqa: ANN001
         for job in self.jobs:

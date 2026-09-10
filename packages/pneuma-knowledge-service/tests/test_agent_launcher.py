@@ -463,6 +463,55 @@ async def test_a_refusal_that_is_not_a_rate_limit_is_reported_rather_than_retrie
     assert result.exit_code == 1
 
 
+async def test_a_model_at_capacity_is_read_off_stdout_even_at_exit_zero(
+    fake_path, tmp_path, monkeypatch
+):
+    """The failure signature observed live, and the two things that hid it.
+
+    `codex exec -m <model>` answered `{"type":"turn.failed" … "Selected model is at capacity
+    …"}` — on STDOUT, as a JSON event, with an exit code a launcher reads as success. No tool
+    calls, no draft touched. Read as a successful round it becomes a compile that wrote
+    nothing; read as what it is, it is the same transient refusal a rate limit is, and it
+    takes the same backoff and the same outcome.
+    """
+    monkeypatch.setenv("PKC_FAKE_MODE", "at-capacity")
+
+    async def instantly(seconds: float) -> None:
+        return None
+
+    result = await launch_round(request(CODEX, tmp_path, retries=1), sleep=instantly)
+    assert result.exit_code == 0, "the harness itself said nothing was wrong"
+    assert result.rate_limited, "a turn the harness declared failed is not a finished round"
+    assert result.attempts == 2, "it is waited out like any other transient refusal"
+    assert backends.unavailable_reason(result.stdout, CODEX) == "at capacity"
+
+
+def test_a_failed_turn_is_read_out_of_the_codex_event_stream():
+    from pneuma_knowledge_service.coding_agent.harness_output import read_codex_output
+
+    line = (
+        '{"type":"turn.failed","error":{"message":'
+        '"Selected model is at capacity. Please try a different model."}}'
+    )
+    report = read_codex_output(line)
+    assert report.failed
+    assert report.failure_message == "Selected model is at capacity. Please try a different model."
+    assert report.usage is None, "a turn that did not happen spent nothing"
+
+
+def test_the_same_words_inside_a_round_that_succeeded_are_not_a_refusal():
+    """The scan runs at exit 0 only because the harness's own protocol said the turn failed.
+
+    A library about a venue at capacity is not a library whose harness is down, and a marker
+    match on ordinary output would take that library's whole queue off the air.
+    """
+    from pneuma_knowledge_service.coding_agent.launcher import _is_rate_limited
+
+    prose = "the venue was at capacity; 429 people attended"
+    assert not _is_rate_limited(CODEX, 0, prose)
+    assert _is_rate_limited(CODEX, 0, prose, failed=True)
+
+
 def test_the_backoff_grows_with_jitter_and_stops_at_the_ceiling():
     rng = random.Random(11)
     waits = [backoff_wait(n, rng=rng) for n in range(1, 12)]

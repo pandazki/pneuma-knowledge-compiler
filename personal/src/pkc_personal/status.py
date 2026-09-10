@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+from datetime import datetime, timezone
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
@@ -36,9 +37,20 @@ def queue_status(library: Library) -> dict | None:
     def left() -> float:
         return deadline - time.monotonic()
 
+    cooling: dict | None = None
+
+    def _pending(state: str) -> int:
+        nonlocal cooling
+        page = _jobs(library, timeout=left(), limit=1, status=state)["page"]
+        # The queue's own answer to "why is nothing moving": a job held back by
+        # `not_before` because the harness's subscription is out of room. It rides the page
+        # this call already makes, so status costs no extra read for it.
+        if state == "queued" and page.get("cooling_until"):
+            cooling = {"until": page["cooling_until"], "reason": page.get("cooling_reason") or ""}
+        return page["total"]
+
     try:
-        pending = sum(_jobs(library, timeout=left(), limit=1, status=status)["page"]["total"]
-                      for status in ("queued", "claimed"))
+        pending = sum(_pending(state) for state in ("queued", "claimed"))
         # Failures are read as one page and counted by kind: forty failed evolve jobs beside
         # fifty-nine successful compiles read as "forty failed" until the kind is named.
         failed_page = _jobs(library, timeout=left(), limit=100, status="failed")
@@ -54,7 +66,8 @@ def queue_status(library: Library) -> dict | None:
         page = _jobs(library, timeout=left(), limit=20, status="succeeded", kind="compile")
         stamps = [item["completed_at"] for item in page["items"] if item.get("completed_at")]
         return {"pending": pending, "failed": failed, "failed_by_kind": failed_by_kind,
-                "succeeded": succeeded, "last_compile_at": max(stamps, default=None)}
+                "succeeded": succeeded, "last_compile_at": max(stamps, default=None),
+                "cooling": cooling}
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -224,6 +237,37 @@ def status_document(home: Home, explicit: str | None = None) -> dict:
             "docker": {"reachable": docker}, "services": services, "libraries": rows}
 
 
+def local_time(stamp: str) -> str:
+    """An ISO instant as the Owner's own clock reads it — this machine's local time.
+
+    The engine answers in UTC because storage is UTC everywhere; the person reading the line
+    is deciding whether to wait, and "09:23 tomorrow" is the answer to that question while
+    "01:23Z" is a conversion exercise.
+    """
+    try:
+        moment = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return str(stamp)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone().strftime("%Y-%m-%d %H:%M")
+
+
+def worker_line(library: dict) -> str:
+    """The worker's posture, and what is holding it back when something is.
+
+    A worker that is claiming nothing looks exactly like a worker that is broken, which is
+    the whole reason this line says more than one word: a cooling period is a stated wait
+    with an end on it, and an Owner who can see it does not go looking for a fault.
+    """
+    line = posture(library["unattended"])
+    cooling = (library.get("queue") or {}).get("cooling") if library.get("queue") else None
+    if not cooling:
+        return line
+    reason = cooling.get("reason") or "the harness is unavailable"
+    return f"{line} — cooling until {local_time(cooling['until'])} ({reason})"
+
+
 def render_text(document: dict) -> str:
     def state(value):
         return "unknown" if value is None else "up" if value else "down"
@@ -239,7 +283,7 @@ def render_text(document: dict) -> str:
     for library in document["libraries"]:
         lines.extend(["", f"{library['name']}{' (current)' if library['current'] else ''}",
                       f"  Engine: {state(library['engine']['up'])} (port {library['engine']['port']})",
-                      f"  Worker: {posture(library['unattended'])}",
+                      f"  Worker: {worker_line(library)}",
                       f"  Rounds: {library['agent_model'] or 'the harness default model'}"
                       f" at {library['reasoning_effort'] or 'the harness default effort'}",
                       f"  Engine directory: {library['engine_dir']}",

@@ -8,6 +8,7 @@ canonical layer while service/worker processes stay stateless.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Protocol
 
 from ..domain.ids import UserId
@@ -26,7 +27,19 @@ class JobQueue(Protocol):
         user_id: UserId,
         kind: str,
         payload: dict[str, Any],
-    ) -> str: ...
+        *,
+        not_before: datetime | None = None,
+    ) -> str:
+        """Queue one job for this user. None/omitted `not_before` means "now", as ever.
+
+        `not_before` states the earliest instant the job may be CLAIMED. It exists for one
+        fact the queue could not otherwise hold: an agent-path job whose harness could not
+        run — the Owner's subscription is out of room until a stated hour — must come back,
+        and must not come back immediately. Expressed on the row rather than as a wait inside
+        a worker, so nothing sleeps, nothing holds a claim while it waits, and a restarted
+        process reads the same answer the one that wrote it would have.
+        """
+        ...
 
     async def claim_next(
         self,
@@ -39,6 +52,10 @@ class JobQueue(Protocol):
 
         An open draft also reserves the tenant even if its job was accidentally requeued.
         Finished jobs (including a row carrying a completion timestamp) are never claimed.
+
+        A job whose `not_before` is still in the future is not claimed either, by the same
+        means and for the same reason — it is skipped in the query rather than handed out
+        and given back.
 
         `exclude_kinds` skips over kinds this body will not run and claims the oldest job
         that is left. The worker under an agent executor is the caller: a compile job is

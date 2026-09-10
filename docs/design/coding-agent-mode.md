@@ -1309,6 +1309,38 @@ went around the gate is stopped before the next round builds on it, rather than 
   resumes for the same executor; another executor is refused and shown the owning worker's
   recorded posture. Index writes L1 and queues episode judgement (§5.12);
   projection and rebuild jobs remain mechanical.
+- **A launch that never became a round.** The launcher waits a rate limit out (§8), but a
+  subscription that is out of room for the night outlasts any backoff, and what came back was
+  a non-zero exit with `rate_limited` on it. The runner reports that as its own outcome,
+  `HARNESS_UNAVAILABLE`, rather than letting it fall into the "the harness finished it" or
+  "the worker finishes it" branch: there is nothing to judge, so nothing is finished and
+  nothing is abandoned. The same treatment covers the other transient refusal, which is not
+  about the subscription at all: `Selected model is at capacity. Please try a different
+  model.`, which `codex exec` states as a `turn.failed` **event on stdout** and can pair with
+  a return code a launcher would read as success. So the manifest carries a second list
+  (`UNAVAILABLE_MARKERS`) beside the rate-limit one, the scan reads stdout as well as stderr,
+  and it runs at exit 0 only when the harness's own protocol said the turn failed — the same
+  words in a round's own output are a library about a venue, not a harness that is down.
+  Both lists route into one backoff and one outcome; `unavailable_reason` is what keeps the
+  two sentences apart where a person reads them (`codex usage limit` / `codex at capacity`). The worker then completes the job `ok=false` (`rate_limited: Codex
+  usage limit; retry after <instant>`, or `harness_failed: exit <n>`), leaves its sources
+  **undigested**, drops the draft the launch opened, and queues the same payload again as a
+  new row carrying `not_before` — the instant the harness itself named (`try again at Sep
+  15th, 2026 9:23 AM`, read in `PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE`), or a cooldown that
+  doubles per consecutive hit from `AGENT_RATE_LIMIT_COOLDOWN_S` to a ceiling of six hours.
+  `claim_next` skips a row whose `not_before` is in the future, so the wait costs no process
+  and survives a restart. Beside it the worker puts the tenant on ice in memory and stops
+  claiming agent-path kinds until then — one log line when the cooling starts, not one per
+  job — while index, projection, groom and archive jobs keep flowing, because the
+  subscription is what is out of room and not the library. `GET /jobs` reports the window as
+  `cooling_until` / `cooling_reason`, read from the rows rather than from the worker's
+  memory, and `pkchome status` prints it on the `Worker:` line. Without this a spent quota
+  reads as work: one real library recorded 296 compile jobs `done ok=true` with nothing
+  written and their sources stamped digested, in four hours, against a quota that answered
+  nothing. `pkc jobs requeue` is the repair for a library where that already happened —
+  `--empty-rounds` selects exactly that shape (one round, no snapshot, a projection that
+  moved nothing), re-queues each payload and clears the digestion its sources never earned;
+  `--dry-run` shows the selection and changes nothing.
 - **`engine.yaml` and the console.** `models.compile: agent:codex` is a strategy value like
   any other; the engine schema gains the `agent:` form, the console shows the probe's result
   beside it, and the process view gains the waiting-for-Steward state.

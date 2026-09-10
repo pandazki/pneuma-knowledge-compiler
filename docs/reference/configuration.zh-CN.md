@@ -67,6 +67,8 @@
 | `AGENT_UNATTENDED` | `true` | **worker 自己**是否通过编码代理来跑编译与演进作业。worker 按定义就是无人值守的——它运行的地方没有人守着——所以在 `agent:` 执行体下它会认领编译作业、打开草稿，并交给自己拉起的 harness（[coding-agent-mode](../design/coding-agent-mode.md) §9）。`false` 是交互姿态：agent 编译与演进作业留在队列里，由所有者自己的会话用各自的 draft open 打开，其余作业照常流转。在模型执行体下这个开关不决定任何事。不是引擎旋钮（属于部署接线） |
 | `AGENT_PROBE_ON_START` | `true` | 启动时探测所配置的编译 harness，不可用就拒绝启动。装了但没登录的 harness 会掉进交互式登录流程并永远等下去，所以「它是否活着」应当在排队派活之前问清楚，而不是等第一次编译才发现。探测的是**活性**，绝不比较版本。只有无人值守姿态会探测——`pkc` 进程从不拉起 harness，所以它从不探测。测试与 CI 用 `false`：那里 PATH 上的是假二进制，登录这件事根本不存在。不是引擎旋钮 |
 | `AGENT_RETRIES` | `3` | 当 harness 以**限流**拒绝一轮时，无人值守启动器最多可以重新拉起几次——仅限这一种。其他任何拒绝都只上报不重试（再试一次还是会被拒），超时同样不重试，因为墙钟本身就是「这一轮结束了」的声明。等待按指数增长并带抖动，受启动器自身的上限约束；每一次等待都写日志。`0` 表示只试一次、不退避。不是引擎旋钮 |
+| `AGENT_RATE_LIMIT_COOLDOWN_S` | `900` | 当 harness 说订阅没额度了、又没说什么时候回来时，worker 把这个租户走 agent 的作业晾多久。每次连续命中翻倍，上限为 `AGENT_RATE_LIMIT_COOLDOWN_MAX_S`；第一轮真正跑起来的轮次会把它忘掉。它是兜底，不是规则：harness 自己点名了时刻时（Codex 会打印 `try again at Sep 15th, 2026 9:23 AM`，按 `DEFAULT_TIMEZONE` 解读），以那个时刻为准，因为那是服务商自己的答案，而这只是猜测。等待表现为重新入队那一行上的 `not_before`，所以没有任何东西在睡觉，重启后读到的也是同一个答案。不是引擎旋钮 |
+| `AGENT_RATE_LIMIT_COOLDOWN_MAX_S` | `21600` | 翻倍停在哪里——六小时。猜短了才是贵的那个错误：在这条存在之前，853 个作业在四小时里穿过了一份已经死掉的额度。不是引擎旋钮 |
 | `AGENT_MODEL` | （空） | 拉起的 harness 跑**哪个模型**，作为启动模板的模型参数（`-m` / `--model`）传入。留空则交给 harness 自己——也就是所有者的全局 harness 配置，因为每个作业的配置目录正是从那里播种的。当一个知识库的编译轮不该继承所有者为自己终端所设的东西时，就在这里点名。不是引擎旋钮 |
 | `AGENT_REASONING_EFFORT` | （空） | 告诉那个 harness 想多深：`minimal`、`low`、`medium`、`high` 或 `xhigh`，其余取值在启动时即被拒绝。Codex 以 `-c model_reasoning_effort=<e>` 承载；本版本的 Claude Code CLI 没有这个开关，会直接丢弃。留空即 harness 自身的默认。不是引擎旋钮 |
 | `AGENT_KEEP_WORKDIR` | `false` | 保留启动器为每一轮建的工作目录（system 文本、任务、harness 的最后一条消息），而不是删掉它。仅供调试：这些文件里装着知识库的材料，把它们留在 `/tmp` 应当是运维者刻意做的决定。不是引擎旋钮 |

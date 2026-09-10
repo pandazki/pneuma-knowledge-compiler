@@ -1023,6 +1023,29 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   认领之前会跳过 Steward 持有的草稿，对每个持有者只记录一次日志；SQL 领取查询执行同样的排除。
   重复 `open` 只允许同一执行者续接，其他执行者会被拒绝并看到持有它的 worker 已记录的姿态。
   index 写 L1 并入队片段判断（§5.12）；投影和重建仍是机械工作。
+- **一次从未成为轮次的启动。** 启动器会把限流等过去（§8），但一整夜没有额度的订阅比任何退避都久，
+  拿回来的是一个非零退出码，上面写着 `rate_limited`。runner 把它作为自己的结局 `HARNESS_UNAVAILABLE`
+  上报，而不是让它落进「harness 收尾了」或「worker 来收尾」那两个分支：没有任何东西可判，所以既不
+  finish 也不 abandon。另一种同样短暂、却和订阅无关的拒绝走同一条路：`Selected model is at
+  capacity. Please try a different model.`——`codex exec` 把它作为 `turn.failed` 事件打在
+  **stdout** 上，退出码却可能是启动器会读作成功的那个。所以清单在限流列表之外再带一份
+  （`UNAVAILABLE_MARKERS`），扫描同时读 stdout 和 stderr，并且只有在 harness 自己的协议说这一轮失败了
+  的时候才在退出码 0 上扫——同样的字眼出现在一轮自己的输出里，说的是某个场地满了，不是 harness 挂了。
+  两份清单汇入同一次退避、同一个结局；`unavailable_reason` 负责在人要读的地方把两句话分开
+  （`codex usage limit` / `codex at capacity`）。随后 worker 把作业以 `ok=false` 结束（`rate_limited: Codex usage limit;
+  retry after <时刻>`，或 `harness_failed: exit <n>`），**不**给它的来源盖消化戳，丢掉这次启动打开
+  的草稿，并把同一份载荷作为新行重新入队，带上 `not_before`——harness 自己说出的那个时刻
+  （`try again at Sep 15th, 2026 9:23 AM`，按 `PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE` 解读），或者一个
+  从 `AGENT_RATE_LIMIT_COOLDOWN_S` 起、每次连续命中翻倍、上限六小时的冷却。`claim_next` 会跳过
+  `not_before` 尚未到达的行，所以这份等待不占任何进程，也能穿过重启。与此并行，worker 在内存里把
+  这个租户放上冰，直到那个时刻为止不再认领任何走 agent 的作业种类——冷却开始时记一行日志，而不是
+  每个作业一行——而 index、投影、groom 与归档作业照常流转，因为没额度的是订阅，不是知识库。
+  `GET /jobs` 以 `cooling_until` / `cooling_reason` 报出这个窗口，读的是行而不是 worker 的内存，
+  `pkchome status` 把它印在 `Worker:` 那一行上。没有这一条，一份耗尽的额度读起来就像工作：某个真实
+  知识库在四小时里记下了 296 个 `done ok=true` 的编译作业，什么也没写，来源却都被盖上了消化戳。
+  `pkc jobs requeue` 是那种已经发生过的库的修复：`--empty-rounds` 恰好选中这个形状（一轮、无快照、
+  投影没有移动任何东西），把每份载荷重新入队并清掉来源那枚从未挣得的消化戳；`--dry-run` 只显示
+  选中了什么，不做任何改动。
 - **`engine.yaml` 与控制台。** `models.compile: agent:codex` 是和其他一样的策略值；引擎 schema 增加
   `agent:` 形式，控制台在旁边显示探针结果，流程视图增加"等待 Steward"状态。
 - **单次角色（v2）。** 同一启动器之上的 `LeafChatModel` 让 `agent:` 可用于 fast、live：system 文本走 harness 的 system 通道，消息走 stdin，结构化输出以 prompt 里的 schema 加

@@ -43,6 +43,10 @@ class InMemoryLibraryStore(InMemoryJobQueue):
         self.history: list[dict[str, Any]] = []
         self.consultations: list[dict[str, Any]] = []
         self.projection_jobs: list[str] = []
+        #: `source_id -> digested_at`, the L0 stamp the compile worker writes and
+        #: `pkc jobs requeue` clears. Kept here because "this material has been compiled"
+        #: is exactly the claim a re-queued empty round has to withdraw.
+        self.digested: dict[tuple[str, str], str] = {}
         #: The owner's own picture, as `PostgresStore` keeps it: one JSON document per
         #: tenant, written by `pkc profile set` / `app.py init` and read back by the
         #: composite provider.
@@ -91,8 +95,21 @@ class InMemoryLibraryStore(InMemoryJobQueue):
             if uid == str(user_id) and (wanted is None or sid in wanted)
         }
 
+    async def mark_digested(self, user_id, source_ids, at) -> None:  # noqa: ANN001
+        for source_id in source_ids:
+            self.digested[(str(user_id), str(source_id))] = getattr(at, "isoformat", lambda: str(at))()
+
+    async def mark_undigested(self, user_id, source_ids) -> None:  # noqa: ANN001
+        for source_id in source_ids:
+            self.digested.pop((str(user_id), str(source_id)), None)
+
     async def digested_map(self, user_id, source_ids=None) -> dict[str, str | None]:  # noqa: ANN001
-        return {}
+        wanted = None if source_ids is None else {str(s) for s in source_ids}
+        return {
+            sid: stamp
+            for (uid, sid), stamp in self.digested.items()
+            if uid == str(user_id) and (wanted is None or sid in wanted)
+        }
 
     async def archived_source_ids(self, user_id):  # noqa: ANN001
         """The L0 half of the archive mark, as the assembly filter reads it.
@@ -142,8 +159,9 @@ class InMemoryLibraryStore(InMemoryJobQueue):
                 # `record_job_usage`), not a row of Nones: a double that always reported
                 # "no executor, no usage" made the queue's own report untestable keyless,
                 # which is how a job row that stored neither went unnoticed for a whole
-                # end-to-end run (docs/design/coding-agent-mode.md §9).
-                **self._outcome(user_id, job.job_id),
+                # end-to-end run (docs/design/coding-agent-mode.md §9). One reader, shared
+                # with `list_jobs` on the queue itself.
+                **self._outcome_of(user_id, job.job_id),
             }
             for job in reversed(self.jobs)
             if str(job.user_id) == str(user_id)
@@ -157,21 +175,6 @@ class InMemoryLibraryStore(InMemoryJobQueue):
                 for wanted in statuses
             )]
         return rows[:limit], len(rows), len(rows) > limit
-
-    def _outcome(self, user_id, job_id: str) -> dict:  # noqa: ANN001
-        """What the last `complete` for this job recorded, or the un-finished shape."""
-        blank = {"ok": None, "detail": None, "snapshot_ref": None, "executor": None,
-                 "token_usage": {}}
-        for record in reversed(self.completed):
-            if record["job_id"] == job_id and record["user_id"] == str(user_id):
-                return {
-                    "ok": record.get("ok"),
-                    "detail": record.get("detail"),
-                    "snapshot_ref": record.get("snapshot_ref"),
-                    "executor": record.get("executor"),
-                    "token_usage": dict(record.get("token_usage") or {}),
-                }
-        return blank
 
     async def list_history_page(  # noqa: ANN001
         self, user_id, *, limit=25, before=None, kind=None

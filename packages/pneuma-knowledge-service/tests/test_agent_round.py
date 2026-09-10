@@ -13,8 +13,11 @@ calls and a real gate run.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 from typing import Any, Callable
 
@@ -31,6 +34,7 @@ from pneuma_knowledge_service.coding_agent.launcher import LaunchRequest, Launch
 from pneuma_knowledge_service.coding_agent.round_runner import (
     COMMITTED_BY_HARNESS,
     FINISHED_BY_WORKER,
+    HARNESS_UNAVAILABLE,
     REPAIRED,
     AgentRoundOpenRefused,
     AgentRoundRunner,
@@ -217,6 +221,137 @@ async def test_a_harness_that_did_nothing_at_all_still_ends_its_job(tmp_path):
     assert result.outcome == FINISHED_BY_WORKER
     assert h.jobs.completed, "the job was left claimed"
     assert await h.drafts.get(h.rt.user_id, h.job_id) is None
+
+
+# ──────────────────────────────────────────────────── the launch that never became a round
+
+
+#: What Codex prints when the Owner's plan is spent, as it printed it the night this branch
+#: was written. The hour is in it, which is the whole reason the worker can wait exactly.
+USAGE_LIMIT = (
+    "stream error: You've hit your usage limit. "
+    "Please try again at Sep 15th, 2026 9:23 AM."
+)
+
+
+def refused(**kwargs) -> LaunchResult:
+    base = {"exit_code": 1, "stdout": "", "stderr": USAGE_LIMIT, "rate_limited": True}
+    return LaunchResult(**{**base, **kwargs})
+
+
+async def test_a_rate_limited_launch_is_not_a_round_and_is_neither_finished_nor_abandoned(
+    tmp_path,
+):
+    """The night this exists for: 296 compile jobs recorded `done ok=true` with nothing in
+    them, because a launch that never ran was read as a round that wrote nothing.
+
+    The harness was told no before it read anything. There is no work to judge, so the runner
+    reports that and touches neither `finish` nor `abandon` — the draft, the job and the
+    library are exactly as they were, and it is the worker that decides what happens next.
+    """
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [["nothing"]], result=refused)
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+
+    assert result.outcome == HARNESS_UNAVAILABLE
+    assert result.rate_limited and result.exit_code == 1
+    assert "usage limit" in result.output
+    assert h.store.commits == [], "an empty round was committed"
+    assert h.jobs.completed == [], "the runner decided an outcome it has no business deciding"
+    assert await h.drafts.get(h.rt.user_id, h.job_id) is not None, "the draft was abandoned"
+    job = await h.jobs.get_job(h.rt.user_id, h.job_id)
+    assert job.status == "claimed", "the job was released or ended by the runner"
+
+
+async def test_a_turn_the_harness_declared_failed_at_exit_zero_is_the_same_thing(tmp_path):
+    """`Selected model is at capacity` — a `turn.failed` event, and an exit code of 0.
+
+    The launcher is what reads it (`_is_rate_limited`, gated on the harness's own protocol);
+    what this pins is that the runner treats the flag identically however it was raised.
+    """
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    event = (
+        '{"type":"turn.failed","error":{"message":'
+        '"Selected model is at capacity. Please try a different model."}}'
+    )
+    fake = FakeHarness(h.rt, [["nothing"]], result=lambda: LaunchResult(
+        exit_code=0, stdout=event, stderr="", rate_limited=True,
+    ))
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+    assert result.outcome == HARNESS_UNAVAILABLE
+    assert "at capacity" in result.output
+    assert h.jobs.completed == [] and h.store.commits == []
+
+
+async def test_a_harness_that_finished_the_round_stays_finished_whatever_it_exited_with(
+    tmp_path,
+):
+    """The branch this must not swallow: `pkc draft finish` committed, the draft is gone, and
+    the process then exited non-zero for reasons of its own. The round HAPPENED."""
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [[*CALLS, "finish"]], result=lambda: LaunchResult(
+        exit_code=1, stdout="", stderr="the harness fell over on its way out",
+    ))
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+    assert result.outcome == COMMITTED_BY_HARNESS
+    assert len(h.store.commits) == 1 and h.jobs.completed[0]["ok"] is True
+
+
+async def test_a_refusal_that_arrived_mid_round_leaves_the_written_work_to_the_gate(tmp_path):
+    """A rate limit is not a reason to throw away claims that were already typed.
+
+    The harness wrote its round and then hit the limit. That is a round — the worker finishes
+    it through the same `cmd_finish` a Steward would, and the gate judges what is there.
+    """
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [[*CALLS]], result=refused)
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+    assert result.outcome == FINISHED_BY_WORKER
+    assert len(h.store.commits) == 1 and h.jobs.completed[0]["ok"] is True
+
+
+# ───────────────────────────────────────────────────────────── reading the harness's clock
+
+
+def test_the_deadline_codex_names_is_read_in_the_deployments_own_timezone():
+    """`try again at Sep 15th, 2026 9:23 AM` is a LOCAL wall clock with no offset on it, so
+    the zone has to come from the deployment (`PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE`)."""
+    from zoneinfo import ZoneInfo
+
+    from pneuma_knowledge_service.coding_agent.backends import (
+        CODEX,
+        usage_limit_deadline,
+    )
+
+    shanghai = usage_limit_deadline(
+        USAGE_LIMIT, timezone_name="Asia/Shanghai", patterns=CODEX.usage_limit_patterns
+    )
+    assert shanghai == datetime(2026, 9, 15, 9, 23, tzinfo=ZoneInfo("Asia/Shanghai"))
+    # The same sentence, a different deployment: a different instant, six hours apart.
+    utc = usage_limit_deadline(USAGE_LIMIT, timezone_name="UTC")
+    assert utc == datetime(2026, 9, 15, 9, 23, tzinfo=ZoneInfo("UTC"))
+    assert shanghai != utc
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "stream error: 429 Too Many Requests; retry later",
+        '{"type":"turn.failed","error":{"message":"Selected model is at capacity."}}',
+        "try again at Nevermber 40th, 2026 9:23 AM",
+    ],
+)
+def test_an_unparsable_refusal_names_no_deadline_rather_than_guessing_one(text):
+    """None is the honest answer, and the one the worker's doubling cooldown is for. A
+    half-read date would be a worker that came back at the wrong hour and looked broken."""
+    from pneuma_knowledge_service.coding_agent.backends import usage_limit_deadline
+
+    assert usage_limit_deadline(text, timezone_name="Asia/Shanghai") is None
 
 
 # ───────────────────────────────────────────────────────────────────── the repair round
@@ -592,3 +727,246 @@ async def test_finish_reads_its_brief_from_a_file_or_stdin(tmp_path, monkeypatch
         args = build_parser().parse_args(["draft", "finish", "--brief", filename])
         assert await _draft_command(h.rt, args, []) == 0
         assert recorded == [text]
+
+
+# ────────────────────────────────────────── the worker: a spent subscription costs one job
+
+
+@pytest.fixture(autouse=True)
+def _forget_cooling():
+    """The cooling map is process state, and one test's rate limit is not another's."""
+    compile_worker._COOLING.clear()
+    compile_worker._RATE_LIMIT_HITS.clear()
+    yield
+    compile_worker._COOLING.clear()
+    compile_worker._RATE_LIMIT_HITS.clear()
+
+
+_MONTH_NAMES = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def usage_limit_saying(when: datetime) -> str:
+    """Codex's own sentence, naming `when` — built rather than pasted, so a test that pins
+    the WAIT does not start failing on the day the pasted date goes past."""
+    hour = when.hour % 12 or 12
+    meridiem = "AM" if when.hour < 12 else "PM"
+    return (
+        "stream error: You've hit your usage limit. Please try again at "
+        f"{_MONTH_NAMES[when.month - 1]} {when.day}th, {when.year} "
+        f"{hour}:{when.minute:02d} {meridiem}."
+    )
+
+
+class UnavailableLaunch(SimpleNamespace):
+    """What `AgentRoundRunner` hands the worker when a launch never became a round."""
+
+    def __init__(self, *, output: str, rate_limited: bool = True, exit_code: int = 1) -> None:
+        super().__init__(output=output, rate_limited=rate_limited, exit_code=exit_code)
+
+
+async def _refused(ctx, jobs, user, result, *, executor="worker:codex:0001", kind="compile"):
+    """One agent-path job, claimed by a launch that then refused. Returns its id."""
+    from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+
+    job_id = await jobs.enqueue(user, kind, {"source_ids": ["src-01"]})
+    job = await jobs.claim(user, job_id)
+    assert job is not None
+    assert await jobs.attach_executor(user, job_id, executor)
+    await compile_worker._harness_unavailable(
+        ctx, user, job, result,
+        rt=SimpleNamespace(drafts=InMemoryDraftStore(jobs)),
+        executor=executor,
+        manifest=CODEX,
+    )
+    return job_id
+
+
+async def test_a_refused_launch_fails_its_job_digests_nothing_and_comes_back_later(caplog):
+    """The whole repair, in one job's life.
+
+    What the night produced: `done ok=true`, `projection:{…"upserted":0…}`, sources digested,
+    nothing written. What it produces now: a failed job naming the provider's refusal, the
+    material still undigested, and the SAME payload queued again behind the hour the provider
+    itself named.
+    """
+    user = UserId("u-agent")
+    when = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Shanghai")) + timedelta(hours=9)
+    when = when.replace(second=0, microsecond=0)
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(default_timezone="Asia/Shanghai"), jobs)
+    with caplog.at_level(logging.WARNING):
+        job_id = await _refused(
+            ctx, jobs, user, UnavailableLaunch(output=usage_limit_saying(when))
+        )
+
+    done = jobs.completed[-1]
+    assert done["job_id"] == job_id and done["ok"] is False
+    assert done["detail"].startswith("rate_limited: Codex usage limit; retry after ")
+    assert when.isoformat() in done["detail"], "the provider's own hour was not read"
+
+    rows = await jobs.list_jobs(user)
+    queued = [r for r in rows if r["status"] == "queued"]
+    assert len(queued) == 1, "the work was dropped, or duplicated"
+    assert queued[0]["payload"]["source_ids"] == ["src-01"]
+    assert queued[0]["payload"]["cooling_reason"] == "codex usage limit"
+    assert queued[0]["not_before"] == when
+
+    # And the queue itself refuses to hand it out before then — the wait is a row, not a
+    # sleeping worker, so nothing is spent while it lasts and a restart reads the same answer.
+    assert await jobs.claim_next(user) is None
+
+    lines = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert lines == [
+        f"[compile-worker] codex usage limit: cooling until {when.isoformat()}; 1 job(s) wait"
+    ]
+
+
+async def test_nothing_this_worker_did_claims_the_material_was_compiled():
+    """Digestion is a claim about what canonical holds. A round that never ran holds none."""
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    stamped: list[tuple] = []
+    jobs.mark_digested = lambda *a, **k: stamped.append(a)  # noqa: ARG005
+    ctx = WorkerCtx(worker_settings(), jobs)
+    await _refused(ctx, jobs, user, UnavailableLaunch(output="429 Too Many Requests"))
+    assert stamped == []
+
+
+async def test_a_refusal_with_no_hour_in_it_cools_for_longer_each_consecutive_time():
+    """The fallback, and why it doubles: the guess that runs short is the expensive one."""
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(agent_rate_limit_cooldown_s=900), jobs)
+    waits = []
+    for _ in range(3):
+        before = datetime.now(timezone.utc)
+        await _refused(ctx, jobs, user, UnavailableLaunch(output="429 Too Many Requests"))
+        row = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"][0]
+        waits.append(round((row["not_before"] - before).total_seconds()))
+        # only the newest queued row is the one this iteration made
+        row["status"] = "done"
+    assert waits == [900, 1800, 3600]
+
+    ceiling = WorkerCtx(
+        worker_settings(agent_rate_limit_cooldown_s=900, agent_rate_limit_cooldown_max_s=1200),
+        jobs,
+    )
+    before = datetime.now(timezone.utc)
+    await _refused(ceiling, jobs, user, UnavailableLaunch(output="429 Too Many Requests"))
+    row = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"][0]
+    assert round((row["not_before"] - before).total_seconds()) == 1200
+
+
+async def test_a_model_at_capacity_is_named_as_itself_and_not_as_a_spent_quota():
+    """One mechanism, two sentences: an operator told their quota ran out when the model was
+    merely busy would go looking for a bill."""
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(), jobs)
+    await _refused(ctx, jobs, user, UnavailableLaunch(
+        output='{"type":"turn.failed","error":{"message":"Selected model is at capacity."}}'
+    ))
+    assert "Codex at capacity" in jobs.completed[-1]["detail"]
+    row = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"][0]
+    assert row["payload"]["cooling_reason"] == "codex at capacity"
+
+
+async def test_one_launch_that_simply_died_does_not_take_the_tenant_off_the_air():
+    """A harness that fell over is not a subscription with no room. The job comes back; the
+    tenant does not go on ice, because one failure is no evidence about the next launch."""
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(), jobs)
+    await _refused(
+        ctx, jobs, user,
+        UnavailableLaunch(output="fatal: no such file", rate_limited=False, exit_code=2),
+    )
+    assert jobs.completed[-1]["detail"] == "harness_failed: exit 2"
+    assert compile_worker.agent_cooling(user) is None
+
+
+async def test_a_cooling_tenant_still_drains_every_job_that_needs_no_harness(monkeypatch):
+    """The subscription is what is out of room, not the library. Index, projection, groom and
+    archive jobs run no harness at all and must keep flowing."""
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    compile_id = await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
+    index_id = await jobs.enqueue(user, "index", {"source_id": "src-01"})
+    compile_worker._COOLING[str(user)] = (
+        datetime.now(timezone.utc) + timedelta(hours=2), "codex usage limit"
+    )
+    ran: list[str] = []
+
+    async def indexed(ctx, user_id, job):  # noqa: ANN001
+        ran.append(job.job_id)
+        await ctx.store.complete(user_id, job.job_id, ok=True, detail="indexed")
+
+    async def never(ctx, user_id, job):  # noqa: ANN001
+        raise AssertionError("a cooling worker claimed a job that needs a harness")
+
+    monkeypatch.setattr(compile_worker, "process_index_job", indexed)
+    monkeypatch.setattr(compile_worker, "process_agent_job", never)
+    await compile_worker.drain_user(
+        WorkerCtx(worker_settings(), jobs), None, SimpleNamespace(), user
+    )
+    assert ran == [index_id]
+    assert (await jobs.get_job(user, compile_id)).status == "queued"
+
+
+async def test_the_ice_melts_and_the_tenant_is_claimed_again(monkeypatch):
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    job_id = await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
+    compile_worker._COOLING[str(user)] = (
+        datetime.now(timezone.utc) - timedelta(seconds=1), "codex usage limit"
+    )
+    ran: list[str] = []
+
+    async def agent(ctx, user_id, job):  # noqa: ANN001
+        ran.append(job.job_id)
+        await ctx.store.complete(user_id, job.job_id, ok=True, detail="committed")
+
+    monkeypatch.setattr(compile_worker, "process_agent_job", agent)
+    await compile_worker.drain_user(
+        WorkerCtx(worker_settings(), jobs), None, SimpleNamespace(), user
+    )
+    assert ran == [job_id]
+    assert compile_worker.agent_cooling(user) is None
+
+
+async def test_the_ice_is_laid_during_the_drain_and_stops_the_rest_of_the_queue(monkeypatch):
+    """The shape of the actual night: one tenant, hundreds of queued compile jobs, and the
+    FIRST one is what meets the spent subscription.
+
+    An exclusion list computed once before the loop would let the other three hundred through
+    behind it — which is what 853 jobs in four hours looks like from the inside.
+    """
+    from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    queued = [
+        await jobs.enqueue(user, "compile", {"source_ids": [f"src-{n:02d}"]})
+        for n in range(3)
+    ]
+    handed: list[str] = []
+
+    async def refusing(ctx, user_id, job):  # noqa: ANN001
+        handed.append(job.job_id)
+        executor = f"worker:codex:{len(handed)}"
+        assert await ctx.store.attach_executor(user_id, job.job_id, executor)
+        await compile_worker._harness_unavailable(
+            ctx, user_id, job,
+            UnavailableLaunch(output="stream error: 429 Too Many Requests"),
+            rt=SimpleNamespace(drafts=InMemoryDraftStore(ctx.store)),
+            executor=executor,
+            manifest=CODEX,
+        )
+
+    monkeypatch.setattr(compile_worker, "process_agent_job", refusing)
+    ctx = WorkerCtx(worker_settings(), jobs)
+    await compile_worker.drain_user(ctx, None, SimpleNamespace(), user)
+
+    assert handed == [queued[0]], "the drain kept feeding a subscription that had no room"
+    assert [(await jobs.get_job(user, j)).status for j in queued[1:]] == ["queued", "queued"]

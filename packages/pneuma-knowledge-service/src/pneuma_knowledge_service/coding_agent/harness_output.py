@@ -38,6 +38,15 @@ class HarnessReport:
     cost_usd: float | None = None
     session_id: str = ""
     last_message: str = ""
+    #: The harness said, in its own protocol, that the turn did not complete. Read because
+    #: an exit code is not always the statement: `codex exec` can print
+    #: `{"type":"turn.failed", … "Selected model is at capacity …"}` and still leave a
+    #: process return code that a launcher would read as success. Without this, "the harness
+    #: never ran the round" is invisible and the worker finishes an empty draft over it.
+    failed: bool = False
+    #: What the harness said about that failure — the provider's own sentence, which is what
+    #: the marker scan and the deadline parser read.
+    failure_message: str = ""
 
 
 def _json_objects(text: str) -> Iterator[dict[str, Any]]:
@@ -121,6 +130,19 @@ def _normalize(
 CLAUDE_INPUT_EXTRA = ("cache_creation_input_tokens", "cache_read_input_tokens")
 
 
+def _message_of(node: dict[str, Any]) -> str:
+    """The human sentence on a failure node, wherever this protocol hangs it."""
+    for key in ("message", "error", "reason", "result"):
+        value = node.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            nested = _message_of(value)
+            if nested:
+                return nested
+    return ""
+
+
 def _session_id(node: dict[str, Any]) -> str:
     for key in ("session_id", "sessionId", "thread_id", "conversation_id"):
         value = node.get(key)
@@ -139,6 +161,7 @@ def read_claude_output(stdout: str, last_message: str = "") -> HarnessReport:
     usage: dict[str, int] | None = None
     cost: float | None = None
     session = ""
+    failed, failure = False, ""
     for document in _json_objects(stdout):
         for node in _walk(document):
             if isinstance(node.get("usage"), dict):
@@ -150,13 +173,23 @@ def read_claude_output(stdout: str, last_message: str = "") -> HarnessReport:
             session = _session_id(node) or session
             if node.get("type") == "result" and isinstance(node.get("result"), str):
                 last_message = node["result"]
-    return HarnessReport(usage=usage, cost_usd=cost, session_id=session, last_message=last_message)
+            if node.get("is_error") is True:
+                failed, failure = True, (_message_of(node) or failure)
+    return HarnessReport(
+        usage=usage, cost_usd=cost, session_id=session, last_message=last_message,
+        failed=failed, failure_message=failure,
+    )
 
 
 #: Where Codex states what a round spent. `turn.completed` carries THIS turn's counts;
 #: `total_token_usage`, where a version emits it, carries the thread's running total. Two
 #: names for the same fact, so both are read and neither is guessed at.
 CODEX_TURN_EVENT = "turn.completed"
+
+#: The event types Codex uses to say a turn did not happen. `turn.failed` is the turn's own
+#: verdict and `error` is the stream-level one; both were observed on the same launch when a
+#: model had no capacity, and either alone is enough.
+CODEX_FAILURE_EVENTS = ("turn.failed", "error")
 
 
 def read_codex_output(stdout: str, last_message: str = "") -> HarnessReport:
@@ -173,8 +206,12 @@ def read_codex_output(stdout: str, last_message: str = "") -> HarnessReport:
     summed = {field: 0 for field in USAGE_FIELDS}
     turns = 0
     session = ""
+    failed, failure = False, ""
     for event in _json_objects(stdout):
         kind = str(event.get("type") or "")
+        if kind in CODEX_FAILURE_EVENTS:
+            failed = True
+            failure = _message_of(event) or failure
         item = event.get("item") or {}
         if (kind == "item.completed" and isinstance(item, dict)
                 and item.get("type") == "agent_message" and isinstance(item.get("text"), str)):
@@ -194,11 +231,11 @@ def read_codex_output(stdout: str, last_message: str = "") -> HarnessReport:
                     turns += 1
                     for field in USAGE_FIELDS:
                         summed[field] += found[field]
-    if cumulative is not None:
-        return HarnessReport(usage=cumulative, cost_usd=None, session_id=session, last_message=last_message)
-    if turns:
-        return HarnessReport(usage=summed, cost_usd=None, session_id=session, last_message=last_message)
-    return HarnessReport(usage=None, cost_usd=None, session_id=session, last_message=last_message)
+    counts = cumulative if cumulative is not None else (summed if turns else None)
+    return HarnessReport(
+        usage=counts, cost_usd=None, session_id=session, last_message=last_message,
+        failed=failed, failure_message=failure,
+    )
 
 
 def read_no_output(stdout: str, last_message: str = "") -> HarnessReport:

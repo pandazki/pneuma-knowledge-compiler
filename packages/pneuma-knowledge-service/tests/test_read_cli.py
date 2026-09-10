@@ -236,6 +236,100 @@ async def test_jobs_reports_the_queue():
     assert row["job_id"] == job_id and row["status"] == "queued"
 
 
+# ────────────────────────────────────────────────────────────── putting work back
+
+#: The exact shape a compile job carried the night a spent quota was recorded as work: the
+#: projection moved nothing, one round ran, and no commit came out of it.
+EMPTY_ROUND = 'projection:{"deleted":0,"upserted":0}; rounds:1'
+REAL_ROUND = 'projection:{"deleted":0,"upserted":3}; rounds:1'
+
+
+async def _finished(lib, *, kind="compile", detail, ok=True, snapshot=None, sources=("s-01",)):
+    """One job that ran and ended, as the queue records it."""
+    job_id = await lib.store.enqueue(USER, kind, {"source_ids": list(sources)})
+    await lib.store.claim(USER, job_id)
+    await lib.store.complete(
+        USER, job_id, ok=ok, detail=detail, snapshot_ref=snapshot, executor="agent:codex"
+    )
+    return job_id
+
+
+async def test_requeue_selects_the_empty_round_shape_and_nothing_that_wrote(tmp_path):
+    """Three facts make the shape, and each alone has an innocent reading: a projection that
+    moved nothing, one round, and no snapshot. A compile that legitimately wrote nothing has
+    a commit behind it; this is what a job looks like when nothing happened at all."""
+    lib = _lib()
+    empty = await _finished(lib, detail=EMPTY_ROUND)
+    wrote = await _finished(lib, detail=REAL_ROUND, snapshot="c1")
+    failed = await _finished(lib, detail="citation missing", ok=False)
+
+    code, out, _err = await run(lib, "jobs", "requeue", "--empty-rounds", "--dry-run", "--json")
+    assert code == 0
+    payload = json.loads(out)
+    assert [r["from"] for r in payload["requeued"]] == [empty]
+    assert wrote not in out and failed not in out
+    assert payload["dry_run"] is True
+    assert payload["summary"] == "would requeue 1 (compile 1); sources reopened 1"
+    # A dry run changes nothing: no new row, and the job it named is still done.
+    assert [j["status"] for j in await lib.store.list_jobs(USER)] == ["done"] * 3
+
+
+async def test_requeue_puts_the_work_back_and_reopens_the_material_it_never_digested():
+    lib = _lib()
+    empty = await _finished(lib, detail=EMPTY_ROUND, sources=("s-01", "s-02"))
+    await lib.store.mark_digested(USER, ["s-01", "s-02"], datetime(2026, 9, 9, tzinfo=timezone.utc))
+
+    code, out, _err = await run(lib, "jobs", "requeue", "--empty-rounds")
+    assert code == 0
+    assert out.strip() == "requeued 1 (compile 1); sources reopened 2"
+
+    rows = await lib.store.list_jobs(USER)
+    queued = [r for r in rows if r["status"] == "queued"]
+    assert len(queued) == 1 and queued[0]["job_id"] != empty
+    assert queued[0]["payload"]["source_ids"] == ["s-01", "s-02"]
+    # The digestion stamp was a claim about what canonical holds, made by a round that wrote
+    # nothing. It comes off with the job, or the material stays invisible to every "what is
+    # still uncompiled" reading there is.
+    assert await lib.store.digested_map(USER) == {}
+
+
+async def test_requeue_never_duplicates_work_that_is_still_queued_or_in_flight():
+    lib = _lib()
+    queued_id = await lib.store.enqueue(USER, "compile", {"source_ids": ["s-01"]})
+    code, _out, err = await run(lib, "jobs", "requeue", "--kind", "compile")
+    assert code == 1 and "no finished job matches" in err
+    assert [j["job_id"] for j in await lib.store.list_jobs(USER)] == [queued_id]
+
+
+async def test_requeue_with_no_selector_is_refused_rather_than_requeuing_everything():
+    lib = _lib()
+    await _finished(lib, detail=EMPTY_ROUND)
+    code, _out, err = await run(lib, "jobs", "requeue")
+    assert code == 2 and "at least one selector" in err
+    assert len([j for j in await lib.store.list_jobs(USER) if j["status"] == "queued"]) == 0
+
+
+async def test_requeue_selects_by_status_kind_and_detail_together():
+    """Selectors AND. A recovery that widened as you added conditions would be a trap."""
+    lib = _lib()
+    episodes = await _finished(
+        lib, kind="episodes", ok=False, detail="episodes.proposal: submit a proposal first"
+    )
+    other = await _finished(lib, ok=False, detail="citation missing")
+
+    code, out, _err = await run(
+        lib, "jobs", "requeue", "--status", "failed", "--kind", "episodes",
+        "--detail-like", "episodes.proposal", "--json",
+    )
+    assert code == 0
+    payload = json.loads(out)
+    assert [r["from"] for r in payload["requeued"]] == [episodes]
+    assert payload["by_kind"] == {"episodes": 1}
+    # An episodes job carries no source_ids to reopen; only compile digests anything.
+    assert payload["sources_reopened"] == []
+    assert other not in out
+
+
 async def test_history_reports_the_ledger_newest_first():
     lib = _lib()
     lib.store.history = [

@@ -1425,6 +1425,12 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "agent_retries",
         "agent_keep_workdir",
         "agent_unattended",
+        # …and how long this process waits before asking a subscription that had no room
+        # left. Same kind of statement as `agent_retries`: it is about running a subprocess
+        # against a provider's terms, not about what a round writes. The deadline the
+        # provider states beats it anyway.
+        "agent_rate_limit_cooldown_s",
+        "agent_rate_limit_cooldown_max_s",
         # The last two are the same kind of statement, and the borderline one: the model and
         # the reasoning effort of the harness the launcher spawns. `models.compile` already
         # says `agent:<backend>` and deliberately says no more — §8's ruling is that WHICH

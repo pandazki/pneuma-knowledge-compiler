@@ -17,9 +17,12 @@ backend name.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 from .harness_output import (
     HarnessReport,
@@ -63,6 +66,111 @@ RATE_LIMIT_MARKERS: tuple[str, ...] = (
     "overloaded",
     "try again later",
 )
+
+#: The OTHER way a launch never becomes a round, and the reason this is a second list rather
+#: than four more rows above: nothing here is about the Owner's subscription. `Selected model
+#: is at capacity. Please try a different model.` is the provider saying this model has no
+#: room right now — observed live from `codex exec -m gpt-5.6-luna` minutes after a restored
+#: quota, arriving as a `turn.failed` event with no tool calls and no draft touched. For the
+#: worker the two are one fact ("waiting is the only thing that helps"), so both route into
+#: the same backoff and the same `HARNESS_UNAVAILABLE`; they are kept apart HERE because they
+#: are different sentences and an operator reading `codex at capacity` on a cooling line
+#: should not be told their quota ran out.
+#:
+#: Unlike a usage limit, none of these names an hour, so the cooldown is the only answer.
+UNAVAILABLE_MARKERS: tuple[str, ...] = (
+    "at capacity",
+    "temporarily unavailable",
+    "service unavailable",
+    "503",
+)
+
+
+def unavailable_reason(text: str, manifest: "BackendManifest | None" = None) -> str:
+    """The short phrase naming WHY a launch could not run, or "" when nothing matched.
+
+    What an operator is shown on a cooling line and what the re-queued job carries as its
+    reason. It is the matched MARKER rather than the harness's whole sentence: the sentence
+    is the provider's, may be a paragraph, and is already on the job's detail.
+    """
+    haystack = (text or "").lower()
+    rate = manifest.rate_limit_markers if manifest else RATE_LIMIT_MARKERS
+    unavailable = manifest.unavailable_markers if manifest else UNAVAILABLE_MARKERS
+    for marker in ("usage limit", "quota exceeded", *rate):
+        if marker.lower() in haystack:
+            return "usage limit" if marker in ("usage limit", "quota exceeded") else "rate limit"
+    for marker in unavailable:
+        if marker.lower() in haystack:
+            return "at capacity" if marker == "at capacity" else "unavailable"
+    return ""
+
+
+#: WHEN the harness said the room comes back, as its own sentence spells it. Codex prints
+#: `You've hit your usage limit ... try again at Sep 15th, 2026 9:23 AM` — a local wall-clock
+#: instant, in the timezone of the machine the harness ran on. Reading it is worth a regex
+#: because the alternative is a guessed cooldown: a worker that waits fifteen minutes for a
+#: window that reopens in nine hours spends the night asking a dead quota the same question.
+#:
+#: Per manifest, because these are one CLI's words. Claude Code's phrasing is not stated
+#: here: the framework does not know it for certain, and a pattern that half-matched would
+#: parse a wrong instant rather than fall back to the cooldown that is correct when nothing
+#: is known.
+_MONTHS: Mapping[str, int] = MappingProxyType(
+    {
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    }
+)
+
+CODEX_USAGE_LIMIT_PATTERNS: tuple[str, ...] = (
+    r"try again (?:at|on)\s+"
+    r"(?P<month>[A-Za-z]{3,9})\.?\s+"
+    r"(?P<day>\d{1,2})(?:st|nd|rd|th)?,?\s+"
+    r"(?P<year>\d{4})"
+    r"(?:[\s,]+(?:at\s+)?(?P<hour>\d{1,2}):(?P<minute>\d{2})\s*(?P<meridiem>[AaPp]\.?[Mm]\.?)?)?",
+)
+
+
+def usage_limit_deadline(
+    text: str, *, timezone_name: str = "UTC", patterns: Sequence[str] = ()
+) -> datetime | None:
+    """The instant a harness said its usage limit lifts, or None when it said nothing.
+
+    `timezone_name` is the DEPLOYMENT's default zone (`PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE`),
+    because the harness prints a local wall clock with no offset on it — the machine's own,
+    which for a single-machine edition is the deployment's. An unknown zone name is read as
+    UTC rather than raising: a cooldown computed from the wrong zone is still a cooldown, and
+    a crash in the failure path would turn a rate limit into a stuck worker.
+
+    Returns an aware datetime in that zone. `patterns` defaults to every phrasing this
+    module knows; a caller with a manifest in hand passes that backend's own.
+    """
+    for pattern in (patterns or CODEX_USAGE_LIMIT_PATTERNS):
+        found = re.search(pattern, text or "", re.IGNORECASE)
+        if not found:
+            continue
+        fields = found.groupdict()
+        month = _MONTHS.get(str(fields.get("month", ""))[:3].lower())
+        if month is None:
+            continue
+        hour = int(fields.get("hour") or 0)
+        meridiem = (fields.get("meridiem") or "").replace(".", "").lower()
+        if meridiem == "pm" and hour < 12:
+            hour += 12
+        elif meridiem == "am" and hour == 12:
+            hour = 0
+        try:
+            zone = ZoneInfo(timezone_name or "UTC")
+        except Exception:  # noqa: BLE001 — an unreadable zone is not a reason to fail a job
+            zone = timezone.utc
+        try:
+            return datetime(
+                int(fields["year"]), month, int(fields["day"]),
+                hour, int(fields.get("minute") or 0), tzinfo=zone,
+            )
+        except ValueError:
+            continue
+    return None
 
 
 @dataclass(frozen=True)
@@ -137,6 +245,14 @@ class BackendManifest:
     rate_limit_exit_codes: tuple[int, ...] = ()
     #: Substrings that mean the same thing, matched case-insensitively on the output.
     rate_limit_markers: tuple[str, ...] = RATE_LIMIT_MARKERS
+    #: Substrings that mean the harness could not run for a reason that is not the Owner's
+    #: subscription and that waiting still fixes — a model with no capacity, a provider
+    #: outage. Scanned with the markers above and treated identically by launcher and worker.
+    unavailable_markers: tuple[str, ...] = UNAVAILABLE_MARKERS
+    #: Regexes that read WHEN this harness said the room comes back, from the same output.
+    #: Empty = this backend states no such sentence, and the worker cools for a configured
+    #: interval instead of a parsed one.
+    usage_limit_patterns: tuple[str, ...] = ()
     #: The harness's own report of what the round cost and which session ran it
     #: (`harness_output.py`). Data on the manifest, so reading usage is not a branch.
     read_output: Callable[[str, str], HarnessReport] = read_no_output
@@ -280,6 +396,7 @@ CODEX = BackendManifest(
     default_config_home="~/.codex",
     effort_flags=_CODEX_EFFORT,
     config_seed=("auth.json", "config.toml"),
+    usage_limit_patterns=CODEX_USAGE_LIMIT_PATTERNS,
     read_output=read_codex_output,
     # `--skip-git-repo-check` because a library need not be a git repository (the canonical
     # store's own repository is under `data/`, not at the project root), and the two sandbox

@@ -122,6 +122,16 @@ ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS token_usage jsonb;
 -- usage, the harness's counters being the subscription's rather than the library's. NULL =
 -- the job predates the column.
 ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS executor text;
+-- The earliest moment this job may be claimed. NULL (the default, and every row written
+-- before this column) = now, which is what a queue has always meant. It is set by exactly
+-- one writer: the worker re-queueing a job whose harness never ran, because the Owner's
+-- subscription is out of room and the provider named the hour it comes back
+-- (docs/design/coding-agent-mode.md, "the unattended worker"). Without it the retry is
+-- immediate, and an immediate retry against a dead quota is the 853-job night this column
+-- was added after. `claim_next` skips a row whose `not_before` is still in the future, so
+-- the wait costs nothing — no sleeping worker, no held claim, no in-memory timer that a
+-- restart forgets.
+ALTER TABLE compile_jobs ADD COLUMN IF NOT EXISTS not_before timestamptz;
 
 CREATE INDEX IF NOT EXISTS compile_jobs_claim
     ON compile_jobs (user_id, status, created_at);
