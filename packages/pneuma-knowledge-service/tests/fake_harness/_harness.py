@@ -10,7 +10,7 @@ It is driven entirely by environment variables, so one executable covers every c
 needs:
 
     PKC_FAKE_LOG          append one JSON line per invocation: argv, cwd, env, stdin
-    PKC_FAKE_MODE         ok (default) · rate-limit · hang · fail · silent
+    PKC_FAKE_MODE         ok (default) · rate-limit · at-capacity · hang · fail · silent
     PKC_FAKE_LIVE_AFTER   under `rate-limit`, the attempt number that finally succeeds
     PKC_FAKE_COUNTER      a file the attempt number is counted in (shared across processes)
     PKC_FAKE_SCRIPT       a JSON list of argv lists to RUN — the `pkc draft …` sequence a
@@ -61,6 +61,15 @@ CODEX_USAGE = {
 CODEX_THREAD = "th-fake-codex"
 
 RATE_LIMIT_MESSAGE = "stream error: 429 Too Many Requests (rate limit reached); retry later"
+
+#: The other transient refusal, verbatim as `codex exec` printed it on a real run: a JSON
+#: event on STDOUT, and an exit code that says nothing is wrong. Both halves matter — a
+#: launcher that scanned only stderr, or only a non-zero exit, would see a successful round
+#: that wrote nothing.
+AT_CAPACITY_EVENT = (
+    '{"type":"turn.failed","error":{"message":'
+    '"Selected model is at capacity. Please try a different model."}}'
+)
 
 
 def _attempt() -> int:
@@ -356,6 +365,9 @@ def main(family: str) -> int:
     if mode == "rate-limit" and attempt < live_after:
         print(RATE_LIMIT_MESSAGE, file=sys.stderr)
         return 1
+    if mode == "at-capacity" and attempt < live_after:
+        print(AT_CAPACITY_EVENT)
+        return 0  # the exit code a launcher would read as success
 
     script_code = _run_script()
 

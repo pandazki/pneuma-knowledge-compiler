@@ -136,6 +136,17 @@ class Settings(BaseSettings):
     # own ceiling. 0 means one attempt and no backoff.
     agent_retries: int = 3
 
+    # How long the worker leaves an agent-path job alone after the harness said the
+    # subscription is out of room AND said nothing about when it comes back. Doubling per
+    # consecutive hit up to `AGENT_RATE_LIMIT_COOLDOWN_MAX_S`, and reset by the first round
+    # that actually runs. It is the fallback, not the rule: when the harness names a deadline
+    # (`coding_agent/backends.usage_limit_deadline`) that instant wins, because a parsed
+    # deadline is the provider's own answer and this is a guess. Guessing short is the
+    # expensive mistake — 853 jobs went through a dead quota in four hours the night this
+    # was written — so the ceiling is hours rather than minutes.
+    agent_rate_limit_cooldown_s: int = 900
+    agent_rate_limit_cooldown_max_s: int = 6 * 60 * 60
+
     # Keep the launcher's per-round working directory (the system text, the task, the
     # harness's last message) instead of deleting it. Debugging only: those files hold the
     # library's material, and leaving them in /tmp is a decision an operator makes on purpose.

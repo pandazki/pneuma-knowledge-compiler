@@ -178,6 +178,8 @@ def test_queue_reads_one_bounded_page_of_succeeded_compiles(home, make_library, 
     assert status.queue_status(library) == {
         "pending": 5, "failed": 2, "failed_by_kind": {"evolve": 2}, "succeeded": 135,
         "last_compile_at": "2026-07-03T00:00:00Z",
+        # Nothing is holding this queue back, which is a reading and not an absence.
+        "cooling": None,
     }
     # Five reads, no cursor: an offered next page is never followed, so a library with a
     # long succeeded history costs the same status call as a fresh one.
@@ -186,6 +188,42 @@ def test_queue_reads_one_bounded_page_of_succeeded_compiles(home, make_library, 
     succeeded = calls[-1]
     assert succeeded["kind"] == "compile" and succeeded["limit"] == 20
     assert all(0 < call["timeout"] <= status.QUEUE_BUDGET_SECONDS for call in calls)
+
+
+def test_a_queue_waiting_on_a_spent_subscription_says_so_on_the_worker_line(
+    home, make_library, monkeypatch
+):
+    """A worker that is claiming nothing looks exactly like a worker that is broken.
+
+    The engine reads it off the rows (a queued job's `not_before`), so it survives the worker
+    restarting and is answerable by a process that never cooled anything. It rides the page
+    `status` already asks for, so saying it costs no extra read — and it lands on the one line
+    an Owner looks at before deciding whether something is wrong.
+    """
+    library = make_library()
+    calls = []
+
+    def jobs(_library, *, timeout=1.0, **query):
+        calls.append(query)
+        page = {"total": 3}
+        if query["status"] == "queued":
+            page |= {"cooling_until": "2026-09-15T01:23:00+00:00",
+                     "cooling_reason": "codex usage limit"}
+        return {"items": [], "page": page}
+
+    monkeypatch.setattr(status, "_jobs", jobs)
+    queue = status.queue_status(library)
+    assert queue["cooling"] == {"until": "2026-09-15T01:23:00+00:00",
+                                "reason": "codex usage limit"}
+    assert len(calls) == 5, "the cooling window rides a page status already asks for"
+
+    row = {"unattended": True, "queue": queue}
+    assert status.worker_line(row) == (
+        f"unattended — cooling until {status.local_time('2026-09-15T01:23:00+00:00')} "
+        "(codex usage limit)"
+    )
+    # …and a library with nothing holding it back says exactly what it always said.
+    assert status.worker_line({"unattended": True, "queue": None}) == "unattended"
 
 
 def test_queue_stops_when_the_second_budget_is_spent(home, make_library, monkeypatch):

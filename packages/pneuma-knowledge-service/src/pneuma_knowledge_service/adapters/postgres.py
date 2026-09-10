@@ -1078,14 +1078,25 @@ class PostgresStore:
     # --- JobQueue -------------------------------------------------------------
 
     async def enqueue(
-        self, user_id: UserId, kind: str, payload: dict[str, Any]
+        self,
+        user_id: UserId,
+        kind: str,
+        payload: dict[str, Any],
+        *,
+        not_before: datetime | None = None,
     ) -> str:
+        """Queue one job. `not_before` holds it back until that instant (default: now).
+
+        The delay is a COLUMN and not a sleeping worker: a wait that lives in a process is
+        forgotten by a restart and holds nothing while it lasts, whereas a row that states
+        when it may be claimed is read the same way by every body and survives everything.
+        """
         job_id = uuid.uuid4().hex
         async with self._pool.connection() as conn:
             await conn.execute(
-                "INSERT INTO compile_jobs (id, user_id, kind, payload) "
-                "VALUES (%s, %s, %s, %s)",
-                (job_id, str(user_id), kind, Json(payload)),
+                "INSERT INTO compile_jobs (id, user_id, kind, payload, not_before) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (job_id, str(user_id), kind, Json(payload), not_before),
             )
         return job_id
 
@@ -1203,6 +1214,11 @@ class PostgresStore:
                 row = await (await conn.execute(
                     "SELECT id, kind, payload FROM compile_jobs "
                     "WHERE user_id = %s AND status = 'queued' AND completed_at IS NULL "
+                    # A job asked to wait is not yet a job this claim may take. Skipped in
+                    # the SAME predicate as everything else it will not take, for the same
+                    # reason: a row handed out and put back has still spent the tenant's
+                    # single in-flight slot.
+                    "AND (not_before IS NULL OR not_before <= now()) "
                     + ("AND user_id = ANY(%s) " if allowed else "")
                     + ("AND NOT (kind = ANY(%s)) " if skip else "")
                     + "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
@@ -1384,6 +1400,27 @@ class PostgresStore:
             )
 
     # --- compile results (M3b) ------------------------------------------------
+
+    async def queue_cooling(self, user_id: UserId) -> tuple[datetime, str] | None:
+        """When this tenant's queue starts moving again, and why it stopped — or None.
+
+        Read from the rows themselves rather than from the worker's memory, because the API
+        that answers it and the worker that caused it are different processes (§5, "API and
+        worker are stateless"). A queued job carrying a future `not_before` IS the cooling
+        period; the earliest of them is when it ends, and the reason the worker wrote into
+        that job's payload is why.
+        """
+        async with self._pool.connection() as conn:
+            row = await (await conn.execute(
+                "SELECT not_before, payload FROM compile_jobs "
+                "WHERE user_id = %s AND status = 'queued' AND completed_at IS NULL "
+                "AND not_before IS NOT NULL AND not_before > now() "
+                "ORDER BY not_before LIMIT 1",
+                (str(user_id),),
+            )).fetchone()
+        if row is None:
+            return None
+        return row[0], str((row[1] or {}).get("cooling_reason") or "")
 
     async def list_jobs(self, user_id: UserId) -> list[dict[str, Any]]:
         """All compile jobs for a user, newest first (jobs API + timeline projection)."""
@@ -1792,6 +1829,24 @@ class PostgresStore:
                 "UPDATE sources SET digested_at = %s "
                 "WHERE user_id = %s AND source_id = ANY(%s)",
                 (at, str(user_id), list(source_ids)),
+            )
+
+    async def mark_undigested(self, user_id: UserId, source_ids: list[str]) -> None:
+        """Clear `digested_at` on the given sources — the inverse of `mark_digested`.
+
+        One caller: `pkc jobs requeue`, re-opening material whose compile job was recorded
+        as done without having written anything. Digestion is a claim about what canonical
+        holds, so a job being run again means that claim was not true yet; leaving the stamp
+        would hide the material from every "what is still uncompiled" reading there is.
+        Canonical itself is untouched — this moves no knowledge, it only stops a lie.
+        """
+        if not source_ids:
+            return
+        async with self._pool.connection() as conn:
+            await conn.execute(
+                "UPDATE sources SET digested_at = NULL "
+                "WHERE user_id = %s AND source_id = ANY(%s)",
+                (str(user_id), list(source_ids)),
             )
 
     async def digested_map(

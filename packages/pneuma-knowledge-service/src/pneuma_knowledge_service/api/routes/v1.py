@@ -2231,6 +2231,13 @@ class JobOut(BaseModel):
 class JobPageOut(BaseModel):
     items: list[JobOut]
     page: PageMetaOut
+    #: When this tenant's agent-path jobs start being claimed again, and why they stopped.
+    #: Absent = nothing is holding the queue back. It is on the PAGE and not on an item
+    #: because it is a fact about the queue rather than about any one job, and it is read
+    #: from the rows (a queued job's `not_before`) rather than from the worker's memory —
+    #: the process that answers this is not the process that cooled.
+    cooling_until: str | None = None
+    cooling_reason: str | None = None
 
 
 class HistoryCountsOut(BaseModel):
@@ -2338,9 +2345,15 @@ async def list_jobs(
                 "id": last["job_id"],
             },
         )
+    cooling = None
+    reader = getattr(ctx.store, "queue_cooling", None)
+    if reader is not None:
+        cooling = await reader(UserId(user_id))
     return JobPageOut(
         items=items,
         page=PageMetaOut(limit=limit, total=total, next_cursor=next_cursor),
+        cooling_until=cooling[0].isoformat() if cooling else None,
+        cooling_reason=(cooling[1] or None) if cooling else None,
     )
 
 

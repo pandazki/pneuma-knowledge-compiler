@@ -358,6 +358,28 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
     p.add_argument("--limit", type=int, default=25)
     p.add_argument("--status", default=None)
     p.add_argument("--kind", default=None)
+    # The one WRITE under `jobs`, and the only recovery verb the queue has: it puts finished
+    # work back. Optional subcommand, so `pkc jobs` on its own still reads the queue.
+    jsub = p.add_subparsers(dest="command", required=False)
+    r = jsub.add_parser(
+        "requeue",
+        help=prompt("steward.cli.jobs_requeue"),
+        description=prompt("steward.cli.jobs_requeue_description"),
+    )
+    r.add_argument("--status", default=None, choices=("failed", "done"),
+                   help=prompt("steward.cli.jobs_requeue_status"))
+    r.add_argument("--kind", default=None, choices=("compile", "episodes", "evolve"),
+                   help=prompt("steward.cli.jobs_requeue_kind"))
+    r.add_argument("--empty-rounds", dest="empty_rounds", action="store_true",
+                   help=prompt("steward.cli.jobs_requeue_empty"))
+    r.add_argument("--detail-like", dest="detail_like", default=None, metavar="SUBSTR",
+                   help=prompt("steward.cli.jobs_requeue_detail_like"))
+    r.add_argument("--dry-run", dest="dry_run", action="store_true",
+                   help=prompt("steward.cli.jobs_requeue_dry_run"))
+    # `SUPPRESS` rather than `False`: `--json` already exists on the parent, and a
+    # subparser default would silently un-set it for anyone who typed it before the verb.
+    r.add_argument("--json", dest="as_json", action="store_true",
+                   default=argparse.SUPPRESS, help=prompt("steward.read.json_paging"))
 
     p = _jsonable(top.add_parser("history", help=prompt("steward.cli.history")))
     p.add_argument("--limit", type=int, default=25)
@@ -766,6 +788,22 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
         if verb in ("propose", "contract"):
             values["file"] = args.file or "-"
         return await evolve_cmd.run_command(rt, verb, **values)
+
+    if group == "jobs" and command == "requeue":
+        from . import jobs as jobs_cmd
+
+        return await jobs_cmd.cmd_jobs_requeue(
+            ctx,
+            user,
+            status=args.status or "",
+            kind=args.kind or "",
+            empty_rounds=bool(getattr(args, "empty_rounds", False)),
+            detail_like=getattr(args, "detail_like", None) or "",
+            dry_run=bool(getattr(args, "dry_run", False)),
+            as_json=as_json,
+            out=out,
+            err=err,
+        )
 
     if group in ("outline", "glance", "canonical", "source", "search", "jobs", "history", "brief",
                  "consultations", "spend", "evolve", "recall"):

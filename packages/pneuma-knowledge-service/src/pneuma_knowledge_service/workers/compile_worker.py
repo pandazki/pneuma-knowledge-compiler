@@ -85,6 +85,44 @@ COMPILE_JOB_KIND = "compile"
 _OPTIONAL_ROLE_SKIPPED: set[tuple[str, str]] = set()
 
 
+#: Per tenant: when this body may next claim a job a HARNESS would have to run, and the
+#: words that say why. In memory on purpose — one engine process serves one library here, and
+#: a restart that tries once and cools again costs one launch, whereas a cooling period
+#: persisted in a second place would be a second answer to a question the queue already holds
+#: (the re-queued job's `not_before` is the durable one; this only saves the sweeps in
+#: between from claiming the jobs behind it).
+_COOLING: dict[str, tuple[datetime, str]] = {}
+
+#: How many rate limits this tenant has hit with no round in between. The cooldown doubles
+#: on it, and the first round that actually runs forgets it.
+_RATE_LIMIT_HITS: dict[str, int] = {}
+
+
+def agent_cooling(user_id: UserId) -> tuple[datetime, str] | None:
+    """This tenant's cooling window — `(until, reason)` — or None once it has passed."""
+    entry = _COOLING.get(str(user_id))
+    if entry is None:
+        return None
+    if entry[0] <= datetime.now(timezone.utc):
+        _COOLING.pop(str(user_id), None)
+        return None
+    return entry
+
+
+def agent_path_kinds(ctx: AppContext) -> tuple[str, ...]:
+    """The job kinds that need a launched harness in THIS deployment.
+
+    What a cooling worker must not claim, and nothing else: index, projection, groom and
+    archive jobs run no harness at all, so a spent subscription never stops them.
+    """
+    kinds: list[str] = []
+    if executor_for(ctx.settings, "compile").is_agent:
+        kinds += [COMPILE_JOB_KIND, "episodes"]
+    if executor_for(ctx.settings, "evolve").is_agent:
+        kinds.append("evolve")
+    return tuple(kinds)
+
+
 def optional_role_runnable(settings: Settings, role: str) -> bool:
     """May this deployment ENQUEUE work for an optional role — saying once why not.
 
@@ -689,7 +727,11 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
     """
     from ..cli.runtime import build_runtime
     from ..coding_agent.backends import backend as backend_manifest
-    from ..coding_agent.round_runner import ABANDONED, AgentRoundRunner
+    from ..coding_agent.round_runner import (
+        ABANDONED,
+        HARNESS_UNAVAILABLE,
+        AgentRoundRunner,
+    )
 
     kind = getattr(job, "kind", "compile")
     role = "evolve" if kind == "evolve" else "compile"
@@ -732,9 +774,131 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
         result.launches,
         ", timed out" if result.timed_out else "",
     )
+    if result.outcome == HARNESS_UNAVAILABLE:
+        # A round that never ran. Nothing is judged, nothing is digested, and the job comes
+        # back — held off the queue until the subscription can answer it.
+        await _harness_unavailable(
+            ctx,
+            user_id,
+            job,
+            result,
+            rt=rt,
+            executor=runner.executor,
+            manifest=runner.manifest,
+        )
+        return
+    # A round DID run: the doubling starts over, and any cooling this tenant was under is
+    # over by definition — this body just claimed and ran one of its jobs.
+    _RATE_LIMIT_HITS.pop(str(user_id), None)
+    _COOLING.pop(str(user_id), None)
     if result.usage and result.outcome not in (ABANDONED, "draft ownership lost"):
         await ctx.store.record_job_usage(
             user_id, job_id, token_usage=result.usage, executor=executor.spec
+        )
+
+
+async def _harness_unavailable(
+    ctx: AppContext,
+    user_id: UserId,
+    job: object,
+    result: object,
+    *,
+    rt: object,
+    executor: str,
+    manifest: object,
+) -> None:
+    """End a job whose harness never ran it, and queue the same work for later.
+
+    Three things happen here and each of them is the opposite of what happened the night this
+    was written, when a spent quota produced 296 compile jobs recorded `done ok=True` with
+    nothing written and their sources stamped digested:
+
+    1. the job is completed `ok=False`, naming the harness's own refusal;
+    2. its sources are NOT marked digested — nothing was compiled, so nothing is claimed;
+    3. the same payload is queued again as a new row, held back by `not_before` until the
+       provider said the room comes back (or a doubling cooldown when it said nothing).
+
+    And one more, which is what keeps the other three from being paid for 315 times: the
+    tenant is put on ice, so this body stops claiming work no harness can run.
+    """
+    from ..coding_agent.backends import unavailable_reason, usage_limit_deadline
+
+    job_id = getattr(job, "job_id")
+    kind = getattr(job, "kind", COMPILE_JOB_KIND)
+    payload = dict(getattr(job, "payload", {}) or {})
+    now = datetime.now(timezone.utc)
+    label = getattr(manifest, "display_label", "") or getattr(manifest, "name", "harness")
+    backend_name = getattr(manifest, "name", "harness")
+
+    if getattr(result, "rate_limited", False):
+        hits = _RATE_LIMIT_HITS.get(str(user_id), 0) + 1
+        _RATE_LIMIT_HITS[str(user_id)] = hits
+        output = getattr(result, "output", "") or ""
+        # WHICH refusal it was, in the provider's own vocabulary — a spent subscription and a
+        # model with no capacity are one fact to this code and two sentences to a person.
+        said = unavailable_reason(output, manifest) or "usage limit"
+        # The provider's own answer first. A parsed deadline is a fact; the cooldown below is
+        # a guess, and a guess that runs short is what turns one rate limit into a night of
+        # them. Only a usage limit ever names an hour; capacity never does.
+        stated = usage_limit_deadline(
+            output,
+            timezone_name=str(ctx.settings.default_timezone),
+            patterns=tuple(getattr(manifest, "usage_limit_patterns", ()) or ()),
+        )
+        if stated is not None and stated > now:
+            not_before = stated
+            detail = f"rate_limited: {label} {said}; retry after {stated.isoformat()}"
+        else:
+            seconds = min(
+                int(ctx.settings.agent_rate_limit_cooldown_s) * (2 ** (hits - 1)),
+                int(ctx.settings.agent_rate_limit_cooldown_max_s),
+            )
+            not_before = now + timedelta(seconds=seconds)
+            detail = (
+                f"rate_limited: {label} {said}; retry after "
+                f"{not_before.isoformat()} (cooldown {seconds}s)"
+            )
+        reason = f"{backend_name} {said}"
+        started = agent_cooling(user_id) is None
+        _COOLING[str(user_id)] = (not_before, reason)
+    else:
+        # A harness that died for its own reasons. Same treatment minus the tenant-wide ice:
+        # one launch failing is not evidence that the next one will.
+        not_before = now + timedelta(seconds=int(ctx.settings.agent_rate_limit_cooldown_s))
+        detail = f"harness_failed: exit {getattr(result, 'exit_code', 0)}"
+        reason = f"{backend_name} did not run the round"
+        started = False
+
+    await ctx.store.complete(
+        user_id, job_id, ok=False, detail=detail, claimed_by=executor
+    )
+    # The draft this launch opened reserves the tenant's whole queue while it exists, and it
+    # holds a round nobody is going to continue. Dropped here, under the same lock the error
+    # tail uses, and only while this launch still owns it.
+    drafts = getattr(rt, "drafts", None)
+    if drafts is not None:
+        async with drafts.lock(user_id):
+            owner = await drafts.owner(user_id, job_id)
+            current = await ctx.store.get_job(user_id, job_id)
+            if owner is not None and owner.executor == executor and (
+                current is not None and getattr(current, "status", "") == "done"
+            ):
+                await drafts.delete(user_id, job_id, executor=executor)
+
+    payload["cooling_reason"] = reason
+    await ctx.store.enqueue(user_id, kind, payload, not_before=not_before)
+
+    if started:
+        waiting = sum(
+            1
+            for row in await ctx.store.list_jobs(user_id)
+            if row.get("status") == "queued" and row.get("kind") in agent_path_kinds(ctx)
+        )
+        log.warning(
+            "[compile-worker] %s: cooling until %s; %d job(s) wait",
+            reason,
+            not_before.isoformat(),
+            waiting,
         )
 
 
@@ -1011,8 +1175,17 @@ async def drain_user(
     while True:
         if await _steward_holds_draft(ctx, user_id):
             return processed
+        # A tenant on ice claims nothing a harness would have to run. Asked HERE and not once
+        # before the loop, because the ice is usually laid DURING a drain — the first job of
+        # a long queue is the one that meets the spent subscription, and a list computed
+        # before it would let the other three hundred through behind it. Everything else —
+        # index, projection, groom, archive — keeps flowing: the subscription is what is out
+        # of room, not the library.
+        skip = steward_kinds
+        if agent_cooling(user_id) is not None:
+            skip += tuple(k for k in agent_path_kinds(ctx) if k not in skip)
         job = await ctx.store.claim_next(
-            user_id, exclude_kinds=steward_kinds, tenants=worker_tenants(ctx)
+            user_id, exclude_kinds=skip, tenants=worker_tenants(ctx)
         )
         if job is None:
             return processed
