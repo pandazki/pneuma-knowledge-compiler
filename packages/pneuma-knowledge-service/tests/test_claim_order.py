@@ -179,6 +179,13 @@ async def test_a_drain_over_two_synced_sources_claims_index_episodes_compile(mon
 
     monkeypatch.setattr(compile_worker, "process_index_job", indexed)
     monkeypatch.setattr(compile_worker, "process_agent_job", agent)
+    # These sources are names in a queue, not L0: none is long enough to be windowed.
+    from pneuma_knowledge_service.cli import episodes
+
+    async def never_split(*args):  # noqa: ANN001, ANN002
+        return None
+
+    monkeypatch.setattr(episodes, "split_oversized", never_split)
     config = Settings(llm_model_compile="agent:codex", agent_unattended=True)
     await compile_worker.drain_user(_Ctx(config, jobs), None, SimpleNamespace(), USER)
     assert claimed == [

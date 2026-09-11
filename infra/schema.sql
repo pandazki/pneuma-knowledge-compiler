@@ -79,6 +79,31 @@ CREATE TABLE IF NOT EXISTS chunk_manifests (
         REFERENCES sources (user_id, source_id) ON DELETE CASCADE
 );
 
+-- chunk_manifest_windows: the same kept record, for a source an agent judges in WINDOWS.
+-- A source too long for one episodes round is judged in consecutive windows of whole
+-- blocks (settings.agent_episodes_window_chars), one round each. Each window's judgement is
+-- one row here, keyed by the block it opens at; window_end is its inclusive last block, the
+-- same span addressing as every other block interval (I4). The source's judgement is the
+-- concatenation of the rows that tile it in block order, and until every stretch of the
+-- source is covered by a recorded window it has no L2 chunks at all — a partial judgement is
+-- never filled with an invented partition. `chunk_manifests` is untouched: a whole-source
+-- manifest keeps working exactly as before and, when it matches, wins.
+CREATE TABLE IF NOT EXISTS chunk_manifest_windows (
+    user_id        text        NOT NULL,
+    source_id      text        NOT NULL,
+    window_start   integer     NOT NULL,
+    window_end     integer     NOT NULL,
+    strategy       text        NOT NULL,
+    model          text        NOT NULL,
+    content_digest text        NOT NULL,
+    segments       jsonb       NOT NULL DEFAULT '[]'::jsonb,
+    result_digest  text        NOT NULL,
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, source_id, window_start),
+    FOREIGN KEY (user_id, source_id)
+        REFERENCES sources (user_id, source_id) ON DELETE CASCADE
+);
+
 -- compile job queue: per-user_id serial claim via FOR UPDATE SKIP LOCKED (§5).
 -- Generic kind + payload jsonb to match the JobQueue port (enqueue(user, kind,
 -- payload)); a compile job's payload carries {"source_ids": [...]}, an index job

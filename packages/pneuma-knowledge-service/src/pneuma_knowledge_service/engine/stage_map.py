@@ -1439,6 +1439,10 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # bounds citations against L0, not against the task — so this is about fitting a
         # harness's context, the same kind of statement as the timeout it would otherwise hit.
         "agent_task_structure_chars",
+        # The same fitting for an episodes round: how much of one source its task carries. A
+        # longer source is judged in several windows — the judgement is the same kind, only
+        # split so each round's input fits the harness.
+        "agent_episodes_window_chars",
         # The last two are the same kind of statement, and the borderline one: the model and
         # the reasoning effort of the harness the launcher spawns. `models.compile` already
         # says `agent:<backend>` and deliberately says no more — §8's ruling is that WHICH

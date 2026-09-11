@@ -378,6 +378,57 @@ class PostgresStore:
                 ),
             )
 
+    async def get_chunk_manifest_windows(
+        self, user_id: UserId, source_id: SourceId
+    ) -> list[dict]:
+        """Every window judgement recorded for a source, in block order. Whether they tile
+        the source, and whether they still match its content, is the caller's question."""
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT window_start, window_end, strategy, model, content_digest, "
+                "segments, result_digest FROM chunk_manifest_windows "
+                "WHERE user_id = %s AND source_id = %s ORDER BY window_start",
+                (str(user_id), str(source_id)),
+            )).fetchall()
+        return [
+            {
+                "window_start": int(row[0]), "window_end": int(row[1]),
+                "strategy": row[2], "model": row[3], "content_digest": row[4],
+                "segments": row[5], "result_digest": row[6],
+            }
+            for row in rows
+        ]
+
+    async def put_chunk_manifest_window(
+        self,
+        user_id: UserId,
+        source_id: SourceId,
+        *,
+        window_start: int,
+        window_end: int,
+        strategy: str,
+        model: str,
+        content_digest: str,
+        segments: dict | list,
+        result_digest: str,
+    ) -> None:
+        """Upsert one window's judgement, keyed by the block the window opens at."""
+        async with self._pool.connection() as conn:
+            await conn.execute(
+                "INSERT INTO chunk_manifest_windows (user_id, source_id, window_start, "
+                "window_end, strategy, model, content_digest, segments, result_digest, "
+                "updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, now()) "
+                "ON CONFLICT (user_id, source_id, window_start) DO UPDATE SET "
+                "window_end = EXCLUDED.window_end, strategy = EXCLUDED.strategy, "
+                "model = EXCLUDED.model, content_digest = EXCLUDED.content_digest, "
+                "segments = EXCLUDED.segments, result_digest = EXCLUDED.result_digest, "
+                "updated_at = now()",
+                (
+                    str(user_id), str(source_id), int(window_start), int(window_end),
+                    strategy, model, content_digest, Json(segments), result_digest,
+                ),
+            )
+
     # --- component projections: the `time` component's block index ---------------
     # A component projection is DERIVED (I2): it is written only from L0 + canonical and is
     # re-derivable in full. The store keeps it opaque — what a row MEANS (why the subject's
@@ -1269,9 +1320,11 @@ class PostgresStore:
                     "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
                     # Rank, then place. The rank lets derived-only work past a queue of
                     # compile rounds (CLAIM_FIRST_KINDS says which and why); the place keeps
-                    # FIFO within each rank, with an inherited place winning a tie.
+                    # FIFO within each rank, with an inherited place winning a tie. Rows that
+                    # share one inherited place (the windows of one episodes job) go in the
+                    # order they were written.
                     "ORDER BY (CASE WHEN kind = ANY(%s) THEN 0 ELSE 1 END), "
-                    "COALESCE(order_at, created_at), (order_at IS NULL) "
+                    "COALESCE(order_at, created_at), (order_at IS NULL), created_at "
                     "FOR UPDATE SKIP LOCKED LIMIT 1",
                     (
                         str(user_id),

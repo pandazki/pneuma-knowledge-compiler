@@ -64,7 +64,7 @@ from ..wiring import (
     embed_l2_chunks,
     executor_for,
     full_l2_chunks,
-    agent_chunk_manifest,
+    agent_judgement,
     llm_call_config,
     resolve_image_mode,
     resolve_model_name,
@@ -1128,9 +1128,10 @@ async def process_index_job(
     # L2: by IntakePlan (semantic_indexing knob).
     replace_selection = False
     if semantic != "none" and executor_for(ctx.settings, "compile").is_agent:
-        manifest = await agent_chunk_manifest(ctx, user_id, source_id, ns.blocks)
-        replace_selection = manifest is not None
-        if manifest is None:
+        # The whole-source manifest, or every window of a source judged in several.
+        judgement = await agent_judgement(ctx, user_id, source_id, ns.blocks)
+        replace_selection = judgement is not None
+        if judgement is None:
             # Index jobs are serialized per tenant. Retrying L1 must not enqueue the same
             # unmade judgement twice; a kept judgement is replayed, never commissioned again.
             pending = await ctx.store.list_jobs(user_id)
@@ -1354,7 +1355,12 @@ async def drain_user(
             if kind == "index":
                 await process_index_job(ctx, user_id, job)
             elif kind == "episodes":
-                await process_agent_job(ctx, user_id, job)
+                from ..cli.episodes import split_oversized
+
+                # A source too long for one round's input is not launched: the job becomes
+                # one windowed job per window, at its own place, and the drain moves on.
+                if await split_oversized(ctx, ctx.store, user_id, job) is None:
+                    await process_agent_job(ctx, user_id, job)
             elif kind == "evolve":
                 if unattended(ctx, "evolve"):
                     await process_agent_job(ctx, user_id, job)

@@ -1009,6 +1009,26 @@ retrying finish (including after abandonment or TTL recovery) resumes that same 
 instead of accepting a new proposal. With retrieval switched off during an open round,
 finish retains its manifest without building vectors; a later rebuild can replay it.
 
+**Windows.** An episodes round has no second way to read what it judges — its task is the
+material — so a source whose task would exceed `AGENT_EPISODES_WINDOW_CHARS` (default
+400,000 characters, measured on the rendered block and section entries) is judged in
+consecutive windows of whole blocks, never cut inside a block; one block over the bound is a
+window by itself. The worker that claims an unwindowed episodes job for such a source
+launches nothing: it queues one job per window, payload `window: {start, end}` (an inclusive
+block span, like every span, I4), each at the original's place so all stay ahead of the
+source's compile, and completes the original `ok` with `episodes: split into N windows`; an
+attended `open` does the same. That also migrates jobs queued before windows existed. A
+window's round sees only its blocks and the sections reaching into it, in the source's own
+numbering; its gate refuses an endpoint outside the window, and its `no episode` residue is
+the window's — gaps stay legal, and `[]` still says nothing here deserves L2. Each window's
+judgement is its own kept record in `chunk_manifest_windows`, keyed `(tenant, source,
+window_start)` under the same replay key as a whole manifest; a window keys to the whole
+source's content digest, so an edit anywhere retires every window. The source's judgement is
+the concatenation of the recorded windows that tile it, in block order. Until every stretch
+is covered the source has no L2 chunks, exactly like an unjudged one, and the last window's
+`finish` writes its L2 in one replacement; rebuild replays the windows. `chunk_manifests` is
+untouched: a whole-source manifest works as before and, when it matches, wins.
+
 Attended jobs wait for `open`; unattended jobs use the same launcher and draft lifecycle as
 compile and evolve, with `steward.unattended.episodes_task`. The generated skill adds
 “Episodes before compile”, and `references/cli.md` learns the verbs from the live parser.

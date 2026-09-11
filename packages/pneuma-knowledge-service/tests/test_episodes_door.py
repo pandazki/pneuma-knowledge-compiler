@@ -63,6 +63,7 @@ class MemoryStore(InMemoryJobQueue):
         self._pool = None
         self.sources = {}
         self.manifests = {}
+        self.windows = {}
         self.manifest_writes = 0
 
     async def add(self, user, value):
@@ -85,6 +86,17 @@ class MemoryStore(InMemoryJobQueue):
     async def put_chunk_manifest(self, user, sid, **manifest):
         self.manifest_writes += 1
         self.manifests[str(user), str(sid)] = json.loads(json.dumps(manifest))
+
+    async def get_chunk_manifest_windows(self, user, sid):
+        rows = [row for (u, s, _), row in sorted(self.windows.items(), key=lambda kv: kv[0][2])
+                if u == str(user) and s == str(sid)]
+        return json.loads(json.dumps(rows))
+
+    async def put_chunk_manifest_window(self, user, sid, *, window_start, window_end, **manifest):
+        self.manifest_writes += 1
+        self.windows[str(user), str(sid), int(window_start)] = json.loads(json.dumps(
+            {"window_start": int(window_start), "window_end": int(window_end), **manifest}
+        ))
 
 
 async def make_runtime(tmp_path, *, store=None, user=None, vectors=None, lexical=None, **settings):

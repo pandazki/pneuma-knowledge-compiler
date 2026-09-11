@@ -2632,6 +2632,17 @@ Owner 陈述与 evolve 流程。两种姿态都不会把回答变成 canonical �
 块编号必须是整数，允许空数组 []。每次提案替换完整选择。
 """,
     "steward.episodes.task": "来源与结构图：\n{source}\n\n预算：{budget} 次调用。提交片段后 finish。\n",
+    "steward.episodes.window_task": (
+        "此来源较长，按由整块组成的窗口分轮判断。本轮判断块 ¶{start}-{end}（全来源为 "
+        "¶{first}-{last}），使用来源自身的块编号：每个片段都必须在本窗口内开始和结束，"
+        "窗口外的块由各自的轮次判断。\n\n来源窗口与结构图：\n{source}\n\n"
+        "预算：{budget} 次调用。提交片段后 finish。\n"
+    ),
+    "steward.episodes.window": "episodes.window：片段 {episode} 必须在本轮窗口 ¶{start}-{end} 内开始和结束",
+    "steward.episodes.window_empty": "episodes.window：此作业的窗口 ¶{start}-{end} 不含来源的任何块",
+    "steward.episodes.window_pending": "episodes：窗口 ¶{start}-{end} 已记录；此来源的 L2 等待其余窗口",
+    "steward.episodes.window_complete": "episodes：此来源的每个窗口都已记录；其 L2 分块已写入",
+    "steward.episodes.split": "episodes：此来源分 {count} 个窗口判断；逐个打开：{jobs}",
     "steward.episodes.shape": "episodes.shape：应为对象数组，每个对象恰好包含 start、end、title、description",
     "steward.episodes.endpoints": "episodes.endpoints：片段 {episode} 必须使用真实的整数块编号",
     "steward.episodes.text": "episodes.{field}：片段 {episode} 需要不超过 {limit} 个字符的非空字符串",
