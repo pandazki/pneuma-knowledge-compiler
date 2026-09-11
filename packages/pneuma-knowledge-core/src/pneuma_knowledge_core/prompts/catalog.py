@@ -3403,6 +3403,18 @@ Propose JSON only: [{{"start": a, "end": b, "title": "...", "description": "..."
 Use integer block indices. Empty [] is allowed. Every proposal replaces the whole selection.
 """,
     "steward.episodes.task": "Source and structure map:\n{source}\n\nBudget: {budget} calls. Propose the episodes, then finish.\n",
+    "steward.episodes.window_task": (
+        "This source is long, so it is judged in windows of whole blocks. This round judges "
+        "blocks ¶{start}-{end} of ¶{first}-{last}, in the source's own block numbering: every "
+        "episode starts and ends inside this window, and the blocks outside it are judged in "
+        "their own rounds.\n\nSource window and structure map:\n{source}\n\n"
+        "Budget: {budget} calls. Propose the episodes, then finish.\n"
+    ),
+    "steward.episodes.window": "episodes.window: episode {episode} must start and end inside this round's window ¶{start}-{end}",
+    "steward.episodes.window_empty": "episodes.window: this job's window ¶{start}-{end} holds no block of the source",
+    "steward.episodes.window_pending": "episodes: window ¶{start}-{end} recorded; this source's L2 waits for its other windows",
+    "steward.episodes.window_complete": "episodes: every window of this source is recorded; its L2 chunks are written",
+    "steward.episodes.split": "episodes: this source is judged in {count} windows; open each: {jobs}",
     "steward.episodes.shape": "episodes.shape: expected an array of objects with exactly start, end, title and description",
     "steward.episodes.endpoints": "episodes.endpoints: episode {episode} must name real integer block indices",
     "steward.episodes.text": "episodes.{field}: episode {episode} needs a non-blank string of at most {limit} characters",

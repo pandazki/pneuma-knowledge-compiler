@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
@@ -144,6 +144,7 @@ class _Job:
         not_before: datetime | None = None,
         order_at: datetime | None = None,
         seq: int = 0,
+        created_at: datetime | None = None,
     ) -> None:
         self.job_id = job_id
         self.user_id = user_id
@@ -152,7 +153,7 @@ class _Job:
         self.status = "queued"
         #: The earliest instant a claim may take it; None = now, as a queue has always meant.
         self.not_before = not_before
-        self.created_at = datetime.now(timezone.utc)
+        self.created_at = created_at or datetime.now(timezone.utc)
         #: Its place in the queue — `COALESCE(order_at, created_at)`, as the SQL computes it —
         #: and whether that place was inherited, which wins a tie exactly as in the SQL.
         self.order_at = order_at or self.created_at
@@ -175,6 +176,12 @@ class InMemoryJobQueue:
         self.jobs: list[_Job] = []
         self.completed: list[dict[str, Any]] = []
         self._seq = 0
+        #: The last creation instant handed out. Separate transactions never share a
+        #: Postgres timestamp in practice, but two writes here can land in one microsecond;
+        #: an inherited place (`order_at` = another job's `created_at`) would then tie with a
+        #: job written after that other one and win the tie. A strictly increasing clock
+        #: keeps the in-memory order the order the SQL sees.
+        self._last_created: datetime | None = None
         self.drafts = None
 
     async def enqueue(  # noqa: ANN001
@@ -182,9 +189,13 @@ class InMemoryJobQueue:
         order_at: datetime | None = None,
     ) -> str:
         self._seq += 1
+        now = datetime.now(timezone.utc)
+        if self._last_created is not None and now <= self._last_created:
+            now = self._last_created + timedelta(microseconds=1)
+        self._last_created = now
         job = _Job(
             f"job-{self._seq:02d}", user_id, kind, dict(payload), not_before, order_at,
-            seq=self._seq,
+            seq=self._seq, created_at=now,
         )
         self.jobs.append(job)
         return job.job_id

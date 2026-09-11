@@ -12,6 +12,27 @@ async def test_episodes_pg_qdrant_rebuild_round_trip(pg_store, qdrant, meili, us
     await round_trip(rt, tmp_path, monkeypatch, proposal)
 
 
+async def test_episodes_pg_windows_compose_rebuild_and_claim_in_order(pg_store, qdrant, meili, user, tmp_path, monkeypatch):
+    """Window records in `chunk_manifest_windows`, composed and replayed over real PG +
+    Qdrant; windowed jobs that share one inherited place are claimed in write order."""
+    from datetime import datetime, timedelta, timezone
+
+    from test_episodes_windows import windowed_round_trip
+
+    rt = await make_runtime(tmp_path, store=pg_store, vectors=qdrant, lexical=meili, user=user)
+    await windowed_round_trip(rt, tmp_path, monkeypatch)
+    place = datetime.now(timezone.utc) - timedelta(days=1)
+    written = [
+        await pg_store.enqueue(user, "episodes", {"source_id": "s-order", "window": {"start": n, "end": n}}, order_at=place)
+        for n in range(4)
+    ]
+    claimed = []
+    while (job := await pg_store.claim_next(user)) is not None:
+        claimed.append(job.job_id)
+        await pg_store.complete(user, job.job_id, ok=True, detail="synthetic")
+    assert claimed == written
+
+
 async def test_episodes_pg_refusal_ttl_and_abandon(pg_store, qdrant, user, tmp_path):
     rt = await make_runtime(tmp_path, store=pg_store, vectors=qdrant, user=user)
     job = await open_job(rt)

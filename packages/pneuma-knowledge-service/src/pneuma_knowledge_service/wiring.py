@@ -81,9 +81,10 @@ async def full_l2_chunks(
 
     if executor_for(ctx.settings, "compile").is_agent:
         # A missing record means the episodes job is still the Steward's work. Rebuild
-        # never invents a mechanical partition in place of that unmade judgement.
-        manifest = await agent_chunk_manifest(ctx, user_id, source_id, blocks)
-        return await chunks_from_agent_manifest(ctx, source_id, blocks, structure, manifest) if manifest else []
+        # never invents a mechanical partition in place of that unmade judgement — nor for
+        # the unjudged windows of a source judged in several.
+        manifests = await agent_judgement(ctx, user_id, source_id, blocks)
+        return await chunks_from_agent_manifests(ctx, source_id, blocks, structure, manifests) if manifests else []
 
     # Semantic segmentation needs a REAL LLM, so a scripted/keyless base model (tests,
     # demos) falls back to mechanical sentence chunking — mirroring the "scripted: base
@@ -249,17 +250,71 @@ async def agent_chunk_manifest(ctx, user_id, source_id, blocks) -> dict | None:
     Agent episodes always use closed intervals with smart overlap. The API overlap knob
     does not reinterpret a kept agent judgement; its skill hash is attribution, not a key.
     """
-    from pneuma_knowledge_core.ingest.semantic import blocks_content_digest, is_agent_manifest
-
     manifest = await ctx.store.get_chunk_manifest(user_id, source_id)
-    if (
-        manifest is not None and manifest["strategy"] == "semantic"
-        and manifest["model"] == resolve_model_name(ctx.settings, "compile")
-        and manifest["content_digest"] == blocks_content_digest(blocks)
-        and is_agent_manifest(manifest["segments"])
-    ):
+    if manifest is not None and agent_record_matches(ctx, manifest, blocks):
         return manifest
     return None
+
+
+def agent_record_matches(ctx, record, blocks) -> bool:
+    """The replay key an agent record must still match: strategy, executor spec, content.
+
+    The same key for a whole-source manifest and for one window's: a window is keyed to the
+    WHOLE source's content digest, so an edit anywhere retires every window of it."""
+    from pneuma_knowledge_core.ingest.semantic import blocks_content_digest, is_agent_manifest
+
+    return (
+        record["strategy"] == "semantic"
+        and record["model"] == resolve_model_name(ctx.settings, "compile")
+        and record["content_digest"] == blocks_content_digest(blocks)
+        and is_agent_manifest(record["segments"])
+    )
+
+
+async def agent_window_manifests(ctx, user_id, source_id, blocks) -> list[dict] | None:
+    """A windowed source's judgement: its recorded windows that tile it, in block order.
+
+    None until every stretch of the source lies in a recorded window that still matches its
+    content — a source judged in part has no judgement, exactly like a source judged not at
+    all. The windows are kept records (`chunk_manifest_windows`); this only reads them.
+    """
+    from pneuma_knowledge_core.ingest.episodes import window_chain
+
+    rows = await ctx.store.get_chunk_manifest_windows(user_id, source_id)
+    usable = {
+        int(row["window_start"]): row for row in rows if agent_record_matches(ctx, row, blocks)
+    }
+    chain = window_chain(
+        [(start, int(row["window_end"])) for start, row in usable.items()],
+        [b.index for b in blocks],
+    )
+    return [usable[start] for start, _ in chain] if chain else None
+
+
+async def agent_judgement(ctx, user_id, source_id, blocks) -> list[dict] | None:
+    """The agent's kept judgement of a source's current content, as the records to replay.
+
+    One whole-source manifest when it matches (how every source was judged before windows,
+    and how every source short enough still is), else every window of it, else None: the
+    judgement is still unmade, and the episodes job owns it.
+    """
+    whole = await agent_chunk_manifest(ctx, user_id, source_id, blocks)
+    if whole is not None:
+        return [whole]
+    return await agent_window_manifests(ctx, user_id, source_id, blocks)
+
+
+async def chunks_from_agent_manifests(ctx, source_id, blocks, structure, manifests):
+    """Materialize a judgement recorded as one or several records, concatenated in order.
+
+    Each window's episodes lie inside its window, and the chunker never lets a chunk leave
+    the episode it came from, so materializing window by window against the whole source is
+    the concatenated manifest materialized at once — each window with its own pinned splitter.
+    """
+    chunks = []
+    for manifest in manifests:
+        chunks.extend(await chunks_from_agent_manifest(ctx, source_id, blocks, structure, manifest))
+    return chunks
 
 
 async def chunks_from_agent_manifest(ctx, source_id, blocks, structure, manifest):

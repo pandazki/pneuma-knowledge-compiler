@@ -166,6 +166,16 @@ class Settings(BaseSettings):
     # bound.
     agent_task_structure_chars: int = 60_000
 
+    # How much of one source an agent's EPISODES task carries. Unlike a compile, an episodes
+    # round has no second way to read what it judges — its task is the material — so a long
+    # source is not cut but judged in consecutive windows of whole blocks, one round each,
+    # every window's task at most this many characters (measured on the rendered block and
+    # structure entries, not the bare text: a chat of short blocks is mostly JSON framing).
+    # 400,000 is the order of the personal edition's `max_part_chars`, and far enough under
+    # the 1,048,576-character input cap Codex refused a 1.37M-character source at that the
+    # system text, the skill and the handover fit beside it. 0 = one window, no bound.
+    agent_episodes_window_chars: int = 400_000
+
     # Keep the launcher's per-round working directory (the system text, the task, the
     # harness's last message) instead of deleting it. Debugging only: those files hold the
     # library's material, and leaving them in /tmp is a decision an operator makes on purpose.
