@@ -143,7 +143,9 @@ class Settings(BaseSettings):
     # RATE LIMIT — and only that. A refusal of any other kind is reported, because it will be
     # refused again; a timeout is not retried either, because the wall clock is the statement
     # that the round is over. Waits are exponential with jitter and bounded by the launcher's
-    # own ceiling. 0 means one attempt and no backoff.
+    # own ceiling; a model at capacity is spaced wider (15 s, 30 s, 60 s), because capacity
+    # returns in seconds-to-minutes and a relaunch inside that window is wasted. 0 means one
+    # attempt and no backoff.
     agent_retries: int = 3
 
     # How long the worker leaves an agent-path job alone after the harness said the
@@ -156,6 +158,17 @@ class Settings(BaseSettings):
     # was written — so the ceiling is hours rather than minutes.
     agent_rate_limit_cooldown_s: int = 900
     agent_rate_limit_cooldown_max_s: int = 6 * 60 * 60
+
+    # The same wait when the harness said the MODEL is at capacity rather than that the
+    # subscription is spent. Capacity comes and goes within minutes — back-to-back probes
+    # alternated between refused and answered within seconds, live — so a usage limit's
+    # quarter-hour-doubling-to-six-hours kept the tenant off the air long after the model had
+    # room again. Its own short wait instead, doubling per consecutive capacity refusal up to
+    # `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`, reset by the first round that runs. The launcher
+    # also spaces its own relaunches wider for this refusal (`launcher.CAPACITY_BACKOFF_S`),
+    # so a brief dip is usually absorbed inside one launch and never cools the tenant at all.
+    agent_unavailable_cooldown_s: int = 120
+    agent_unavailable_cooldown_max_s: int = 15 * 60
 
     # How much numbered source text a coding agent's compile task carries before it stops and
     # names the rest. A model executor has no second way to read material, so its task is

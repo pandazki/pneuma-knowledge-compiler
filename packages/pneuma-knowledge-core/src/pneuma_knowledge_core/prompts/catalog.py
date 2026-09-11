@@ -3065,6 +3065,7 @@ DEFAULTS: dict[str, str] = {
     "steward.cli.jobs_requeue_empty": "only rounds that ended having written nothing: one round, no snapshot, a projection that moved nothing",
     "steward.cli.jobs_requeue_detail_like": "only jobs whose recorded detail contains this text",
     "steward.cli.jobs_requeue_dry_run": "show what would be re-queued and change nothing",
+    "steward.cli.jobs_requeue_job": "only this job (repeatable): reopen exactly the finished jobs named",
     "steward.cli.history": "compile versions, jobs and sources, newest first",
     "steward.cli.brief": "the post-compile brief of one version",
     "steward.cli.consultations": "kept consultations, including unanswered handovers, newest first",

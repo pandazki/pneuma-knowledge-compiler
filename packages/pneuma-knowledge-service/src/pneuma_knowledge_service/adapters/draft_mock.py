@@ -21,7 +21,7 @@ from typing import Any
 
 from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
 
-from .postgres import CLAIM_FIRST_KINDS
+from .postgres import CLAIM_FIRST_KINDS, adoptable, draft_holds_work
 
 
 class InMemoryDraftStore:
@@ -76,12 +76,17 @@ class InMemoryDraftStore:
         row = self._rows.get((str(user_id), job_id))
         return dict(row) if row is not None else None
 
-    async def put(self, user_id, job_id: str, state: dict[str, Any]) -> None:
+    async def holds_work(self, user_id, job_id: str) -> bool:  # noqa: ANN001
+        return draft_holds_work(await self.get(user_id, job_id))
+
+    async def put(self, user_id, job_id: str, state: dict[str, Any], *, adopt_from: str = "") -> None:
         async with self.lock(user_id):
             key = (str(user_id), job_id)
             executor = (state.get("session") or {}).get("executor", "")
             owner = await self.owner(user_id, job_id)
-            if owner and owner.executor != executor:
+            if owner and owner.executor != executor and not (
+                await adoptable(self, user_id, owner, adopt_from)
+            ):
                 raise DraftOwnershipError(owner.refusal())
             if executor:
                 job = await self.jobs.get_job(user_id, job_id)
@@ -205,10 +210,21 @@ class InMemoryJobQueue:
             j.status == "claimed" and str(j.user_id) == str(user_id) for j in self.jobs
         )
 
+    async def _claimable(self, user_id, job_id: str) -> bool:  # noqa: ANN001
+        """`claim_next`'s draft clause: no open draft of this tenant stands in the way —
+        except this job's own draft when the self-heal kept it (`continue_from`)."""
+        if not self.drafts:
+            return True
+        for held in await self.drafts.list_open(user_id):
+            state = await self.drafts.get(user_id, held) or {}
+            if not (held == job_id and state.get("continue_from")):
+                return False
+        return True
+
     async def claim_next(  # noqa: ANN001
         self, user_id, *, claimed_by: str = "worker", exclude_kinds=(), tenants=()
     ):
-        if self._in_flight(user_id) or (self.drafts and await self.drafts.list_open(user_id)):
+        if self._in_flight(user_id):
             return None
         skip = {k for k in exclude_kinds if k}
         allowed = {t for t in tenants if t}
@@ -217,6 +233,7 @@ class InMemoryJobQueue:
             if (
                 job.status == "queued"
                 and str(job.user_id) == str(user_id)
+                and await self._claimable(user_id, job.job_id)
                 and (not allowed or str(job.user_id) in allowed)
                 and job.kind not in skip
                 and (job.not_before is None or job.not_before <= now)
@@ -227,7 +244,7 @@ class InMemoryJobQueue:
         return None
 
     async def claim(self, user_id, job_id: str, *, claimed_by: str = "worker"):  # noqa: ANN001
-        if self._in_flight(user_id) or (self.drafts and await self.drafts.list_open(user_id)):
+        if self._in_flight(user_id) or not await self._claimable(user_id, job_id):
             return None
         for job in self.jobs:
             if (
@@ -248,10 +265,12 @@ class InMemoryJobQueue:
                     return job_id, owner
         return None
 
-    async def requeue_claimed_jobs(self, *, draft_ttl=0, tenants=()):
+    async def requeue_claimed_jobs(self, *, draft_ttl=0, tenants=(), job_id=None):
         reclaimed = 0
         for job in self.jobs:
             if tenants and str(job.user_id) not in tenants:
+                continue
+            if job_id is not None and job.job_id != job_id:
                 continue
             owner = await self.drafts.owner(job.user_id, job.job_id) if self.drafts else None
             if job.status == "done":
@@ -262,13 +281,18 @@ class InMemoryJobQueue:
                 continue
             executor = owner.executor if owner else (getattr(job, "claimed_by", "") or "")
             expired = bool(owner and draft_ttl > 0 and owner.idle_seconds >= draft_ttl)
+            keep = False
             if executor.startswith("worker:"):
-                if not expired and self.drafts and await self.drafts.worker_alive(job.user_id, executor):
+                alive = bool(self.drafts) and await self.drafts.worker_alive(job.user_id, executor)
+                if alive and not expired:
                     continue
+                keep = bool(owner) and not alive and await self.drafts.holds_work(job.user_id, job.job_id)
             elif owner and not expired and draft_ttl > 0:
                 continue
-            if owner:
+            if owner and not keep:
                 await self.drafts.delete(job.user_id, job.job_id)
+            elif keep:
+                self.drafts._rows[(str(job.user_id), job.job_id)]["continue_from"] = executor
             was_claimed = job.status == "claimed"
             await self.release(job.user_id, job.job_id)
             reclaimed += int(was_claimed)
@@ -329,7 +353,7 @@ class InMemoryJobQueue:
     async def attach_executor(self, user_id, job_id, executor):
         job = await self.get_job(user_id, job_id)
         if (job is None or job.status != "claimed" or job.claimed_by != "worker"
-                or (self.drafts and await self.drafts.list_open(user_id))):
+                or not await self._claimable(user_id, job_id)):
             return False
         job.claimed_by = executor
         return True

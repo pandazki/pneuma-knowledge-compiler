@@ -21,9 +21,10 @@ from starlette.types import Scope
 
 from .. import __version__
 from ..archive_service import ArchiveRequestError
+from ..infra_faults import infrastructure_exception_types, infrastructure_fault
 from ..settings import Settings, get_settings
 from ..snapshot_tenant import SnapshotTenantWriteError
-from ..wiring import build_context
+from ..wiring import CONNECTION_ROLE, build_context, connection_role_as
 from .routes.archive import router as archive_router
 from .routes.live_context import root_router as live_context_root_router, router as live_context_router
 from .routes.engine import router as engine_router
@@ -76,7 +77,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        app.state.ctx = await build_context(settings)
+        # The engine starts the API in a task named `pkc-engine-api`; served on its own
+        # (uvicorn over `create_app`), the API names its connections `pkc-api`.
+        with connection_role_as(CONNECTION_ROLE.get() or "pkc-api"):
+            app.state.ctx = await build_context(settings)
         try:
             yield
         finally:
@@ -147,6 +151,29 @@ def create_app(
             # would keep rendering a `proposed` row that no longer exists in that state.
             content["proposal"] = exc.proposal
         return JSONResponse(status_code=exc.status_code, content=content)
+
+    # Infrastructure away for a moment — Postgres restarting, Qdrant or Meilisearch being
+    # recreated, RustFS dropping a connection. The request fails, briefly and legibly, with a
+    # 503 the console can retry; the process and its lifespan stay as they are, because the
+    # pool reconnects on its own (`PostgresStore`'s connection check) and so do the HTTP
+    # clients. One handler per class that CAN carry such a failure, each asking the one
+    # classifier: the same class also carries failures that are not transient (a statement
+    # timeout is an OperationalError), and those keep the unhandled path they always had.
+    async def _infrastructure_unavailable(_request: Request, exc: Exception) -> JSONResponse:
+        fault = infrastructure_fault(exc)
+        if fault is None:
+            raise exc
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": f"infrastructure unavailable ({fault.describe()})",
+                "code": "infrastructure_unavailable",
+            },
+            headers={"Retry-After": "5"},
+        )
+
+    for exc_class in infrastructure_exception_types():
+        app.add_exception_handler(exc_class, _infrastructure_unavailable)
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

@@ -47,6 +47,7 @@ from pneuma_knowledge_core.ports.draft_store import DraftOwnershipError
 from pneuma_knowledge_core.prompts import prompt
 
 from ..cli.draft import (
+    EXIT_INCOMPLETE,
     EXIT_OK,
     DraftRuntime,
     cmd_abandon,
@@ -87,6 +88,12 @@ ABANDONED = "the round was abandoned"
 #: its sources digested, and leave the library believing that material was compiled. That is
 #: what one night against a spent quota actually did, 296 times.
 HARNESS_UNAVAILABLE = "the harness did not run the round"
+#: The launch DID become a round, but it ended by a timeout or a non-zero exit, and the
+#: worker's finish found nothing in it to commit. Not a judgement that the material held
+#: nothing — the harness never reached the end of it. The worker fails the job and queues it
+#: again under the same bound as a harness that died (`compile_worker._round_incomplete`).
+#: A round that exited cleanly and committed nothing stays what it always was: an empty round.
+ROUND_INCOMPLETE = "the round did not run to its end and nothing was committed"
 
 #: WHY it did not — the three answers, because the worker does two different things about
 #: them and telling them apart is the difference between waiting for a subscription and
@@ -136,6 +143,9 @@ class AgentRoundResult:
     #: own markers, so the worker branches on a classification rather than re-reading the
     #: harness's prose.
     harness_reason: str = ""
+    #: For `ROUND_INCOMPLETE`: how the launch before the finish ended — "timed out" or
+    #: "exit N". "" for every other outcome.
+    incomplete: str = ""
 
 
 def _sum_usage(
@@ -269,7 +279,11 @@ class AgentRoundRunner:
                 # refused and it did not try again. The worker finishes what is there through
                 # the same function `pkc draft finish` is, so the gate judges what was
                 # written rather than the worker deciding anything.
-                await finish(rt)
+                if await self._worker_finish(rt, finish, first) == EXIT_INCOMPLETE:
+                    last_message = ""
+                    return self._incomplete(
+                        job_id, first, usage, cost, launches, timed_out, rate_limited
+                    )
                 state = await self._open_state(rt, job_id)
                 if state is None:
                     return self._result(
@@ -300,7 +314,11 @@ class AgentRoundRunner:
             # The repair round did not finish either. The worker finishes it: on a repair
             # round `cmd_finish` either commits or aborts, so this ends the draft whatever
             # the gate says.
-            await finish(rt)
+            if await self._worker_finish(rt, finish, repair) == EXIT_INCOMPLETE:
+                last_message = ""
+                return self._incomplete(
+                    job_id, repair, usage, cost, launches, timed_out, rate_limited
+                )
             if await self._open_state(rt, job_id) is not None:
                 # Nothing left to try. Release the job rather than hold it claimed forever.
                 await cmd_abandon(rt)
@@ -421,6 +439,36 @@ class AgentRoundRunner:
         return self._task(job_id, body, kind=session.kind)
 
     @staticmethod
+    async def _worker_finish(rt: DraftRuntime, finish, launch: LaunchResult) -> int:  # noqa: ANN001
+        """The worker's finish of a round its harness left open, told how that launch ended.
+
+        Compile only: `cmd_finish` is the finish that can record a noop as success and stamp
+        digestion, and the one that reads `unclean_launch`. Evolve and episodes rounds finish
+        through their own functions, which neither digest nor read the flag."""
+        rt.unclean_launch = _unclean(launch) if rt.kind == "compile" else ""
+        try:
+            return await finish(rt)
+        finally:
+            rt.unclean_launch = ""
+
+    def _incomplete(
+        self,
+        job_id: str,
+        launch: LaunchResult,
+        usage: dict[str, int] | None,
+        cost: float | None,
+        launches: int,
+        timed_out: bool,
+        rate_limited: bool,
+    ) -> AgentRoundResult:
+        return self._result(
+            job_id, ROUND_INCOMPLETE, usage, cost, launches, timed_out, rate_limited,
+            exit_code=launch.exit_code,
+            output=_tail(launch.stderr, launch.stdout),
+            incomplete=_unclean(launch),
+        )
+
+    @staticmethod
     async def _open_state(
         rt: DraftRuntime, job_id: str
     ) -> tuple[PatchDraft, DraftSession] | None:
@@ -457,6 +505,7 @@ class AgentRoundRunner:
         exit_code: int = 0,
         output: str = "",
         harness_reason: str = "",
+        incomplete: str = "",
     ) -> AgentRoundResult:
         return AgentRoundResult(
             job_id=job_id,
@@ -469,6 +518,7 @@ class AgentRoundRunner:
             exit_code=exit_code,
             output=output,
             harness_reason=harness_reason,
+            incomplete=incomplete,
         )
 
 
@@ -500,6 +550,13 @@ def _never_ran(launch: LaunchResult, session: DraftSession) -> bool:
     empty round out of it.
     """
     return (launch.rate_limited or launch.exit_code != 0) and session.spent == 0
+
+
+def _unclean(launch: LaunchResult) -> str:
+    """How a launch failed to end cleanly — "timed out" or "exit N" — or "" when it did."""
+    if launch.timed_out:
+        return "timed out"
+    return f"exit {launch.exit_code}" if launch.exit_code != 0 else ""
 
 
 def _tail(*parts: str) -> str:
@@ -565,6 +622,7 @@ __all__ = [
     "FINISHED_BY_WORKER",
     "HARNESS_UNAVAILABLE",
     "REPAIRED",
+    "ROUND_INCOMPLETE",
     "UNAVAILABLE_AT_CAPACITY",
     "UNAVAILABLE_FAILED",
     "UNAVAILABLE_RATE_LIMITED",

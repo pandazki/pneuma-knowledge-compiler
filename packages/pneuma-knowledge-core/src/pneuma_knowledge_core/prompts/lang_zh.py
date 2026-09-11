@@ -2340,6 +2340,7 @@ _ZH: dict[str, str] = {
     "steward.cli.jobs_requeue_empty": "只要那些什么也没写就结束的轮次：一轮、无快照、投影没有移动任何东西",
     "steward.cli.jobs_requeue_detail_like": "只要记录的 detail 中包含这段文字的作业",
     "steward.cli.jobs_requeue_dry_run": "只显示会重新入队什么，不做任何改动",
+    "steward.cli.jobs_requeue_job": "只选这个任务（可重复）：精确重开所指定的已结束任务",
     "steward.cli.history": "编译版本、作业和来源，最新在前",
     "steward.cli.brief": "某一版本的编译后简报",
     "steward.cli.consultations": "保留的咨询记录，含未作答交接，最新在前",

@@ -234,7 +234,7 @@ class _MemoryStore(InMemoryLibraryStore):
     `build_context` can be exercised without Postgres. Everything else in this test is the
     shipped code path: settings, engine bootstrap, wiring, dispatch."""
 
-    def __init__(self, _dsn: str) -> None:
+    def __init__(self, _dsn: str, **_connection) -> None:  # noqa: ANN003 — application_name
         super().__init__()
 
     async def open(self) -> None:
@@ -267,7 +267,7 @@ def test_profile_needs_no_embedding_key_on_a_semantic_deployment(tmp_path, monke
     # One library across both commands: each `main` builds its own context, and the record
     # has to outlive the process the way Postgres does.
     store = _MemoryStore("")
-    monkeypatch.setattr(wiring, "PostgresStore", lambda _dsn: store)
+    monkeypatch.setattr(wiring, "PostgresStore", lambda _dsn, **_connection: store)
 
     # The premise, stated as a fact rather than assumed: this deployment cannot build
     # embeddings at all right now.

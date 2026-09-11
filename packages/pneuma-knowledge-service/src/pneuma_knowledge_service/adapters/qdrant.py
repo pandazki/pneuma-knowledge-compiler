@@ -594,6 +594,10 @@ class QdrantVectorIndex:
             )
         return hits
 
+    async def ping(self) -> None:
+        """One request to the server; raises the client's transport error while it is away."""
+        await self._client.collection_exists(self._collection)
+
     async def aclose(self) -> None:
         """Close the underlying async client (lifespan/worker shutdown)."""
         await self._client.close()

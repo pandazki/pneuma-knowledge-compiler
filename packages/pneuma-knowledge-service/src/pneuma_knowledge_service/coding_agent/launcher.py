@@ -58,6 +58,7 @@ from .backends import (
     SYSTEM_PROMPT_FILE,
     BackendManifest,
     render_argv,
+    unavailable_reason,
 )
 from .harness_output import HarnessReport
 from .install import SKILL_HASH_ENV
@@ -85,6 +86,12 @@ BACKOFF_CEILING_S = 120.0
 #: the same limit do not return in lockstep.
 BACKOFF_BASE_S = 5.0
 BACKOFF_JITTER = 0.25
+#: The waits before each relaunch when the MODEL is at capacity, with the same jitter.
+#: Wider than a rate limit's, and on purpose: capacity was seen to come and go within
+#: seconds-to-minutes, so relaunching five seconds later mostly meets the same refusal, and
+#: four quick refusals then cooled the whole tenant. Spread across a minute and a half, a
+#: brief dip is usually absorbed inside this one launch.
+CAPACITY_BACKOFF_S: tuple[float, ...] = (15.0, 30.0, 60.0)
 
 #: How long after TERM the group gets before KILL, per §8 ("reaped TERM→KILL").
 KILL_AFTER_S = 1.0
@@ -438,6 +445,21 @@ def backoff_wait(attempt: int, *, rng: random.Random | None = None) -> float:
     return max(0.0, base * (1.0 + picker.uniform(-BACKOFF_JITTER, BACKOFF_JITTER)))
 
 
+def capacity_wait(attempt: int, *, rng: random.Random | None = None) -> float:
+    """The wait before attempt `attempt` (1-based) when the model is at capacity: the
+    `CAPACITY_BACKOFF_S` step for that attempt (the last one repeats), with jitter."""
+    picker = rng or random
+    base = CAPACITY_BACKOFF_S[min(max(attempt - 1, 0), len(CAPACITY_BACKOFF_S) - 1)]
+    return max(0.0, base * (1.0 + picker.uniform(-BACKOFF_JITTER, BACKOFF_JITTER)))
+
+
+def _at_capacity(manifest: BackendManifest, result: "LaunchResult") -> bool:
+    """Was this transient refusal the model having no room, rather than a spent quota? The
+    same words `round_runner.classify_refusal` reads, off the same output."""
+    said = unavailable_reason(f"{result.stderr}\n{result.stdout}", manifest)
+    return said in ("at capacity", "unavailable")
+
+
 async def _run_once(request: LaunchRequest, workdir: Path) -> LaunchResult:
     """One harness process, start to finish, under the wall clock."""
     manifest = request.manifest
@@ -552,10 +574,12 @@ async def launch_round(
         )
         if not result.rate_limited or attempt >= attempts:
             return result
-        wait = backoff_wait(attempt, rng=rng)
+        capacity = _at_capacity(request.manifest, result)
+        wait = capacity_wait(attempt, rng=rng) if capacity else backoff_wait(attempt, rng=rng)
         log.warning(
-            "%s reported a rate limit on attempt %d/%d; waiting %.1fs before the next",
+            "%s reported %s on attempt %d/%d; waiting %.1fs before the next",
             request.manifest.display_label,
+            "the model at capacity" if capacity else "a rate limit",
             attempt,
             attempts,
             wait,
@@ -587,6 +611,7 @@ __all__ = [
     "BACKEND_ENV",
     "BACKOFF_BASE_S",
     "BACKOFF_CEILING_S",
+    "CAPACITY_BACKOFF_S",
     "KILL_AFTER_S",
     "LaunchRequest",
     "LaunchResult",

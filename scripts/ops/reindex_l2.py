@@ -103,7 +103,7 @@ async def main() -> int:
         return 2
     users = [UserId(u) for u in sys.argv[1:]]
     settings = get_settings()
-    ctx = await build_context(settings)
+    ctx = await build_context(settings, application_name="pkc-ops:reindex_l2")
     # Do NOT pre-build a chunker here: strategy="semantic" has no standalone chonkie
     # chunker (build_chunker would raise). full_l2_chunks owns the per-strategy dispatch.
     print(

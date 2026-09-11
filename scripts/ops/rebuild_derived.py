@@ -229,7 +229,7 @@ async def rebuild_component_projections(ctx, user_id: UserId) -> None:
 async def main() -> int:
     args = sys.argv[1:]
     settings = get_settings()
-    ctx = await build_context(settings)
+    ctx = await build_context(settings, application_name="pkc-ops:rebuild_derived")
     print(
         f"chunk_strategy={settings.chunk_strategy}  "
         f"embedding={settings.embedding_model}  qdrant={settings.qdrant_collection}"

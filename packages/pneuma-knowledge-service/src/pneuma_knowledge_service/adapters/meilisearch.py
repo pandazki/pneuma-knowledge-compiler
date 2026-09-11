@@ -447,6 +447,11 @@ class MeiliLexicalIndex:
             for hit in result.hits
         ]
 
+    async def ping(self) -> None:
+        """One request to the server; raises the client's communication error while it is
+        away."""
+        await self._client.health()
+
     async def aclose(self) -> None:
         """Close the underlying httpx client (lifespan/worker shutdown)."""
         await self._client.aclose()

@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -52,14 +53,17 @@ from ..access_stats import (
 from ..archive_service import ARCHIVE_JOB_KIND
 from .archive_job import run_archive_job
 from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
+from ..infra_faults import InfraFault, InfrastructureInterrupted, infrastructure_fault
 from ..ingest_document import _summary_chunks
 from ..projection import sync_projection
 from ..settings import Settings, get_settings
 from ..skills import skill_for_user
 from ..wiring import (
+    CONNECTION_ROLE,
     AppContext,
     build_chat_model_for,
     build_context,
+    connection_role_as,
     can_build_chat_model,
     embed_l2_chunks,
     executor_for,
@@ -96,11 +100,30 @@ _COOLING: dict[str, tuple[datetime, str]] = {}
 #: How many rate limits this tenant has hit with no round in between. The cooldown doubles
 #: on it, and the first round that actually runs forgets it.
 _RATE_LIMIT_HITS: dict[str, int] = {}
+#: The same count for a model at capacity, kept apart: the two refusals double on their own
+#: clocks (`AGENT_UNAVAILABLE_COOLDOWN_S` vs `AGENT_RATE_LIMIT_COOLDOWN_S`), so a capacity
+#: dip never lengthens the next usage-limit guess, nor the other way round.
+_CAPACITY_HITS: dict[str, int] = {}
 
 #: How much of a refusing harness's own output is kept on the job row (`harness_output`).
 #: Enough to hold the failure and the lines around it; small enough that a job listing which
 #: selects the column is still a listing. The words themselves are the launcher's, scrubbed.
 HARNESS_OUTPUT_CHARS = 2000
+
+#: How the drain waits out an infrastructure outage: the first retry after this many
+#: seconds, doubling to `INFRA_BACKOFF_MAX_S`. Bounded both ways — quick enough that a
+#: Postgres restart costs seconds, slow enough that a stack that is down for an hour is asked
+#: once a minute rather than hammered.
+INFRA_BACKOFF_START_S = 2.0
+INFRA_BACKOFF_MAX_S = 60.0
+#: The pause between sweeps of an idle queue.
+IDLE_SWEEP_S = 2.0
+#: How many times one job may be interrupted by an infrastructure failure and put back. An
+#: outage is not the job's fault, so it is not failed for one; but a job that meets the same
+#: "transient" error on every attempt while the stack answers every probe is not meeting an
+#: outage, and after this many it is failed as any other error fails it.
+INFRA_JOB_INTERRUPTIONS = 3
+_INFRA_STRIKES: dict[str, int] = {}
 
 
 def agent_cooling(user_id: UserId) -> tuple[datetime, str] | None:
@@ -823,6 +846,7 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
     from ..coding_agent.round_runner import (
         ABANDONED,
         HARNESS_UNAVAILABLE,
+        ROUND_INCOMPLETE,
         AgentRoundRunner,
     )
 
@@ -889,7 +913,12 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
     # A round DID run: the doubling starts over, and any cooling this tenant was under is
     # over by definition — this body just claimed and ran one of its jobs.
     _RATE_LIMIT_HITS.pop(str(user_id), None)
+    _CAPACITY_HITS.pop(str(user_id), None)
     _COOLING.pop(str(user_id), None)
+    if result.outcome == ROUND_INCOMPLETE:
+        # It ran, but it did not reach the end of its material and nothing was committed:
+        # a failure to report and a job to bring back, never a success.
+        await _round_incomplete(ctx, user_id, job, result, executor=runner.executor)
     if result.usage and result.outcome not in (ABANDONED, "draft ownership lost"):
         await ctx.store.record_job_usage(
             user_id, job_id, token_usage=result.usage, executor=executor.spec
@@ -958,8 +987,10 @@ async def _harness_unavailable(
     requeue = True
 
     if refusal in (UNAVAILABLE_RATE_LIMITED, UNAVAILABLE_AT_CAPACITY):
-        hits = _RATE_LIMIT_HITS.get(str(user_id), 0) + 1
-        _RATE_LIMIT_HITS[str(user_id)] = hits
+        capacity = refusal == UNAVAILABLE_AT_CAPACITY
+        counter = _CAPACITY_HITS if capacity else _RATE_LIMIT_HITS
+        hits = counter.get(str(user_id), 0) + 1
+        counter[str(user_id)] = hits
         output = getattr(result, "output", "") or ""
         # WHICH refusal it was, in the provider's own vocabulary — a spent subscription and a
         # model with no capacity are one fact to this code and two sentences to a person.
@@ -967,7 +998,7 @@ async def _harness_unavailable(
         # The provider's own answer first. A parsed deadline is a fact; the cooldown below is
         # a guess, and a guess that runs short is what turns one rate limit into a night of
         # them. Only a usage limit ever names an hour; capacity never does.
-        stated = usage_limit_deadline(
+        stated = None if capacity else usage_limit_deadline(
             output,
             timezone_name=str(ctx.settings.default_timezone),
             patterns=tuple(getattr(manifest, "usage_limit_patterns", ()) or ()),
@@ -976,10 +1007,16 @@ async def _harness_unavailable(
             not_before = stated
             detail = f"rate_limited: {label} {said}; retry after {stated.isoformat()}"
         else:
-            seconds = min(
-                int(ctx.settings.agent_rate_limit_cooldown_s) * (2 ** (hits - 1)),
-                int(ctx.settings.agent_rate_limit_cooldown_max_s),
-            )
+            # A spent subscription is a guess about hours; a model at capacity is back within
+            # minutes more often than not, and waiting it out like a quota kept the tenant off
+            # the air long after the model had room. Each doubles on its own base and ceiling.
+            if capacity:
+                base = int(ctx.settings.agent_unavailable_cooldown_s)
+                ceiling = int(ctx.settings.agent_unavailable_cooldown_max_s)
+            else:
+                base = int(ctx.settings.agent_rate_limit_cooldown_s)
+                ceiling = int(ctx.settings.agent_rate_limit_cooldown_max_s)
+            seconds = min(base * (2 ** (hits - 1)), ceiling)
             not_before = now + timedelta(seconds=seconds)
             detail = (
                 f"rate_limited: {label} {said}; retry after "
@@ -1051,6 +1088,85 @@ async def _harness_unavailable(
             reason,
             not_before.isoformat(),
             waiting,
+        )
+
+
+def _interrupting_fault(job_id: str, exc: BaseException) -> InfraFault | None:
+    """The infrastructure fault that interrupted this job, while it may still be put back.
+
+    Counts the interruptions per job: the first `INFRA_JOB_INTERRUPTIONS` are an outage and
+    the job goes back; one more means the error is not an outage at all, and the job is
+    failed like any other (None)."""
+    fault = infrastructure_fault(exc)
+    if fault is None:
+        return None
+    strikes = _INFRA_STRIKES.get(job_id, 0) + 1
+    _INFRA_STRIKES[job_id] = strikes
+    if strikes > INFRA_JOB_INTERRUPTIONS:
+        _INFRA_STRIKES.pop(job_id, None)
+        return None
+    return fault
+
+
+async def _fail_or_interrupt(
+    ctx: AppContext, user_id: UserId, job: object, exc: Exception, detail: str
+) -> None:
+    """Fail the job — unless recording the failure is what the outage stopped.
+
+    The completion that records a failure is a database write like any other. When the
+    database is what is gone, the job is left to the outage recovery (which writes the kept
+    completion once it can: `PostgresStore.write_unwritten_completions`) instead of taking
+    the drain down with it."""
+    job_id = getattr(job, "job_id")
+    try:
+        await _fail_job(ctx, user_id, job_id, exc, detail)
+    except Exception as fail_exc:
+        fault = infrastructure_fault(fail_exc)
+        if fault is None:
+            raise
+        raise InfrastructureInterrupted(fault, user_id=str(user_id), job_id=job_id) from fail_exc
+
+
+async def _round_incomplete(
+    ctx: AppContext, user_id: UserId, job: object, result: object, *, executor: str
+) -> None:
+    """End a round that did not run to its end and committed nothing, and queue it again.
+
+    What happened the night this was written: a 940k-character source's round timed out,
+    the worker's finish found nothing to commit, and the job was recorded `ok=True`,
+    `projection:{…"upserted":0…}; rounds:1`, its sources stamped digested — success reported
+    about a round that never reached the end of its material. Here the job fails with the
+    reason, its sources stay undigested (nothing called `persist_compile_result`), and the
+    same payload comes back at the job's own place, a bounded number of times — the same
+    `harness_failures` counter and `AGENT_RETRIES` bound as a harness that died.
+    """
+    from ..cli.draft import ROUND_INCOMPLETE_DETAIL
+
+    job_id = getattr(job, "job_id")
+    kind = getattr(job, "kind", COMPILE_JOB_KIND)
+    payload = dict(getattr(job, "payload", {}) or {})
+    why = str(getattr(result, "incomplete", "") or "") or (
+        "timed out" if getattr(result, "timed_out", False)
+        else f"exit {getattr(result, 'exit_code', 0)}"
+    )
+    detail = ROUND_INCOMPLETE_DETAIL.format(why=why)
+    attempts = int(payload.get("harness_failures", 0) or 0) + 1
+    requeue = attempts < max(1, int(ctx.settings.agent_retries))
+    harness_output = (getattr(result, "output", "") or "")[-HARNESS_OUTPUT_CHARS:]
+    await ctx.store.complete(
+        user_id, job_id, ok=False, detail=detail, claimed_by=executor,
+        harness_output=harness_output or None,
+    )
+    if requeue:
+        payload["harness_failures"] = attempts
+        payload.pop("cooling_reason", None)
+        await ctx.store.enqueue(
+            user_id, kind, payload, order_at=getattr(job, "order_at", None)
+        )
+    else:
+        log.warning(
+            "[compile-worker] job %s is not coming back: %s (%d attempts)",
+            job_id, detail, attempts,
         )
 
 
@@ -1223,6 +1339,9 @@ async def requeue_orphaned_jobs(ctx: AppContext, *, label: str = "compile-worker
     a dead launch is reclaimed immediately. Recovery skips any command currently holding
     the tenant's draft lock, so it cannot interrupt gate/commit or a takeover in flight.
 
+    A dead launch's draft that holds work is kept with its requeued job and continued by
+    the next launch, rather than thrown away (`PostgresStore.requeue_claimed_jobs`).
+
     Returns the number requeued and reports it on stdout (silence means nothing was stuck).
     """
     # The adapter checks the launch lease and timestamp under the command/queue locks.
@@ -1345,9 +1464,20 @@ async def drain_user(
         skip = steward_kinds
         if agent_cooling(user_id) is not None:
             skip += tuple(k for k in agent_path_kinds(ctx) if k not in skip)
-        job = await ctx.store.claim_next(
-            user_id, exclude_kinds=skip, tenants=worker_tenants(ctx)
-        )
+        try:
+            job = await ctx.store.claim_next(
+                user_id, exclude_kinds=skip, tenants=worker_tenants(ctx)
+            )
+        except Exception as exc:
+            # A claim whose connection went after its UPDATE was sent may have landed. The
+            # adapter names that job; it is this body's, so the recovery puts it back.
+            unsettled = getattr(exc, "unsettled_claim", None)
+            fault = infrastructure_fault(exc)
+            if fault is not None and unsettled:
+                raise InfrastructureInterrupted(
+                    fault, user_id=unsettled[0], job_id=unsettled[1]
+                ) from exc
+            raise
         if job is None:
             return processed
         try:
@@ -1402,13 +1532,21 @@ async def drain_user(
             # they can see it named. Every job kind that commits arrives here (compile,
             # groom, evolve adopt); the archive job states the same code in its own detail,
             # because it also has a proposal row to fail.
-            await _fail_job(ctx, user_id, job.job_id, exc, exc.detail)
+            await _fail_or_interrupt(ctx, user_id, job, exc, exc.detail)
         except Exception as exc:  # noqa: BLE001 — never leave a job stuck 'claimed'
-            await _fail_job(ctx, user_id, job.job_id, exc, f"worker error: {exc}")
+            fault = _interrupting_fault(job.job_id, exc)
+            if fault is not None:
+                # The stack went away under this job. Not the job's failure: the drain stops,
+                # waits for the stack, and puts this job back (`ride_out`).
+                raise InfrastructureInterrupted(
+                    fault, user_id=str(user_id), job_id=job.job_id
+                ) from exc
+            await _fail_or_interrupt(ctx, user_id, job, exc, f"worker error: {exc}")
         finally:
             # Short-lived per-job trace flush: a worker sweep may exit right after, so
             # never rely on the background batch surviving process end.
             await ctx.flush_traces()
+        _INFRA_STRIKES.pop(job.job_id, None)
         processed += 1
 
 
@@ -1476,10 +1614,124 @@ async def _users_with_jobs(ctx: AppContext) -> list[str]:
     return sorted(users)
 
 
+def _in_flight(exc: BaseException) -> tuple[str, str] | None:
+    """The `(user_id, job_id)` this body held when the outage hit it, if it held one."""
+    current: BaseException | None = exc
+    while current is not None:
+        if isinstance(current, InfrastructureInterrupted):
+            return current.user_id, current.job_id
+        current = current.__cause__
+    return None
+
+
+async def _probe(ctx: AppContext, kind: str) -> None:
+    """Ask the service that failed whether it is back. Raises the transient error while it
+    is not; returns when it answers — with anything, since an answer that is not a connection
+    failure means the service is there and whatever it said is the drain's to meet."""
+    target = {
+        "postgres": getattr(ctx, "store", None),
+        "qdrant": getattr(ctx, "vectors", None),
+        "meilisearch": getattr(ctx, "lexical", None),
+        "s3": getattr(ctx, "media", None),
+    }.get(kind)
+    ping = getattr(target, "ping", None)
+    if ping is None:
+        return
+    try:
+        await ping()
+    except Exception as exc:
+        if infrastructure_fault(exc) is not None:
+            raise
+
+
+async def _recover(ctx: AppContext, in_flight: tuple[str, str] | None) -> list[str]:
+    """Put this body's own interrupted work back, on the startup self-heal's own terms.
+
+    First the completions the outage kept from landing (a job whose work was done is
+    completed, never run again); then the job that was in flight, if it is still claimed —
+    requeued by the same `requeue_claimed_jobs` rules the self-heal applies (a live launch
+    spared, a dead launch's draft with work kept), narrowed to that one job so no other
+    body's claim is touched. Returns what it did, for the recovery line."""
+    done: list[str] = []
+    writer = getattr(ctx.store, "write_unwritten_completions", None)
+    if writer is not None:
+        written = await writer()
+        if written:
+            done.append(f"{written} completion(s) written")
+    if in_flight is not None:
+        user_id, job_id = in_flight
+        requeued = await ctx.store.requeue_claimed_jobs(
+            draft_ttl=ctx.settings.compile_draft_ttl, tenants=(user_id,), job_id=job_id
+        )
+        if requeued:
+            done.append(f"job {job_id} requeued")
+    return done
+
+
+async def ride_out(
+    ctx: AppContext,
+    fault: InfraFault,
+    in_flight: tuple[str, str] | None,
+    *,
+    label: str = "compile-worker",
+) -> None:
+    """Wait out one infrastructure outage, then put back what it interrupted.
+
+    One line when it starts, one when it ends, nothing in between: an outage is one event,
+    and a log that printed every retry would bury it. The wait doubles from
+    `INFRA_BACKOFF_START_S` to `INFRA_BACKOFF_MAX_S`; each step probes the service that
+    failed and then runs the recovery, which needs Postgres — so a probe that passes while
+    Postgres is still away simply waits another step."""
+    delay = INFRA_BACKOFF_START_S
+    started = time.monotonic()
+    print(
+        f"[{label}] infrastructure unavailable ({fault.describe()}); retrying in {delay:g}s",
+        flush=True,
+    )
+    while True:
+        await asyncio.sleep(delay)
+        try:
+            await _probe(ctx, fault.kind)
+            done = await _recover(ctx, in_flight)
+        except Exception as exc:
+            if infrastructure_fault(exc) is None:
+                raise
+            delay = min(delay * 2, INFRA_BACKOFF_MAX_S)
+            continue
+        print(
+            f"[{label}] infrastructure back after {time.monotonic() - started:.0f}s; resuming"
+            + (f" ({', '.join(done)})" if done else ""),
+            flush=True,
+        )
+        return
+
+
+async def drain_forever(
+    ctx: AppContext, chat_model: BaseChatModel | None, *, label: str = "compile-worker"
+) -> None:
+    """Sweep the queue until cancelled. Infrastructure going away is waited out in place
+    (`ride_out`); any other error propagates, exactly as it always did."""
+    while True:
+        try:
+            n = await compile_pending(ctx, chat_model)
+        except Exception as exc:
+            fault = infrastructure_fault(exc)
+            if fault is None:
+                raise
+            await ride_out(ctx, fault, _in_flight(exc), label=label)
+            continue
+        if n:
+            print(f"[{label}] processed {n} job(s)")
+        await asyncio.sleep(IDLE_SWEEP_S)
+
+
 async def run_forever(settings: Settings | None = None) -> None:
     if settings is None:
         settings = get_settings()
-    ctx = await build_context(settings)
+    # The engine starts this in a task already named `pkc-engine-worker`; the standalone
+    # worker process names its connections `pkc-worker`.
+    with connection_role_as(CONNECTION_ROLE.get() or "pkc-worker"):
+        ctx = await build_context(settings)
     try:
         executor = executor_for(settings, "compile")
         # An agent executor has no chat model to build, and building one would raise: what runs
@@ -1517,11 +1769,7 @@ async def run_forever(settings: Settings | None = None) -> None:
         # that died mid-job (killed during an LLM call), which would otherwise block its
         # user's queue forever.
         await requeue_orphaned_jobs(ctx)
-        while True:
-            n = await compile_pending(ctx, chat_model)
-            if n:
-                print(f"[compile-worker] processed {n} job(s)")
-            await asyncio.sleep(2.0)
+        await drain_forever(ctx, chat_model)
     except (KeyboardInterrupt, asyncio.CancelledError):
         print("[compile-worker] stopped")
     finally:

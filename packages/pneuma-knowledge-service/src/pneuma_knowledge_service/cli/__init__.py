@@ -376,6 +376,8 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
                    help=prompt("steward.cli.jobs_requeue_detail_like"))
     r.add_argument("--dry-run", dest="dry_run", action="store_true",
                    help=prompt("steward.cli.jobs_requeue_dry_run"))
+    r.add_argument("--job", dest="jobs", action="append", default=None, metavar="JOB_ID",
+                   help=prompt("steward.cli.jobs_requeue_job"))
     # `SUPPRESS` rather than `False`: `--json` already exists on the parent, and a
     # subparser default would silently un-set it for anyone who typed it before the verb.
     r.add_argument("--json", dest="as_json", action="store_true",
@@ -799,6 +801,7 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
             kind=args.kind or "",
             empty_rounds=bool(getattr(args, "empty_rounds", False)),
             detail_like=getattr(args, "detail_like", None) or "",
+            job_ids=tuple(getattr(args, "jobs", None) or ()),
             dry_run=bool(getattr(args, "dry_run", False)),
             as_json=as_json,
             out=out,
@@ -1120,11 +1123,14 @@ async def _run(args: argparse.Namespace, component_tools, parser_for) -> int:
     # machine whose deployment says semantic retrieval is on but has no key stored yet — the
     # documented cold start, where `pkchome setup` runs before the key is sent. The library is
     # still an L2 deployment; this process just does not need that half to record a name.
+    # `application_name`: every connection this command opens names the command family, so
+    # a Postgres log line says which `pkc` invocation it served.
     ctx = await build_context(
         settings,
         probe_agent=False,
         probe_embedding=False,
         semantic=args.group != "profile",
+        application_name=f"pkc-cli:{args.group}",
     )
     try:
         if args.group == "draft":

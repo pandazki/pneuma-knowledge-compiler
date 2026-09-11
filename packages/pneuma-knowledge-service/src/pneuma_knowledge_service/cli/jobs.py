@@ -21,7 +21,7 @@ selectable, so the command can never duplicate work that is still queued or in f
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from pneuma_knowledge_core.domain.ids import UserId
 
@@ -51,12 +51,16 @@ def _selected(
     kind: str,
     empty_rounds: bool,
     detail_like: str,
+    job_ids: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """The terminal rows every stated selector agrees on. Selectors AND, never OR."""
+    named = {str(j) for j in job_ids if j}
     out: list[dict[str, Any]] = []
     for row in rows:
         if row.get("status") != "done":
             continue  # never duplicate work that is still queued or in flight
+        if named and str(row.get("job_id")) not in named:
+            continue
         if status == "failed" and row.get("ok") is not False:
             continue
         if kind and row.get("kind") != kind:
@@ -82,6 +86,7 @@ async def cmd_jobs_requeue(
     kind: str = "",
     empty_rounds: bool = False,
     detail_like: str = "",
+    job_ids: Sequence[str] = (),
     dry_run: bool = False,
     as_json: bool = False,
     out=None,  # noqa: ANN001
@@ -94,11 +99,15 @@ async def cmd_jobs_requeue(
     At least one selector is required. `pkc jobs requeue` with none would re-queue a
     library's entire history, which is not a recovery but an accident, and the place to
     refuse an accident is before it happens.
+
+    `job_ids` (`--job`, repeatable) is the narrowest selector there is: exactly the jobs
+    named, and still only when they are finished. A named job that is not a finished job of
+    this user is said so on stderr rather than silently skipped.
     """
-    if not (status or kind or empty_rounds or detail_like):
+    if not (status or kind or empty_rounds or detail_like or job_ids):
         print(
-            "requeue needs at least one selector: --status, --kind, --empty-rounds "
-            "or --detail-like",
+            "requeue needs at least one selector: --status, --kind, --empty-rounds, "
+            "--detail-like or --job",
             file=err,
         )
         return EXIT_REFUSED
@@ -110,7 +119,12 @@ async def cmd_jobs_requeue(
         kind=kind,
         empty_rounds=empty_rounds,
         detail_like=detail_like,
+        job_ids=job_ids,
     )
+    finished = {str(r.get("job_id")) for r in rows if r.get("status") == "done"}
+    for job_id in dict.fromkeys(str(j) for j in job_ids if j):
+        if job_id not in finished:
+            print(f"job {job_id} is not a finished job of this user; not requeued", file=err)
     if not selected:
         print("no finished job matches those selectors", file=err)
         return EXIT_NOTHING

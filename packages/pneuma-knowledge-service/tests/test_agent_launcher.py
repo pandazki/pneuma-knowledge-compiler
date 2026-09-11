@@ -554,6 +554,51 @@ async def test_a_rate_limit_is_waited_out_and_every_wait_is_logged(
     assert sum("rate limit" in r.getMessage() for r in caplog.records) == 2
 
 
+async def test_a_rate_limit_keeps_its_tight_spacing(fake_path, tmp_path, monkeypatch):
+    """The usage-limit side of the split, pinned where it was: 5 s, then 10 s, ±25%."""
+    from pneuma_knowledge_service.coding_agent.launcher import BACKOFF_BASE_S, BACKOFF_JITTER
+
+    monkeypatch.setenv("PKC_FAKE_MODE", "rate-limit")
+    monkeypatch.setenv("PKC_FAKE_LIVE_AFTER", "3")
+    waits: list[float] = []
+
+    async def record(seconds: float) -> None:
+        waits.append(seconds)
+
+    result = await launch_round(
+        request(CODEX, tmp_path, retries=3), sleep=record, rng=random.Random(7)
+    )
+    assert result.ok and result.attempts == 3
+    for wait, base in zip(waits, (BACKOFF_BASE_S, 2 * BACKOFF_BASE_S), strict=True):
+        assert base * (1 - BACKOFF_JITTER) <= wait <= base * (1 + BACKOFF_JITTER)
+
+
+async def test_a_model_at_capacity_is_waited_out_wider_inside_one_launch(
+    fake_path, tmp_path, monkeypatch, caplog
+):
+    """Capacity comes and goes within seconds-to-minutes. Relaunching five seconds later
+    mostly met the same refusal, and four quick refusals then cooled the whole tenant; spaced
+    15 s, 30 s, 60 s, a brief dip is absorbed here and the tenant never cools."""
+    from pneuma_knowledge_service.coding_agent.launcher import BACKOFF_JITTER, CAPACITY_BACKOFF_S
+
+    monkeypatch.setenv("PKC_FAKE_MODE", "at-capacity")
+    monkeypatch.setenv("PKC_FAKE_LIVE_AFTER", "4")  # the fourth attempt finds room
+    waits: list[float] = []
+
+    async def record(seconds: float) -> None:
+        waits.append(seconds)
+
+    with caplog.at_level("WARNING"):
+        result = await launch_round(
+            request(CODEX, tmp_path, retries=3), sleep=record, rng=random.Random(7)
+        )
+    assert result.ok and result.attempts == 4
+    assert CAPACITY_BACKOFF_S == (15.0, 30.0, 60.0)
+    for wait, base in zip(waits, CAPACITY_BACKOFF_S, strict=True):
+        assert base * (1 - BACKOFF_JITTER) <= wait <= base * (1 + BACKOFF_JITTER)
+    assert sum("the model at capacity" in r.getMessage() for r in caplog.records) == 3
+
+
 async def test_the_retry_budget_is_a_bound_and_the_result_says_it_was_hit(
     fake_path, tmp_path, monkeypatch
 ):

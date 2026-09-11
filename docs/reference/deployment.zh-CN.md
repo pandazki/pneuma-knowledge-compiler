@@ -49,5 +49,6 @@ API 侧还会对 WebSocket 客户端做约 30 秒一次的 ping，避免带空�
 
 - **派生层全部可重建**：`scripts/ops/rebuild_derived.py <user-id>|--all` 重建 L1 + L2 以及其上的各份投影，每一份都从它声明的底重建——两类权威（L0 横跨 Postgres 与 S3，正本位于 Git），使用侧投影再加上被保留的咨询记录——并前后对账。记录是保留的，不是重新推导的：重建重放它们，不动它们分毫。适用于中间件被清空或换版本、换嵌入模型（新 collection）、改切块策略之后。
 - **只重切块**：`scripts/ops/reindex_l2.py <user-id>` 单独重跑 L2 切块与嵌入。
-- **任务自愈**是内建的：worker 重启时回收死进程留下的孤儿任务；任何异常都以失败完结，不会卡死该用户的队列。
+- **任务自愈**是内建的：worker 重启时回收死进程留下的孤儿任务；任何异常都以失败完结，不会卡死该用户的队列。死掉的启动若留下一份已写有内容的 coding-agent 草稿，这份草稿会随重新入队的任务保留，下一次启动接着做，而不是从头来过。
+- **基础设施中断不会让引擎停下。** Postgres、Qdrant、Meilisearch 或 RustFS 断开或重启时，worker 只记一行日志（`[compile-worker] infrastructure unavailable (postgres: <原因>); retrying in 2s`），从 2 秒起退避、逐次翻倍、最长 60 秒，探测出故障的那个服务，等它有了应答再继续（`… infrastructure back after Ns; resuming`）。当时正在跑的任务放回队列；如果它的工作其实已经做完，就补写它的完结记录。无论哪种情况，任务既不会丢失，也不会重复执行。这期间 API 对受影响的请求返回 `503 {"code": "infrastructure_unavailable"}`，并且无需重启就能恢复，因为 Postgres 连接池在交出每一条连接之前都会先检查它。若 worker 在 drain 循环之外被中断停下，引擎会就地重启它（`[engine] worker stopped: …; restarting in Ns`），API 照常服务。每条 Postgres 连接都在 `application_name` 里写明自己的进程角色（`pkc-engine-api`、`pkc-engine-worker`、`pkc-api`、`pkc-worker`、`pkc-cli:<命令>`），除非 DSN 或 `PGAPPNAME` 已经设了名字。
 - **追踪**（Langfuse）在三个 `LANGFUSE_*` 变量齐备时才开启；worker 每个任务结束后 flush。
