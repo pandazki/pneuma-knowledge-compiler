@@ -25,6 +25,7 @@ import psycopg
 import pytest
 
 from pneuma_knowledge_service.adapters.postgres import PostgresStore
+from pneuma_knowledge_service.job_lanes import DERIVED_LANE
 from pneuma_knowledge_service.wiring import executor_for
 from pneuma_knowledge_service.workers import compile_worker
 
@@ -130,7 +131,9 @@ async def test_the_worker_rides_out_a_postgres_restart(settings, user, monkeypat
         rows = {r["job_id"]: r for r in await store.list_jobs(user)}
         assert rows[first]["ok"] is True and rows[second]["ok"] is True
         out = capsys.readouterr().out
-        assert "[compile-worker] infrastructure unavailable (postgres: " in out
+        # The lane that met it names itself: these are `index` jobs, so the derived lane
+        # waited the restart out while the canonical lane went on sweeping (`job_lanes.py`).
+        assert f"[compile-worker] {DERIVED_LANE} lane: infrastructure unavailable (postgres: " in out
         assert f"(job {first} requeued)" in out
     finally:
         await store.aclose()

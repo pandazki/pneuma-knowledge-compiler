@@ -1246,7 +1246,8 @@ by the Owner, which is the whole of what is left to do with it.
 ## 6. Execution
 
 The `archive` job runs on the per-user queue like every canonical writer, so it never races
-a compile (single in-flight job per user is the single-writer guarantee). It re-checks
+a compile (one in-flight job per user in the canonical lane is the single-writer guarantee —
+architecture.md §5). It re-checks
 `library_ref` against HEAD and fails `stale` rather than moving against a tree the Owner did
 not see — unless this proposal's OWN move commit is already in the history. A worker killed
 between the move commit and the terminal write is requeued on restart, and the drift it then

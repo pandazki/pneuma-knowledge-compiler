@@ -36,6 +36,7 @@ from pneuma_knowledge_service.adapters.draft_mock import InMemoryJobQueue
 from pneuma_knowledge_service.adapters.postgres import PostgresStore
 from pneuma_knowledge_service.api import app as app_module
 from pneuma_knowledge_service.infra_faults import infrastructure_fault
+from pneuma_knowledge_service.job_lanes import DERIVED_LANE
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.workers import compile_worker
 
@@ -138,6 +139,11 @@ class FlakyQueue(InMemoryJobQueue):
         super().__init__()
         self.claim_failures = 0
         self.claim_lands = False  # the claim's UPDATE landed before the connection went
+        #: Which lane's claim the failures are for. A library drains two lanes at once
+        #: (`job_lanes.py`), so "the database went away at the claim" is a thing that happens
+        #: to ONE of them; the jobs in these tests are `index` jobs, whose lane is the
+        #: derived one, and it is that lane's wait and recovery they are about.
+        self.fail_lane = DERIVED_LANE
         self.complete_failures = 0
         self.down = 0  # probes that still find the database away
         self.pings = 0
@@ -146,16 +152,16 @@ class FlakyQueue(InMemoryJobQueue):
     async def list_users(self) -> list[str]:
         return [str(USER)]
 
-    async def claim_next(self, user_id, **kwargs):  # noqa: ANN001
-        if self.claim_failures:
+    async def claim_next(self, user_id, *, lane=None, **kwargs):  # noqa: ANN001
+        if self.claim_failures and lane in (None, self.fail_lane):
             self.claim_failures -= 1
             exc = psycopg.OperationalError(DROPPED)
             if self.claim_lands:
-                job = await super().claim_next(user_id, **kwargs)
+                job = await super().claim_next(user_id, lane=lane, **kwargs)
                 if job is not None:
                     exc.unsettled_claim = (str(user_id), job.job_id)
             raise exc
-        return await super().claim_next(user_id, **kwargs)
+        return await super().claim_next(user_id, lane=lane, **kwargs)
 
     async def complete(self, user_id, job_id, **fields):  # noqa: ANN001
         if self.complete_failures:
@@ -258,10 +264,11 @@ async def test_the_drain_waits_out_a_database_that_went_away_at_the_claim(monkey
     out = capsys.readouterr().out
     assert out.count("infrastructure unavailable") == 1, "one outage, one line"
     assert (
-        f"[compile-worker] infrastructure unavailable (postgres: {DROPPED}); retrying in 0.01s"
+        f"[compile-worker] {DERIVED_LANE} lane: infrastructure unavailable "
+        f"(postgres: {DROPPED}); retrying in 0.01s"
         in out
     )
-    assert "[compile-worker] infrastructure back after " in out
+    assert f"[compile-worker] {DERIVED_LANE} lane: infrastructure back after " in out
 
 
 async def test_a_claim_that_landed_as_the_connection_dropped_is_put_back_not_orphaned(
@@ -320,7 +327,10 @@ async def test_a_job_the_vector_store_dropped_under_comes_back_instead_of_failin
     assert outcomes(store) == [(a, True)], "an outage was recorded as the job's failure"
     assert vectors.ping.await_count == 2
     out = capsys.readouterr().out
-    assert f"infrastructure unavailable (qdrant: {REFUSED}); retrying in 0.01s" in out
+    assert (
+        f"[compile-worker] {DERIVED_LANE} lane: infrastructure unavailable "
+        f"(qdrant: {REFUSED}); retrying in 0.01s"
+    ) in out
     assert f"(job {a} requeued)" in out
 
 
@@ -606,8 +616,12 @@ async def test_a_completion_refused_for_any_other_reason_is_not_kept():
 async def test_a_claim_whose_commit_was_lost_names_the_job_it_may_now_hold():
     store = PostgresStore(DSN)
     store._pool = _Pool(
-        _Cursor((True,)),  # the draft lock was free
-        _Cursor(),  # the per-user claim lock
+        # A claim naming no lane is about the whole tenant, so it takes both lanes'
+        # command locks and both lanes' claim locks (adapters/postgres.py `_command_lock`).
+        _Cursor((True,)),  # no command holds the canonical lane
+        _Cursor((True,)),  # …nor the derived one
+        _Cursor(),  # the canonical lane's claim lock
+        _Cursor(),  # …and the derived lane's
         _Cursor(("job-9", "index", {}, None)),  # the row it chose
         psycopg.OperationalError(DROPPED),  # and the connection went with its UPDATE
     )

@@ -263,7 +263,8 @@ and dropped, and the rebuilt rows are swapped atomically.
 **At most once per `(consultation_id, event)`.** Each event's increments and its stamp commit
 in one transaction. Claiming only a NULL stamp makes duplicate deliveries no-ops. Rebuild
 leaves both stamps and all kept fields untouched. It runs under this user's one in-flight
-queue claim, so no projection can interleave with the scan and swap.
+queue claim in its own lane — both recall kinds drain in the derived lane
+(architecture.md §5) — so no projection can interleave with the scan and swap.
 `scripts/ops/rebuild_derived.py` enqueues and drains that same `recall_rebuild` job.
 
 What the stamp does not cover, stated plainly because a guarantee nobody can check is worse

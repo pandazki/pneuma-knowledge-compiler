@@ -140,7 +140,8 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     assert all(row["up"] is None for row in document["services"].values())
     row = document["libraries"][0]
     assert set(row) == {"name", "tenant", "current", "engine", "unattended", "agent_model",
-                        "reasoning_effort", "reasoning_effort_episodes", "queue", "key",
+                        "reasoning_effort", "reasoning_effort_episodes",
+                        "compile_call_timeout", "compile_call_timeout_default", "queue", "key",
                         "engine_dir", "canonical_head",
                         "skill_fresh", "steps", "last_used", "sync"}
     # The tenant travels with the name: it is what the console reads once it has switched to

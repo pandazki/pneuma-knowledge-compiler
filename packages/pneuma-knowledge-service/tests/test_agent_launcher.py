@@ -262,7 +262,8 @@ def test_the_worker_states_the_round_s_model_and_effort_rather_than_inheriting_t
     from pneuma_knowledge_service.coding_agent.round_runner import AgentRoundRunner
     from pneuma_knowledge_service.workers import compile_worker
 
-    source = inspect.getsource(compile_worker.process_agent_job)
+    # `_run_agent_job` is the round's body; `process_agent_job` above it only holds the lane.
+    source = inspect.getsource(compile_worker._run_agent_job)
     assert "model=str(ctx.settings.agent_model)" in source
     assert "reasoning_effort=agent_round_effort(ctx.settings, kind)" in source
     assert "reasoning_effort=self.reasoning_effort" in inspect.getsource(AgentRoundRunner._launch)
@@ -780,7 +781,7 @@ def test_the_worker_hands_its_own_settings_to_the_round_runner():
 
     from pneuma_knowledge_service.workers import compile_worker
 
-    source = inspect.getsource(compile_worker.process_agent_job)
+    source = inspect.getsource(compile_worker._run_agent_job)
     assert "settings=ctx.settings" in source
 
 

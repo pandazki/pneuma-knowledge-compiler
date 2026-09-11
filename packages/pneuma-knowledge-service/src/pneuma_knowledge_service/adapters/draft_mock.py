@@ -21,6 +21,7 @@ from typing import Any
 
 from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
 
+from ..job_lanes import CANONICAL_LANE, COMPILE_KIND, SOURCE_DERIVED_KINDS, lane_of
 from .postgres import CLAIM_FIRST_KINDS, adoptable, draft_holds_work
 
 
@@ -205,26 +206,63 @@ class InMemoryJobQueue:
         self.jobs.append(job)
         return job.job_id
 
-    def _in_flight(self, user_id) -> bool:  # noqa: ANN001
+    def _in_flight(self, user_id, lane: str | None = None) -> bool:  # noqa: ANN001
+        """Does this user hold a claimed job — in `lane`, when one is named?
+
+        `lane=None` is the whole tenant, as the queue answered before lanes existed."""
         return any(
-            j.status == "claimed" and str(j.user_id) == str(user_id) for j in self.jobs
+            j.status == "claimed"
+            and str(j.user_id) == str(user_id)
+            and (lane is None or lane_of(j.kind) == lane)
+            for j in self.jobs
         )
 
-    async def _claimable(self, user_id, job_id: str) -> bool:  # noqa: ANN001
-        """`claim_next`'s draft clause: no open draft of this tenant stands in the way —
+    def _kind_of(self, user_id, job_id: str) -> str:  # noqa: ANN001
+        for job in self.jobs:
+            if job.job_id == job_id and str(job.user_id) == str(user_id):
+                return job.kind
+        return ""  # a draft whose job row is gone — canonical, like any unknown kind
+
+    async def _claimable(  # noqa: ANN001
+        self, user_id, job_id: str, lane: str | None = None
+    ) -> bool:
+        """`claim_next`'s draft clause: no open draft of this LANE stands in the way —
         except this job's own draft when the self-heal kept it (`continue_from`)."""
         if not self.drafts:
             return True
         for held in await self.drafts.list_open(user_id):
+            if lane is not None and lane_of(self._kind_of(user_id, held)) != lane:
+                continue  # the other lane's open round reserves the other lane
             state = await self.drafts.get(user_id, held) or {}
             if not (held == job_id and state.get("continue_from")):
                 return False
         return True
 
+    def _derived_lane_owes_it(self, job) -> bool:  # noqa: ANN001
+        """Is this a compile whose own source the derived lane has not finished with?
+
+        The canonical lane's skip (`PostgresStore._claim_next`): with two lanes the compile of
+        a source can no longer be held behind that source's index and episodes jobs by queue
+        order, because those drain in the other lane."""
+        if job.kind != COMPILE_KIND:
+            return False
+        sources = job.payload.get("source_ids")
+        if not isinstance(sources, list):
+            return False
+        wanted = {str(s) for s in sources}
+        return any(
+            j.kind in SOURCE_DERIVED_KINDS
+            and str(j.user_id) == str(job.user_id)
+            and j.status in ("queued", "claimed")
+            and str((j.payload or {}).get("source_id", "")) in wanted
+            for j in self.jobs
+        )
+
     async def claim_next(  # noqa: ANN001
-        self, user_id, *, claimed_by: str = "worker", exclude_kinds=(), tenants=()
+        self, user_id, *, claimed_by: str = "worker", exclude_kinds=(), tenants=(),
+        lane: str | None = None,
     ):
-        if self._in_flight(user_id):
+        if self._in_flight(user_id, lane):
             return None
         skip = {k for k in exclude_kinds if k}
         allowed = {t for t in tenants if t}
@@ -233,10 +271,12 @@ class InMemoryJobQueue:
             if (
                 job.status == "queued"
                 and str(job.user_id) == str(user_id)
-                and await self._claimable(user_id, job.job_id)
+                and (lane is None or lane_of(job.kind) == lane)
+                and await self._claimable(user_id, job.job_id, lane)
                 and (not allowed or str(job.user_id) in allowed)
                 and job.kind not in skip
                 and (job.not_before is None or job.not_before <= now)
+                and not (lane == CANONICAL_LANE and self._derived_lane_owes_it(job))
             ):
                 job.status = "claimed"
                 job.claimed_by = claimed_by
@@ -244,7 +284,9 @@ class InMemoryJobQueue:
         return None
 
     async def claim(self, user_id, job_id: str, *, claimed_by: str = "worker"):  # noqa: ANN001
-        if self._in_flight(user_id) or not await self._claimable(user_id, job_id):
+        # The lane a named claim must respect is the lane of the row it is claiming.
+        lane = lane_of(self._kind_of(user_id, job_id))
+        if self._in_flight(user_id, lane) or not await self._claimable(user_id, job_id, lane):
             return None
         for job in self.jobs:
             if (
@@ -257,9 +299,11 @@ class InMemoryJobQueue:
                 return job
         return None
 
-    async def held_draft(self, user_id):
+    async def held_draft(self, user_id, *, lane: str | None = None):  # noqa: ANN001
         if self.drafts:
             for job_id in await self.drafts.list_open(user_id):
+                if lane is not None and lane_of(self._kind_of(user_id, job_id)) != lane:
+                    continue
                 owner = await self.drafts.owner(user_id, job_id)
                 if owner:
                     return job_id, owner
@@ -352,8 +396,10 @@ class InMemoryJobQueue:
 
     async def attach_executor(self, user_id, job_id, executor):
         job = await self.get_job(user_id, job_id)
+        # Only a draft of this job's own lane refuses the launch (`PostgresStore`).
+        lane = lane_of(self._kind_of(user_id, job_id))
         if (job is None or job.status != "claimed" or job.claimed_by != "worker"
-                or not await self._claimable(user_id, job_id)):
+                or not await self._claimable(user_id, job_id, lane)):
             return False
         job.claimed_by = executor
         return True

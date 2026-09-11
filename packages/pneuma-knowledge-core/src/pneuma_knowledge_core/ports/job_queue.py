@@ -54,8 +54,9 @@ class JobQueue(Protocol):
         *,
         exclude_kinds: Sequence[str] = (),
         tenants: Sequence[str] = (),
+        lane: str | None = None,
     ) -> Job | None:
-        """Claim the next per-user job (FOR UPDATE SKIP LOCKED, serial per user).
+        """Claim the next per-user job (FOR UPDATE SKIP LOCKED, serial per user per lane).
 
         "Next" has two keys. First the kind: work that launches no harness, runs no compile
         model and never writes canonical (index, the recall projection and rebuild) is
@@ -67,6 +68,15 @@ class JobQueue(Protocol):
 
         An open draft also reserves the tenant even if its job was accidentally requeued.
         Finished jobs (including a row carrying a completion timestamp) are never claimed.
+
+        `lane` names the LANE this body drains, and narrows all three of the refusals above
+        to it: which rows may be taken, which claimed job counts as in flight, and which
+        open draft reserves the tenant. Which kinds are in which lane is the application's
+        classification, not this port's (the service's `job_lanes.py`); what the port
+        promises is that serialization holds per user PER LANE, and that the lane a canonical
+        writer drains in is serialized exactly as the whole queue used to be — that is the
+        single writer the git canonical layer rests on. `None` means the whole tenant, as
+        before lanes existed: one job in flight for that user, whatever its kind.
 
         A job whose `not_before` is still in the future is not claimed either, by the same
         means and for the same reason — it is skipped in the query rather than handed out

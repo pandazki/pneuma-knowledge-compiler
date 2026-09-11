@@ -98,8 +98,13 @@ says. Codex honours both (`reasoning_effort` is one of `minimal`, `low`, `medium
 leaves each to the harness. `reasoning_effort_episodes` states the effort of episodes rounds
 alone (L2 boundaries for one source — a simpler judgement at a compile's price); same accepted
 set, empty inherits `reasoning_effort`, and `status` shows it on the `Rounds:` line as
-`(episodes low)`. Changing any of them restarts the library's engine, because a launcher reads
-its settings when it starts.
+`(episodes low)`. `compile_call_timeout` is how many seconds ONE launch of a round may take
+before it is reaped (1 to 21600; the engine's own default is 600, and compile rounds on real
+material have averaged around 474 s under it). It is written surgically into the library's
+`engine/engine.yaml`, so it is not lost the next time anything renders that directory, and
+`status` prints it on the `Rounds:` line — `up to 1200s each` — only when it differs from
+that default. Changing any of them restarts the library's engine, because both a launcher and
+the engine read their settings when they start.
 
 Choose a library with `--library`, `PKC_LIBRARY`, the nearest `.pkc` file in the current
 directory or an ancestor, or the home current selection, in that order. No selection is an

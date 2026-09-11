@@ -87,8 +87,12 @@ setup 未能写入推断字段时，`onboarding` 会自行补写，并在首行�
 `medium`、`high`、`xhigh` 之一）；Claude Code 只认模型，因为它的 CLI 没有推理强度开关。
 留空即各自交给 harness。`reasoning_effort_episodes` 单独声明 episodes 轮（为一个来源划分
 L2 边界——判断简单，却按编译轮的上下文付费）的推理强度；取值集合相同，留空即继承
-`reasoning_effort`，`status` 会在 `Rounds:` 一行里以 `(episodes low)` 显示。改动其中任何一个
-都会重启该库的引擎，因为启动器只在启动时读一次设置。
+`reasoning_effort`，`status` 会在 `Rounds:` 一行里以 `(episodes low)` 显示。
+`compile_call_timeout` 是一轮的一次启动最多可以跑多少秒，超时即被回收（1 到 21600；引擎自身
+的默认是 600，而真实材料上的编译轮在这个默认下平均约 474 秒）。它会被精准写进该库的
+`engine/engine.yaml`，所以下一次有什么东西重渲染这个目录时它不会丢；只有当它不同于那个默认
+值时，`status` 才在 `Rounds:` 一行里印出来——`up to 1200s each`。改动其中任何一个
+都会重启该库的引擎，因为启动器与引擎都只在启动时读一次设置。
 
 知识库选择优先级依次是 `--library`、`PKC_LIBRARY`、当前目录或祖先中最近的 `.pkc`
 文件，以及 home 的当前库。未选择时以退出码 2 拒绝执行。`env` 为用户自己的 shell
