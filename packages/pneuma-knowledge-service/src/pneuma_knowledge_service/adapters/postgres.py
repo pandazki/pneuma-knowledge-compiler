@@ -42,6 +42,16 @@ from psycopg_pool import AsyncConnectionPool
 
 from ..access_stats import RECALL_PROJECTION_JOB_KIND, RECALL_REBUILD_JOB_KIND
 from ..infra_faults import infrastructure_fault
+from ..job_lanes import (
+    CANONICAL_LANE,
+    COMPILE_KIND,
+    DERIVED_LANE_KINDS,
+    LANES,
+    SOURCE_DERIVED_KINDS,
+    lane_of,
+    lane_sql,
+    same_lane_sql,
+)
 from ..snapshot_tenant import RESERVED_PREFIX
 
 
@@ -113,6 +123,34 @@ CLAIM_FIRST_KINDS: tuple[str, ...] = (
     RECALL_PROJECTION_JOB_KIND,
     RECALL_REBUILD_JOB_KIND,
 )
+
+def _claim_lock(lane: str) -> str:
+    """The advisory-lock name one lane's claims serialize on.
+
+    Per lane, so two lanes do not serialize on one key — and still per tenant, because the
+    second key is the user. The canonical lane's lock is as exclusive as the single lock
+    every claim used to take; it simply no longer excludes a lane that cannot write the
+    library."""
+    return f"pkc-claim:{lane}"
+
+
+def _command_lock(lane: str) -> str:
+    """The advisory-lock name a running `pkc` command holds against one lane's claims.
+
+    A command takes EVERY lane's (`PostgresDraftStore.lock`), because a command may be
+    committing canonical and a claim must not be handed out underneath it — that is the rule
+    this lock has always enforced, and it is unchanged. A CLAIM takes only its own lane's,
+    and that is the whole reason the name carries a lane: with one key per tenant, two lanes
+    claiming at the same instant met each other's `pg_try_advisory_xact_lock` and one of them
+    was told "a command is running" when none was. Both lanes sweep on the same two-second
+    cadence, so that collision was not rare — it was a lane losing its turn, repeatedly.
+
+    The name changed with the lane (it was `pkc-draft` for the whole tenant), so a worker
+    left running from BEFORE this change and a command from after it do not exclude each
+    other. That is an upgrade, not a state: restart the engine when the code under it
+    changes, which is what installing a new version already does.
+    """
+    return f"pkc-draft:{lane}"
 
 
 class _JobRow:
@@ -1300,13 +1338,23 @@ class PostgresStore:
         for (uid,) in users:
             async with self._pool.connection() as conn:
                 async with conn.transaction():
-                    locked = await (await conn.execute(
-                        "SELECT pg_try_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
-                        (uid,),
-                    )).fetchone()
-                    if not locked[0]:
+                    held = True
+                    for name in LANES:
+                        locked = await (await conn.execute(
+                            "SELECT pg_try_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                            (_command_lock(name), uid),
+                        )).fetchone()
+                        held = held and bool(locked[0])
+                    if not held:
                         continue  # A command is running, possibly committing canonical.
-                    await conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (uid,))
+                    # Both lanes' claim locks, in `LANES` order: this sweep is about the
+                    # tenant's whole queue, so it must exclude a claim in either lane, and
+                    # every body that holds both takes them in this one order.
+                    for name in LANES:
+                        await conn.execute(
+                            "SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                            (_claim_lock(name), uid),
+                        )
                     # A worker failure or a crash in finish's cleanup can leave a draft on
                     # a terminal job. It has no resumable round and must not reserve the
                     # tenant forever through the claim query's draft exclusion.
@@ -1360,9 +1408,20 @@ class PostgresStore:
                         reclaimed += cur.rowcount
         return reclaimed
 
-    async def held_draft(self, user_id: UserId) -> tuple[str, DraftOwner] | None:
+    async def held_draft(
+        self, user_id: UserId, *, lane: str | None = None
+    ) -> tuple[str, DraftOwner] | None:
+        """The open draft this tenant holds — in `lane`, when one is named.
+
+        A tenant can now hold two at once, one per lane (a Steward's compile round while the
+        worker judges episodes), so a body that asks "is somebody holding a draft I must not
+        walk into" has to say which lane it was about to claim in."""
         drafts = PostgresDraftStore(self)
         for job_id in await drafts.list_open(user_id):
+            if lane is not None:
+                job = await self.get_job(user_id, job_id)
+                if lane_of(getattr(job, "kind", "") or "") != lane:
+                    continue
             owner = await drafts.owner(user_id, job_id)
             if owner is not None:
                 return job_id, owner
@@ -1374,14 +1433,24 @@ class PostgresStore:
         *,
         exclude_kinds: Sequence[str] = (),
         tenants: Sequence[str] = (),
+        lane: str | None = None,
     ) -> _JobRow | None:
         """Claim this user's next queued job, but only if the user has no job already
-        in flight — per-user serialization (§5, single git writer).
+        in flight IN THAT LANE — per-user, per-lane serialization (§5, single git writer).
 
         "Next" is `CLAIM_FIRST_KINDS` first, then everything else, each group in queue
         order `COALESCE(order_at, created_at)`. At an equal instant a row that inherited
         its place (`order_at` set) goes first, so an episodes job that took its index job's
         place still precedes a compile written in that same microsecond.
+
+        `lane` (`job_lanes.py`) narrows every one of this claim's three refusals to one lane:
+        which rows it will take, which claimed job counts as "in flight", and which open
+        draft reserves the tenant. The canonical lane's answers are byte-for-byte the answers
+        the whole queue used to give — one job in flight, no open draft — so the git single
+        writer is untouched; the derived lane is a second slot for work that cannot open
+        canonical at all. `None` means the whole tenant, exactly as before lanes existed:
+        the claim then takes BOTH lane locks and refuses while anything at all is in flight,
+        which is what an ops command drawing one job off a live queue must do.
 
         `exclude_kinds` narrows WHICH row this claim will take, and nothing else: same
         advisory lock, same `FOR UPDATE SKIP LOCKED`, same ordering, same refusal while
@@ -1397,7 +1466,7 @@ class PostgresStore:
         allowed = [t for t in tenants if t]
         claimed_ref: list[str] = []
         try:
-            return await self._claim_next(user_id, skip, allowed, claimed_ref)
+            return await self._claim_next(user_id, skip, allowed, claimed_ref, lane)
         except (psycopg.OperationalError, psycopg.InterfaceError) as exc:
             # The claim's UPDATE was sent before the connection went: whether its COMMIT
             # landed is unknown, and a claim that did land is a job this body now holds and
@@ -1414,23 +1483,95 @@ class PostgresStore:
         skip: list[str],
         allowed: list[str],
         claimed_ref: list[str],
+        lane: str | None = None,
     ) -> _JobRow | None:
+        uid = str(user_id)
+        derived = list(DERIVED_LANE_KINDS)
+        # Built as fragments with their parameters appended in the same order, because the
+        # lane turns three fixed predicates into three parameterized ones and a query whose
+        # placeholders are counted by eye is a query that will eventually bind the wrong list.
+        where: list[str] = []
+        params: list[Any] = [uid]
+        if allowed:
+            where.append("user_id = ANY(%s)")
+            params.append(allowed)
+        if skip:
+            where.append("NOT (kind = ANY(%s))")
+            params.append(skip)
+        if lane is not None:
+            # Only this lane's rows. A kind no lane claims (`lane_of` calls it canonical) is
+            # therefore never claimed by the derived lane, whatever it turns out to be.
+            where.append(lane_sql("kind", lane))
+            params.append(derived)
+        # An open draft reserves its LANE: nothing in that lane is handed out while one
+        # exists — not even its own job, should that row read 'queued' (a Steward's draft
+        # still holds it). The one exception is mechanical: a draft the self-heal KEPT from a
+        # dead launch carries `continue_from`, and its own job is then the one row that may
+        # be claimed. The draft row itself does not say which kind of round it holds, so its
+        # job says: a draft whose job is gone counts as canonical, like any unknown kind.
+        where.append(
+            "NOT EXISTS (SELECT 1 FROM compile_drafts d "
+            "  LEFT JOIN compile_jobs dj ON dj.user_id = d.user_id AND dj.id = d.job_id "
+            "  WHERE d.user_id = %s "
+            + (f"  AND {lane_sql('dj.kind', lane)} " if lane is not None else "")
+            + "  AND NOT (d.job_id = compile_jobs.id "
+            "           AND (d.state->>'continue_from') IS NOT NULL))"
+        )
+        params.append(uid)
+        if lane is not None:
+            params.append(derived)
+        where.append(
+            "NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
+            "  WHERE j2.user_id = %s AND j2.status = 'claimed' "
+            + (f"  AND {lane_sql('j2.kind', lane)} " if lane is not None else "")
+            + ")"
+        )
+        params.append(uid)
+        if lane is not None:
+            params.append(derived)
+        if lane == CANONICAL_LANE:
+            # Keep the derived lane's work on a source ahead of that source's compile. With
+            # one lane `order_at` did that (PR #28); with two, the compile lane can no longer
+            # be held behind a job draining in the other lane, so it skips such a compile and
+            # takes the next one. In the claim query and not in Python: a row handed out and
+            # put back has still spent this lane's single in-flight slot.
+            where.append(
+                f"NOT (kind = '{COMPILE_KIND}' "
+                # Total by construction: a compile payload whose `source_ids` is missing or
+                # is not an array names no source, so it blocks on none — rather than
+                # raising out of the claim query and stopping the lane.
+                "AND jsonb_typeof(payload->'source_ids') = 'array' AND EXISTS ("
+                "  SELECT 1 FROM compile_jobs e "
+                "  WHERE e.user_id = compile_jobs.user_id AND e.kind = ANY(%s) "
+                "    AND e.status IN ('queued', 'claimed') AND e.completed_at IS NULL "
+                "    AND e.payload->>'source_id' IN ("
+                "      SELECT jsonb_array_elements_text(compile_jobs.payload->'source_ids'))))"
+            )
+            params.append(list(SOURCE_DERIVED_KINDS))
+        params.append(list(CLAIM_FIRST_KINDS))
+        lanes = (lane,) if lane is not None else LANES
         async with self._pool.connection() as conn:
             async with conn.transaction():
-                locked = await (await conn.execute(
-                    "SELECT pg_try_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
-                    (str(user_id),),
-                )).fetchone()
-                if not locked[0]:
-                    return None
-                # One claimer per user at a time, whichever body it is. The NOT EXISTS below
-                # reads committed state, so two claimers racing on two different queued jobs
-                # of one user could both pass it; the row lock only serializes claims on the
-                # SAME row. A transaction-scoped advisory lock keyed by user closes that
-                # window for `claim_next` and `claim` alike, and releases with the transaction.
-                await conn.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s))", (str(user_id),)
-                )
+                for name in lanes:
+                    locked = await (await conn.execute(
+                        "SELECT pg_try_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                        (_command_lock(name), uid),
+                    )).fetchone()
+                    if not locked[0]:
+                        return None
+                # One claimer per user PER LANE at a time, whichever body it is. The NOT
+                # EXISTS above reads committed state, so two claimers racing on two different
+                # queued jobs of one user could both pass it; the row lock only serializes
+                # claims on the SAME row. A transaction-scoped advisory lock keyed by lane and
+                # user closes that window for `claim_next` and `claim` alike, and releases
+                # with the transaction. A claim that names no lane is about the whole tenant
+                # and takes both, in `LANES` order — the one order every body that needs both
+                # takes them in, so two of them cannot deadlock on each other.
+                for name in lanes:
+                    await conn.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                        (_claim_lock(name), uid),
+                    )
                 row = await (await conn.execute(
                     "SELECT id, kind, payload, COALESCE(order_at, created_at) "
                     "FROM compile_jobs "
@@ -1440,33 +1581,16 @@ class PostgresStore:
                     # reason: a row handed out and put back has still spent the tenant's
                     # single in-flight slot.
                     "AND (not_before IS NULL OR not_before <= now()) "
-                    + ("AND user_id = ANY(%s) " if allowed else "")
-                    + ("AND NOT (kind = ANY(%s)) " if skip else "")
-                    # An open draft reserves the tenant: nothing is handed out while one
-                    # exists — not even its own job, should that row read 'queued' (a
-                    # Steward's draft still holds it). The one exception is mechanical: a
-                    # draft the self-heal KEPT from a dead launch carries `continue_from`,
-                    # and its own job is then the one row that may be claimed.
-                    + "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s "
-                    "  AND NOT (d.job_id = compile_jobs.id "
-                    "           AND (d.state->>'continue_from') IS NOT NULL)) "
-                    "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
-                    "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
+                    + "".join(f"AND {fragment} " for fragment in where)
                     # Rank, then place. The rank lets derived-only work past a queue of
                     # compile rounds (CLAIM_FIRST_KINDS says which and why); the place keeps
                     # FIFO within each rank, with an inherited place winning a tie. Rows that
                     # share one inherited place (the windows of one episodes job) go in the
                     # order they were written.
-                    "ORDER BY (CASE WHEN kind = ANY(%s) THEN 0 ELSE 1 END), "
+                    + "ORDER BY (CASE WHEN kind = ANY(%s) THEN 0 ELSE 1 END), "
                     "COALESCE(order_at, created_at), (order_at IS NULL), created_at "
                     "FOR UPDATE SKIP LOCKED LIMIT 1",
-                    (
-                        str(user_id),
-                        *((allowed,) if allowed else ()),
-                        *((skip,) if skip else ()),
-                        str(user_id), str(user_id),
-                        list(CLAIM_FIRST_KINDS),
-                    ),
+                    tuple(params),
                 )).fetchone()
                 if row is None:
                     return None
@@ -1492,28 +1616,45 @@ class PostgresStore:
         draft is legible in the queue instead of merely absent from it.
 
         Returns None when the job is not this user's, not queued, or when another job of the
-        same user is already claimed.
+        same LANE is already claimed for that user (`job_lanes.py`). The lane here is a fact
+        of the row rather than of the caller — whoever opens a named job must respect the lane
+        that job drains in — so both refusals are written relative to its own kind
+        (`same_lane_sql`) rather than against a lane the caller had to state.
         """
+        derived = list(DERIVED_LANE_KINDS)
         async with self._pool.connection() as conn:
             async with conn.transaction():
-                # One claimer per user at a time, whichever body it is. The NOT EXISTS below
-                # reads committed state, so two claimers racing on two different queued jobs
-                # of one user could both pass it; the row lock only serializes claims on the
-                # SAME row. A transaction-scoped advisory lock keyed by user closes that
-                # window for `claim_next` and `claim` alike, and releases with the transaction.
-                await conn.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext(%s))", (str(user_id),)
-                )
+                # One claimer per user per lane at a time, whichever body it is. The NOT
+                # EXISTS below reads committed state, so two claimers racing on two different
+                # queued jobs of one user could both pass it; the row lock only serializes
+                # claims on the SAME row. A transaction-scoped advisory lock keyed by lane and
+                # user closes that window for `claim_next` and `claim` alike, and releases
+                # with the transaction. This claim does not know its lane until it has read
+                # the row, so it takes both, in `LANES` order — one order for every body that
+                # needs both, so none of them can deadlock on another.
+                for name in LANES:
+                    await conn.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                        (_claim_lock(name), str(user_id)),
+                    )
                 row = await (await conn.execute(
                     "SELECT id, kind, payload, COALESCE(order_at, created_at) FROM compile_jobs "
                     "WHERE user_id = %s AND id = %s AND status = 'queued' AND completed_at IS NULL "
-                    "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s "
+                    "AND NOT EXISTS (SELECT 1 FROM compile_drafts d "
+                    "  LEFT JOIN compile_jobs dj ON dj.user_id = d.user_id AND dj.id = d.job_id "
+                    "  WHERE d.user_id = %s "
+                    f"  AND {same_lane_sql('dj.kind', 'compile_jobs.kind')} "
                     "  AND NOT (d.job_id = compile_jobs.id "
                     "           AND (d.state->>'continue_from') IS NOT NULL)) "
                     "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
-                    "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
+                    "  WHERE j2.user_id = %s AND j2.status = 'claimed' "
+                    f"  AND {same_lane_sql('j2.kind', 'compile_jobs.kind')}) "
                     "FOR UPDATE SKIP LOCKED",
-                    (str(user_id), job_id, str(user_id), str(user_id)),
+                    (
+                        str(user_id), job_id,
+                        str(user_id), derived, derived,
+                        str(user_id), derived, derived,
+                    ),
                 )).fetchone()
                 if row is None:
                     return None
@@ -1525,16 +1666,21 @@ class PostgresStore:
         return _JobRow(row[0], user_id, row[1], row[2], row[3])
 
     async def attach_executor(self, user_id: UserId, job_id: str, executor: str) -> bool:
+        derived = list(DERIVED_LANE_KINDS)
         async with self._pool.connection() as conn:
             cur = await conn.execute(
                 "UPDATE compile_jobs SET claimed_by = %s WHERE user_id = %s AND id = %s "
                 "AND status = 'claimed' AND completed_at IS NULL AND claimed_by = 'worker' "
                 # The job's OWN kept draft does not refuse it: that is a round a dead launch
                 # left for this one to continue (`requeue_claimed_jobs` marks it
-                # `continue_from`). Any other draft does.
-                "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s "
+                # `continue_from`). Any other draft OF THIS JOB'S LANE does — the other
+                # lane's open round is not about this library's single writer.
+                "AND NOT EXISTS (SELECT 1 FROM compile_drafts d "
+                "  LEFT JOIN compile_jobs dj ON dj.user_id = d.user_id AND dj.id = d.job_id "
+                "  WHERE d.user_id = %s "
+                f"  AND {same_lane_sql('dj.kind', 'compile_jobs.kind')} "
                 "  AND NOT (d.job_id = %s AND (d.state->>'continue_from') IS NOT NULL))",
-                (executor, str(user_id), job_id, str(user_id), job_id),
+                (executor, str(user_id), job_id, str(user_id), derived, derived, job_id),
             )
             return cur.rowcount == 1
 
@@ -3652,10 +3798,14 @@ class PostgresDraftStore:
             return
         async with self._pool.connection() as conn:
             async with conn.transaction():
-                await conn.execute(
-                    "SELECT pg_advisory_xact_lock(hashtext('pkc-draft'), hashtext(%s))",
-                    (str(user_id),),
-                )
+                # EVERY lane's command lock, in `LANES` order (`_command_lock` says why a
+                # command takes them all and a claim takes one): a command may be committing
+                # canonical, and no lane may be handed a job underneath it.
+                for name in LANES:
+                    await conn.execute(
+                        "SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+                        (_command_lock(name), str(user_id)),
+                    )
                 token = self._held.set((*self._held.get(), key))
                 try:
                     yield

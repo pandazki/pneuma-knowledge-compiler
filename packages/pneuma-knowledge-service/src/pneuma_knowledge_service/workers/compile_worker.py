@@ -1,8 +1,12 @@
-"""Compile worker (architecture.md §5): consumes the PG compile queue serially.
+"""Compile worker (architecture.md §5): consumes the PG compile queue, one job per lane.
 
-Single process, per-user serial (the JobQueue's `FOR UPDATE SKIP LOCKED` + "no second
-in-flight job per user" rule is the single-writer guarantee for the git canonical
-layer). For each claimed job it loads the supplied NormalizedSources, runs the pure
+Single process, per-user serial PER LANE (`job_lanes.py`): the JobQueue's `FOR UPDATE SKIP
+LOCKED` plus "no second in-flight job per user in this lane" is the single-writer guarantee
+for the git canonical layer, and the canonical lane's half of it is byte-for-byte the rule
+the whole queue used to have. Two lane tasks drain a tenant at once — one job that can write
+the library, one that cannot (index, episodes, the recall projections) — so at most one
+coding-agent round per lane, two in the process. For each claimed job it loads the supplied
+NormalizedSources, runs the pure
 `run_compile` (which commits to git on success), then persists the mechanically-derived
 events to PG, synchronizes the derived claim delta, stamps the sources digested, and
 marks the job done. An aborted compile
@@ -55,6 +59,7 @@ from .archive_job import run_archive_job
 from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
 from ..infra_faults import InfraFault, InfrastructureInterrupted, infrastructure_fault
 from ..ingest_document import _summary_chunks
+from ..job_lanes import CANONICAL_LANE, LANES, lane_of
 from ..projection import sync_projection
 from ..settings import Settings, get_settings
 from ..skills import skill_for_user
@@ -80,6 +85,14 @@ log = logging.getLogger(__name__)
 #: leave it alone: under an agent executor the round belongs to the Steward, and this is the
 #: kind a drain skips over (docs/design/coding-agent-mode.md §9, "The worker").
 COMPILE_JOB_KIND = "compile"
+
+#: The harness round this body is running, per `(tenant, lane)`. The bound it states is the
+#: lane rule itself — at most one agent round per lane, so at most two harness processes for
+#: one library — and it states it where a person would otherwise have to trust it: a second
+#: launch in one lane means the claim let two jobs of that lane fly at once, which is the
+#: single-writer bug, and it fails loudly here instead of quietly running two harnesses over
+#: one draft. Cleared in a `finally`, so a failed round frees its lane.
+_AGENT_ROUNDS: dict[tuple[str, str], str] = {}
 
 #: Which (role, reason) pairs this process has already said the skip sentence about. The
 #: reason is a deployment fact, not a per-job event — a keyless library under an agent
@@ -746,8 +759,27 @@ def unattended(ctx: AppContext, role: str = "compile") -> bool:
 #: logged — on every job after it.
 _skill_package_installed: dict[tuple[str, str], str] = {}
 
+#: One installer at a time in this process. Two lanes start rounds independently, and two
+#: coroutines rendering the same package into the same directory would interleave their
+#: writes; the round that read it would then be taught half of each.
+_skill_install_lock = asyncio.Lock()
+
 
 async def ensure_skill_package(
+    settings: Settings, user_id: UserId, *, project_dir: str, backend: str
+) -> None:
+    """`_ensure_skill_package`, one caller at a time in this process.
+
+    Two lanes open their rounds independently, so two coroutines can arrive here at the same
+    instant; the lock is what keeps them from interleaving their writes into one package
+    directory, and the cache inside means the second one finds nothing left to do."""
+    async with _skill_install_lock:
+        await _ensure_skill_package(
+            settings, user_id, project_dir=project_dir, backend=backend
+        )
+
+
+async def _ensure_skill_package(
     settings: Settings, user_id: UserId, *, project_dir: str, backend: str
 ) -> None:
     """Re-render the project's installed skill package when it has drifted, before the round.
@@ -829,7 +861,7 @@ def agent_round_effort(settings: object, kind: str) -> str:
 
 
 async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> None:
-    """One claimed compile job, run through a launched coding agent (§9).
+    """One claimed compile job, run through a launched coding agent (§9), one per lane.
 
     `run_compile` is deliberately NOT used: the round's body is another process typing `pkc
     draft` commands, and the draft it works on lives in the store. What ends the round is the
@@ -840,8 +872,32 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
     finish could not know: what the harness's own counters said the round cost, which the
     launcher read from its JSON one process out. Absent stays absent — a round whose harness
     reported nothing records nothing, never a zero.
+
+    The lane this job drains in is held for the length of the round (`_AGENT_ROUNDS`): two
+    lanes may each have a harness process out at once, and neither lane may have two.
     """
-    from ..cli.runtime import build_runtime
+    kind = getattr(job, "kind", "compile")
+    role = "evolve" if kind == "evolve" else "compile"
+    executor = executor_for(ctx.settings, role)
+    job_id = getattr(job, "job_id")
+    slot = (str(user_id), lane_of(kind))
+    running = _AGENT_ROUNDS.get(slot)
+    if running is not None:
+        raise RuntimeError(
+            f"job {job_id} would be a second {slot[1]}-lane harness round for {user_id} "
+            f"while job {running} holds that lane"
+        )
+    _AGENT_ROUNDS[slot] = str(job_id)
+    try:
+        await _run_agent_job(ctx, user_id, job, kind=kind, role=role, executor=executor)
+    finally:
+        _AGENT_ROUNDS.pop(slot, None)
+
+
+async def _run_agent_job(
+    ctx: AppContext, user_id: UserId, job: object, *, kind: str, role: str, executor: object
+) -> None:
+    """The body of one agent round, once its lane is held (`process_agent_job`)."""
     from ..coding_agent.backends import backend as backend_manifest
     from ..coding_agent.round_runner import (
         ABANDONED,
@@ -849,10 +905,8 @@ async def process_agent_job(ctx: AppContext, user_id: UserId, job: object) -> No
         ROUND_INCOMPLETE,
         AgentRoundRunner,
     )
+    from ..cli.runtime import build_runtime
 
-    kind = getattr(job, "kind", "compile")
-    role = "evolve" if kind == "evolve" else "compile"
-    executor = executor_for(ctx.settings, role)
     job_id = getattr(job, "job_id")
     if role == "evolve":
         from ..cli.evolve import build_runtime
@@ -1184,21 +1238,30 @@ async def _fail_job(ctx: AppContext, user_id: UserId, job_id: str, exc: Exceptio
             await rt.drafts.delete(user_id, job_id, executor=executor)
 
 
-_DRAFT_HOLD_LOGGED: dict[str, tuple[str, str]] = {}
+_DRAFT_HOLD_LOGGED: dict[tuple[str, str | None], tuple[str, str]] = {}
 
 
-async def _steward_holds_draft(ctx: AppContext, user_id: UserId) -> bool:
+async def _steward_holds_draft(
+    ctx: AppContext, user_id: UserId, lane: str | None = None
+) -> bool:
+    """Is somebody outside this body holding this tenant's open round in `lane`?
+
+    Per lane, because a library holds one round per lane: a Steward's compile round at a
+    terminal reserves the canonical lane and says so, and the derived lane goes on indexing
+    and judging episodes behind it rather than standing still for it."""
     peek = getattr(ctx.store, "held_draft", None)
-    held = await peek(user_id) if peek is not None else None
+    held = await peek(user_id, lane=lane) if peek is not None else None
+    key = (str(user_id), lane)
     if held is None or held[1].executor.startswith("worker:"):
-        _DRAFT_HOLD_LOGGED.pop(str(user_id), None)
+        _DRAFT_HOLD_LOGGED.pop(key, None)
         return False
     job_id, owner = held
-    key = (job_id, owner.executor)
-    if _DRAFT_HOLD_LOGGED.get(str(user_id)) != key:
-        log.info("job %s for %s is held by %s; the worker is not claiming this tenant's work",
-                 job_id, user_id, owner.executor or "legacy:unknown")
-        _DRAFT_HOLD_LOGGED[str(user_id)] = key
+    seen = (job_id, owner.executor)
+    if _DRAFT_HOLD_LOGGED.get(key) != seen:
+        log.info("job %s for %s is held by %s; the worker is not claiming this tenant's "
+                 "%s-lane work",
+                 job_id, user_id, owner.executor or "legacy:unknown", lane or "queued")
+        _DRAFT_HOLD_LOGGED[key] = seen
     return True
 
 
@@ -1381,6 +1444,11 @@ async def sweep_recall_handoffs(ctx: AppContext, *, label: str = "compile-worker
     return swept
 
 
+def in_lane(kind: str, lane: str | None) -> bool:
+    """Is a job of `kind` this drain's to run? True for every kind when no lane is named."""
+    return lane is None or lane_of(kind) == lane
+
+
 async def _waiting_for_steward(ctx: AppContext, user_id: UserId) -> int:
     """How many of this user's compile jobs are queued for the Steward to open.
 
@@ -1404,11 +1472,12 @@ async def drain_user(
     user_id: UserId,
     *,
     skill_cache: dict[str, SkillVersion] | None = None,
+    lane: str | None = None,
 ) -> int:
-    """Claim + process this user's queued jobs until the queue is empty.
+    """Claim + process this user's queued jobs of one lane until that lane is empty.
 
-    Kind-agnostic claim — index and the recall projection kinds first, then everything else
-    in queue order (`CLAIM_FIRST_KINDS`, adapters/postgres.py); dispatch by job.kind —
+    Kind-agnostic claim WITHIN the lane — index and the recall projection kinds first, then
+    everything else in queue order (`CLAIM_FIRST_KINDS`, adapters/postgres.py); dispatch by job.kind —
     "index" → process_index_job (L1/L2), "evolve"/"evolve_adopt" → the schema-evolve flow,
     "groom" → one document rollover, "archive" → one confirmed archive proposal (a move, no
     model), "recall_projection"/"recall_rebuild" → the use-side ledger (no model, no skill),
@@ -1428,7 +1497,15 @@ async def drain_user(
     Everything else drains exactly as it always has.
 
     A user this worker does not serve (`WORKER_TENANTS`, single-machine-edition.md §11.7) is
-    refused at the same claim: the drain returns 0 without having held anything."""
+    refused at the same claim: the drain returns 0 without having held anything.
+
+    `lane` (`job_lanes.py`) is which half of this tenant's queue this call drains — the
+    canonical lane (everything that can write the library) or the derived one (index,
+    episodes, the recall projections). The worker runs one of these per lane per tenant, at
+    the same time, and the claim's serialization is per lane too, so the canonical writer
+    stays exactly as single as it was. `None` drains the whole queue in one loop, which is
+    what every caller that is not the worker's own sweep wants: an ops command, a scaffolded
+    application's `compile` subcommand, a test that wants one ordering to assert."""
     resolved = skill
     processed = 0
     # Under an agent executor there are two postures, and they differ in exactly one place:
@@ -1442,7 +1519,7 @@ async def drain_user(
         # Episodes always belong to the compile harness, even if the executor was changed
         # while some were queued. They must never reach the default compile dispatch.
         steward_kinds += ("episodes",)
-    if COMPILE_JOB_KIND in steward_kinds:
+    if COMPILE_JOB_KIND in steward_kinds and in_lane(COMPILE_JOB_KIND, lane):
         waiting = await _waiting_for_steward(ctx, user_id)
         if waiting:
             log.info(
@@ -1453,7 +1530,7 @@ async def drain_user(
                 ctx.compile_executor.spec,
             )
     while True:
-        if await _steward_holds_draft(ctx, user_id):
+        if await _steward_holds_draft(ctx, user_id, lane):
             return processed
         # A tenant on ice claims nothing a harness would have to run. Asked HERE and not once
         # before the loop, because the ice is usually laid DURING a drain — the first job of
@@ -1466,7 +1543,7 @@ async def drain_user(
             skip += tuple(k for k in agent_path_kinds(ctx) if k not in skip)
         try:
             job = await ctx.store.claim_next(
-                user_id, exclude_kinds=skip, tenants=worker_tenants(ctx)
+                user_id, exclude_kinds=skip, tenants=worker_tenants(ctx), lane=lane
             )
         except Exception as exc:
             # A claim whose connection went after its UPDATE was sent may have landed. The
@@ -1575,17 +1652,25 @@ async def drain_index_jobs(ctx: AppContext, user_id: UserId) -> int:
 
 
 async def compile_pending(
-    ctx: AppContext, chat_model: BaseChatModel | None, skill: SkillVersion | None = None
+    ctx: AppContext,
+    chat_model: BaseChatModel | None,
+    skill: SkillVersion | None = None,
+    *,
+    lane: str | None = None,
 ) -> int:
     """One sweep across every user with data; returns the job count processed.
 
     `skill=None` (the worker default) loads each user's own skill per job; a per-sweep
-    cache keyed by user avoids re-reading a manifest from git once per job."""
+    cache keyed by user avoids re-reading a manifest from git once per job.
+
+    `lane` drains one lane of every tenant (`job_lanes.py`); the worker runs one sweep loop
+    per lane and they run at the same time. `None` sweeps the whole queue in one pass, which
+    is what a caller outside the worker's own loop means."""
     total = 0
     cache: dict[str, SkillVersion] = {}
     for uid in await _users_with_jobs(ctx):
         total += await drain_user(
-            ctx, chat_model, skill, UserId(uid), skill_cache=cache
+            ctx, chat_model, skill, UserId(uid), skill_cache=cache, lane=lane
         )
     return total
 
@@ -1674,18 +1759,22 @@ async def ride_out(
     in_flight: tuple[str, str] | None,
     *,
     label: str = "compile-worker",
+    lane: str | None = None,
 ) -> None:
     """Wait out one infrastructure outage, then put back what it interrupted.
 
     One line when it starts, one when it ends, nothing in between: an outage is one event,
-    and a log that printed every retry would bury it. The wait doubles from
+    and a log that printed every retry would bury it. A lane names itself in both, because
+    each lane waits its own outage out — two lines mean two lanes are waiting, which is a
+    different fact from one lane retrying twice. The wait doubles from
     `INFRA_BACKOFF_START_S` to `INFRA_BACKOFF_MAX_S`; each step probes the service that
     failed and then runs the recovery, which needs Postgres — so a probe that passes while
     Postgres is still away simply waits another step."""
     delay = INFRA_BACKOFF_START_S
     started = time.monotonic()
+    where = f"[{label}] {lane} lane:" if lane else f"[{label}]"
     print(
-        f"[{label}] infrastructure unavailable ({fault.describe()}); retrying in {delay:g}s",
+        f"{where} infrastructure unavailable ({fault.describe()}); retrying in {delay:g}s",
         flush=True,
     )
     while True:
@@ -1699,7 +1788,7 @@ async def ride_out(
             delay = min(delay * 2, INFRA_BACKOFF_MAX_S)
             continue
         print(
-            f"[{label}] infrastructure back after {time.monotonic() - started:.0f}s; resuming"
+            f"{where} infrastructure back after {time.monotonic() - started:.0f}s; resuming"
             + (f" ({', '.join(done)})" if done else ""),
             flush=True,
         )
@@ -1709,19 +1798,55 @@ async def ride_out(
 async def drain_forever(
     ctx: AppContext, chat_model: BaseChatModel | None, *, label: str = "compile-worker"
 ) -> None:
-    """Sweep the queue until cancelled. Infrastructure going away is waited out in place
-    (`ride_out`); any other error propagates, exactly as it always did."""
+    """Sweep every lane until cancelled — one task per lane, running at the same time.
+
+    Each lane is the loop this function used to be: sweep, wait out an outage in place
+    (`ride_out`), let anything else propagate. They are separate loops on purpose — an
+    outage the canonical lane meets is waited out by the canonical lane, and the derived lane
+    goes on indexing while it waits (both pay the same backoff only if the outage is theirs
+    too, which for a shared Postgres it will be). An error that is not an outage still stops
+    the worker: it ends its lane, the gather re-raises it, and the sibling lane is cancelled
+    on the way out, exactly as a single loop ended the worker before.
+    """
+    print(
+        f"[{label}] draining {len(LANES)} lanes ({', '.join(LANES)}): one job in flight per "
+        f"lane per library — the {CANONICAL_LANE} lane is still the library's single writer, "
+        "and at most one agent round runs per lane",
+        flush=True,
+    )
+    tasks = [
+        asyncio.create_task(
+            _drain_lane_forever(ctx, chat_model, lane, label=label), name=f"{label}-{lane}"
+        )
+        for lane in LANES
+    ]
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def _drain_lane_forever(
+    ctx: AppContext,
+    chat_model: BaseChatModel | None,
+    lane: str,
+    *,
+    label: str = "compile-worker",
+) -> None:
+    """One lane's sweep loop (`drain_forever`)."""
     while True:
         try:
-            n = await compile_pending(ctx, chat_model)
+            n = await compile_pending(ctx, chat_model, lane=lane)
         except Exception as exc:
             fault = infrastructure_fault(exc)
             if fault is None:
                 raise
-            await ride_out(ctx, fault, _in_flight(exc), label=label)
+            await ride_out(ctx, fault, _in_flight(exc), label=label, lane=lane)
             continue
         if n:
-            print(f"[{label}] processed {n} job(s)")
+            print(f"[{label}] {lane} lane: processed {n} job(s)")
         await asyncio.sleep(IDLE_SWEEP_S)
 
 

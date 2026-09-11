@@ -69,6 +69,7 @@ from pneuma_knowledge_core.ports.draft_store import DraftOwnershipError
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill.version import SkillVersion
 
+from ..job_lanes import lane_of
 from ..persona_profile import PLACEHOLDER_NOTICE
 from .check import SKILL_TRAILER
 
@@ -237,21 +238,56 @@ def ownership_fields(rt: DraftRuntime) -> dict[str, str]:
     }
 
 
+async def draft_kind(rt: DraftRuntime, job_id: str) -> str:
+    """What kind of round an open draft holds — from its own session, else from its job.
+
+    A draft written before its session recorded a kind is a compile draft, which is what an
+    empty string means to `lane_of` too (unclassified = the canonical lane)."""
+    state = await rt.drafts.get(rt.user_id, job_id) or {}
+    kind = str((state.get("session") or {}).get("kind") or state.get("kind") or "")
+    if kind:
+        return kind
+    job = await rt.jobs.get_job(rt.user_id, job_id)
+    return str(getattr(job, "kind", "") or "")
+
+
+async def open_drafts_in_lane(rt: DraftRuntime, lane: str) -> list[str]:
+    """This tenant's open drafts that belong to `lane` (`job_lanes.py`)."""
+    held: list[str] = []
+    for job_id in await rt.drafts.list_open(rt.user_id):
+        if lane_of(await draft_kind(rt, job_id)) == lane:
+            held.append(job_id)
+    return held
+
+
 async def require_open_slot(rt: DraftRuntime, job_id: str) -> None:
-    """Refuse a different executor before loading any role's task or touching its job."""
-    for held_id in await rt.drafts.list_open(rt.user_id):
+    """Refuse a different executor before loading any role's task or touching its job.
+
+    One open round per LANE, not per tenant: a library drains one canonical-writing job and
+    one derived job at a time (`job_lanes.py`), so an episodes round the worker is judging
+    does not refuse the Owner's compile round, nor the other way round. Within a lane the
+    rule is the one it always was — finish or abandon the round that is open."""
+    for held_id in await open_drafts_in_lane(rt, lane_of(rt.kind)):
         await require_owner(rt, held_id)
         if held_id != job_id:
             raise DraftOwnershipError(f"draft for job {held_id} is already open; finish or abandon it first")
 
 
 async def _open_job_id(rt: DraftRuntime) -> str | None:
-    """The job this user currently holds a draft on, or None.
+    """The job this user currently holds a draft of THIS command's kind on, or None.
 
     At most one, and that is not this module's promise: the queue hands out one claimed job
-    per user, so one open round per user is what the single-writer rule already means.
+    per user per lane, so one open round of a kind is what the single-writer rule already
+    means. Two lanes drain at once, so the tenant may hold two drafts — an episodes round in
+    the derived lane while a compile round is open in the canonical one — and picking
+    whichever was written last would hand `pkc draft` the episodes round's job id.
     """
     open_ids = await rt.drafts.list_open(rt.user_id)
+    for job_id in open_ids:
+        if await draft_kind(rt, job_id) == rt.kind:
+            return job_id
+    # No draft names this kind: fall back to the most recent, so a legacy draft whose session
+    # recorded nothing is still found and `_load` still says what it is.
     return open_ids[0] if open_ids else None
 
 
@@ -355,8 +391,10 @@ async def open_round(
         await _store(rt, draft, session)
         return EXIT_OK, system_text, task
 
-    other_id = await _open_job_id(rt)
-    if other_id:
+    # One open round per LANE (`require_open_slot` says why): a round draining the other
+    # lane — the worker judging one source's episodes while the Owner compiles — is not this
+    # door's business, and refusing it here would put the two lanes back into one queue.
+    for other_id in await open_drafts_in_lane(rt, lane_of(rt.kind)):
         await require_owner(rt, other_id)
         raise DraftOwnershipError(f"draft for job {other_id} is already open; finish or abandon it first")
 

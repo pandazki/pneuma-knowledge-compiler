@@ -290,6 +290,69 @@ def test_episodes_rounds_take_their_own_effort_and_inherit_when_it_is_empty(
         home, Library.load(home, "notes"))
 
 
+def test_one_rounds_wall_clock_is_a_recorded_choice_the_engine_directory_states(
+    home, make_library, monkeypatch
+):
+    """`compile_call_timeout` bounds one launch of a round. On this machine successful compile
+    rounds averaged 474 s under the 600 s default and two were reaped at the wall, so the
+    Owner raises it — and a value hand-edited into `engine.yaml` is durable only until
+    something renders that directory again, which is why it is a recorded choice."""
+    from pkc_personal.home import DEFAULT_CALL_TIMEOUT, MAX_CALL_TIMEOUT
+    from pkc_personal.status import rounds_line
+    from pneuma_knowledge_service.engine.resolve import engine_overrides
+
+    library = make_library()
+    assert library.state.choices.compile_call_timeout == DEFAULT_CALL_TIMEOUT
+    assert read_yaml(library.engine_dir / "engine.yaml")["compile_call_timeout"] == DEFAULT_CALL_TIMEOUT
+
+    restarts = []
+    monkeypatch.setattr(library_module, "restart_engine",
+                        lambda home, library: restarts.append(library.state.name) or True)
+    note = set_config(home, "compile_call_timeout", "1200", library)
+    assert note == "engine notes restarted; one round may now take 1200s"
+    assert restarts == ["notes"]
+
+    reloaded = Library.load(home, "notes")
+    assert reloaded.state.choices.compile_call_timeout == 1200
+    assert reloaded.show()["choices"]["compile_call_timeout"] == 1200
+    # Written surgically into the engine directory, beside the keys that were already there.
+    engine_file = read_yaml(reloaded.engine_dir / "engine.yaml")
+    assert engine_file["compile_call_timeout"] == 1200
+    assert engine_file["embedding"] == home.config.defaults.embedding
+    # …and it is what the engine process resolves, with no environment variable to outrank it.
+    overrides, _ = engine_overrides(reloaded.engine_dir, {})
+    assert overrides["compile_call_timeout"] == 1200
+    assert "PNEUMA_KNOWLEDGE_COMPILE_CALL_TIMEOUT" not in home_environment(home, reloaded)
+
+    # Re-rendering the library leaves the Owner's value alone: `engine.yaml` is written once,
+    # when a library is created, and `render_library` only re-installs the skill package.
+    render_library(home, reloaded)
+    assert read_yaml(reloaded.engine_dir / "engine.yaml")["compile_call_timeout"] == 1200
+
+    # Shown on the `Rounds:` line only once it differs from the engine's own default.
+    assert "up to 1200s each" in rounds_line(
+        {"agent_model": "", "reasoning_effort": "", "compile_call_timeout": 1200,
+         "compile_call_timeout_default": DEFAULT_CALL_TIMEOUT}
+    )
+    assert "up to" not in rounds_line(
+        {"agent_model": "", "reasoning_effort": "", "compile_call_timeout": DEFAULT_CALL_TIMEOUT,
+         "compile_call_timeout_default": DEFAULT_CALL_TIMEOUT}
+    )
+
+    for refused in ("0", "-5", str(MAX_CALL_TIMEOUT + 1)):
+        with pytest.raises(ValueError, match="compile_call_timeout must be between 1 and"):
+            set_config(home, "compile_call_timeout", refused, reloaded)
+    with pytest.raises(ValueError, match="whole number of seconds"):
+        set_config(home, "compile_call_timeout", "20 minutes", reloaded)
+    assert Library.load(home, "notes").state.choices.compile_call_timeout == 1200
+
+    # And on the home's defaults, which the next library is created from.
+    set_config(home, "compile_call_timeout", "900")
+    assert home.config.defaults.compile_call_timeout == 900
+    later = make_library("later")
+    assert read_yaml(later.engine_dir / "engine.yaml")["compile_call_timeout"] == 900
+
+
 def test_custom_contract_rejected_before_publication(home, make_library, tmp_path):
     contract = tmp_path / "contract.md"
     atomic_write(contract, "No frontmatter")

@@ -32,7 +32,7 @@ from pneuma_knowledge_service.settings import Settings
 
 from pkc_personal.home import (
     Choices, Home, Model, SyncConfig, asset_path, atomic_write, now, read_yaml,
-    validated_effort, yaml_text,
+    validated_effort, validated_timeout, yaml_text,
 )
 
 NAME_PATTERN = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
@@ -266,6 +266,10 @@ def _engine_files(name: str, choices: Choices, contract: str) -> dict[str, str]:
     models["compile"] = f"agent:{choices.backend}" if choices.backend != "api" else default_model
     models["recall"] = Settings.model_fields["llm_model_recall"].default or default_model
     models["embedding"] = choices.embedding
+    if "compile_call_timeout" in models:
+        # A home default the Owner raised applies to the libraries created after it, the same
+        # way the backend and the embedding do.
+        models["compile_call_timeout"] = choices.compile_call_timeout
     if "semantic_retrieval" in Settings.model_fields:
         documents["intake/intake.yaml"]["semantic_retrieval"] = "on" if choices.semantic_retrieval else "off"
     documents["prompts/overlays.yaml"]["language"] = choices.language
@@ -632,7 +636,7 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
         return None
     if key not in Choices.model_fields:
         raise ValueError(f"unknown config key: {key}")
-    parsed: str | bool = value
+    parsed: str | bool | int = value
     # Every boolean choice is spelled the same way at the face — on or off — so the parsing
     # is read off the field rather than restated per key.
     if Choices.model_fields[key].annotation is bool:
@@ -643,6 +647,8 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
         # The string choices with a set behind them, refused here in the same one-line shape
         # a bad boolean gets rather than as a validation report from two layers down.
         parsed = validated_effort(value, key)
+    elif key == "compile_call_timeout":
+        parsed = validated_timeout(value, key)
     if library is None:
         config = home.config
         setattr(config.defaults, key, parsed)
@@ -662,6 +668,14 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
         mapping = read_yaml(path)
         mapping["language"] = parsed
         atomic_write(path, yaml_text(mapping))
+    elif key == "compile_call_timeout" and key in Settings.model_fields:
+        # Surgically, like `backend`/`embedding` above: the engine directory is a project's
+        # own file, and this writes the one key it is about. Nothing in this edition renders
+        # `engine.yaml` again after a library is created (`_engine_files` runs once, and
+        # `render_library` only re-installs the skill package), so the value stands.
+        mapping = read_yaml(engine_path)
+        mapping[key] = parsed
+        atomic_write(engine_path, yaml_text(mapping))
     elif key == "semantic_retrieval" and "semantic_retrieval" in Settings.model_fields:
         path = library.engine_dir / "intake" / "intake.yaml"
         mapping = read_yaml(path)
@@ -675,6 +689,13 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
         if restart_engine(home, library):
             return f"engine {name} restarted; its worker is now {taken}"
         return f"engine {name} is not running; its worker will be {taken} when it starts"
+    if key == "compile_call_timeout":
+        # The engine reads its directory ONCE, at start (`get_settings`), so a wall clock
+        # recorded while it runs is one no round obeys until the process is replaced.
+        name = library.state.name
+        if restart_engine(home, library):
+            return f"engine {name} restarted; one round may now take {parsed}s"
+        return f"engine {name} is not running; its rounds will take up to {parsed}s when it starts"
     if key in {"model", "reasoning_effort", "reasoning_effort_episodes"}:
         # The launcher reads its settings once, at start, from the process environment
         # `home_environment` assembled — exactly as the posture does. So a model or an effort

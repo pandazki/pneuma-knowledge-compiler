@@ -15,7 +15,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from pneuma_knowledge_service.infra.ports import probe_free_ports
-from pneuma_knowledge_service.settings import AGENT_REASONING_EFFORTS
+from pneuma_knowledge_service.settings import AGENT_REASONING_EFFORTS, Settings
 
 from pkc_personal import __version__
 
@@ -74,6 +74,33 @@ def asset_path(relative: str) -> Path:
     package = Path(__file__).resolve().parent
     installed = package / "assets" / relative
     return installed if installed.exists() else package.parents[1] / relative
+
+
+#: The engine's own default for one round's wall clock, imported rather than restated: this
+#: face records a number the engine will read back, and two defaults would eventually differ.
+DEFAULT_CALL_TIMEOUT = int(Settings.model_fields["compile_call_timeout"].default or 600)
+#: Six hours. Past that a wall clock stops being a guard — a harness that hung at breakfast
+#: would still be holding its lane at lunch — and the engine's own bound (0 = no timeout at
+#: all) is not offered here for the same reason: an unattended round with no clock on it
+#: holds its lane until somebody notices.
+MAX_CALL_TIMEOUT = 21_600
+
+
+def validated_timeout(value: str, key: str = "compile_call_timeout") -> int:
+    """One round's wall clock in whole seconds, or a refusal naming the bounds.
+
+    Refused at the face in the same one-line shape a bad effort gets, and again on the record
+    (the field's own `ge`/`le`), so a hand-edited `library.yaml` is refused on load too."""
+    try:
+        seconds = int(str(value).strip())
+    except ValueError:
+        raise ValueError(f"{key} must be a whole number of seconds") from None
+    if not 1 <= seconds <= MAX_CALL_TIMEOUT:
+        raise ValueError(
+            f"{key} must be between 1 and {MAX_CALL_TIMEOUT} seconds "
+            f"(the engine's own default is {DEFAULT_CALL_TIMEOUT})"
+        )
+    return seconds
 
 
 def validated_effort(value: str, key: str = "reasoning_effort") -> str:
@@ -152,6 +179,16 @@ class Choices(Model):
     # that costs a compile round's context when it thinks at a compile's effort. Empty
     # inherits `reasoning_effort`.
     reasoning_effort_episodes: str = ""
+    # How long ONE launch of a round may take before it is reaped (the engine's
+    # `COMPILE_CALL_TIMEOUT`, which also bounds an API model's call). A recorded choice for
+    # the same reason the two above are: on one real machine successful compile rounds
+    # averaged 474 s under the 600 s default and two were reaped at the wall, so the Owner
+    # raised it — by hand-editing `engine/engine.yaml`, which is a durable answer only until
+    # something renders that directory again. `set_config` writes the same key surgically
+    # and restarts the engine, because the engine reads its directory once, at start.
+    compile_call_timeout: int = Field(
+        default=DEFAULT_CALL_TIMEOUT, ge=1, le=MAX_CALL_TIMEOUT
+    )
 
     @field_validator("reasoning_effort", "reasoning_effort_episodes")
     @classmethod

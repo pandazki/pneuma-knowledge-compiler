@@ -30,6 +30,7 @@ from pneuma_knowledge_core.skill.contract import render_system_contract
 from pneuma_knowledge_core.skill.version import SkillVersion
 
 from ..evolve_service import get_task_with_expiry, persist_evolve_result, _source_bounds_port
+from ..job_lanes import CANONICAL_LANE
 from ..skills import (
     compose_manifest_skill, manifest_base, read_manifest,
     manifest_skill,
@@ -213,7 +214,9 @@ async def open_round(
 @shared.draft_command
 async def cmd_open(rt: EvolveRuntime, job_id: str = "", *, new=False, from_proposal="") -> int:
     if new:
-        if await rt.drafts.list_open(rt.user_id):
+        # The canonical lane's open rounds only: a derived-lane round (an episodes judgement
+        # the worker is running) shares nothing with an evolve round (`job_lanes.py`).
+        if await shared.open_drafts_in_lane(rt, CANONICAL_LANE):
             print("a draft is already open; finish or abandon it first", file=rt.err)
             return shared.EXIT_REFUSED
         job_id = await rt.jobs.enqueue(rt.user_id, "evolve", {})

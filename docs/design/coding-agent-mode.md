@@ -1345,8 +1345,27 @@ went around the gate is stopped before the next round builds on it, rather than 
   projection and rebuild jobs remain mechanical. The claim hands index, projection and
   rebuild jobs out ahead of every other kind (L1 is unconditional, I3), the episodes job
   takes its index job's place in the queue (`order_at`) so it precedes that source's
-  compile, and a job re-queued because its harness never ran keeps its original place —
-  one job in flight per user, as before.
+  compile, and a job re-queued because its harness never ran keeps its original place.
+- **Two lanes, and two harness processes.** One job in flight per user *per lane*
+  (`job_lanes.py`, architecture.md §5): the canonical lane holds everything that can write
+  the library — compile, evolve, evolve_adopt, groom, archive, challenge — under exactly the
+  rule the whole queue used to have, and the derived lane holds index, episodes and the
+  recall projections, which never open canonical. The worker drains both at once, one sweep
+  loop each, and says so at start (`draining 2 lanes (canonical, derived)`). So a library may
+  now have **two harness processes out at the same time — at most one per lane**: a compile
+  round and an episodes judgement, never two compiles. That bound is the lane rule itself,
+  and the worker refuses a second launch in a lane rather than trusting it
+  (`_AGENT_ROUNDS`). Everything a round rests on is lane-scoped with it: an open draft
+  reserves its own lane (so `pkc draft open` is not refused by the episodes round the worker
+  is running, and is still refused by another compile round), the launch's
+  `attach_executor` looks only at its own lane's drafts, and the advisory locks a claim takes
+  are keyed by lane so the two lanes do not take turns. Cooling is NOT per lane: a spent
+  subscription is a fact about the provider, so it stops the agent-path kinds in both lanes
+  and neither lane's index or projection work. And because queue order can no longer hold a
+  compile behind a job draining in the other lane, the canonical lane skips a compile whose
+  own source still has an `index` or `episodes` job queued or claimed — both, because the
+  index job is what commissions the judgement — and idles if every remaining compile is
+  blocked that way.
 - **A launch that never became a round.** The launcher waits a rate limit out (§8), but a
   subscription that is out of room for the night outlasts any backoff, and what came back was
   a non-zero exit with `rate_limited` on it. The runner reports that as its own outcome,

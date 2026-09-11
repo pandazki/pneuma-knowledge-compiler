@@ -14,7 +14,7 @@ from pneuma_knowledge_service.persona_profile import is_placeholder, read_profil
 
 from pkc_personal import __version__, console, engine, infra, sync
 from pkc_personal.environment import home_environment, resolve_library
-from pkc_personal.home import Home, read_yaml
+from pkc_personal.home import DEFAULT_CALL_TIMEOUT, Home, read_yaml
 from pkc_personal.library import Library, libraries, pkc_script, posture
 
 # The order the design gives the five steps, whether recorded or derived.
@@ -220,6 +220,11 @@ def status_document(home: Home, explicit: str | None = None) -> dict:
             "agent_model": library.state.choices.model,
             "reasoning_effort": library.state.choices.reasoning_effort,
             "reasoning_effort_episodes": library.state.choices.reasoning_effort_episodes,
+            # One round's wall clock, and the default it is measured against: the text face
+            # prints it only when this library moved it, because a number every library
+            # carries teaches nothing.
+            "compile_call_timeout": library.state.choices.compile_call_timeout,
+            "compile_call_timeout_default": DEFAULT_CALL_TIMEOUT,
             # No probe of an engine port whose pid is dead: a status taken with nothing up
             # must cost nothing but the reads that can still answer.
             "queue": queue_status(library) if engine_state["up"] else None,
@@ -274,7 +279,13 @@ def rounds_line(library: dict) -> str:
     line = (f"{library['agent_model'] or 'the harness default model'}"
             f" at {library['reasoning_effort'] or 'the harness default effort'}")
     episodes = library.get("reasoning_effort_episodes")
-    return f"{line} (episodes {episodes})" if episodes else line
+    if episodes:
+        line = f"{line} (episodes {episodes})"
+    timeout = library.get("compile_call_timeout")
+    default = library.get("compile_call_timeout_default", DEFAULT_CALL_TIMEOUT)
+    if timeout and timeout != default:
+        line = f"{line}, up to {timeout}s each"
+    return line
 
 
 def render_text(document: dict) -> str:

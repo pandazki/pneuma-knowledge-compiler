@@ -258,8 +258,9 @@ Delivery is the ordinary job queue. An answering route writes the consultation r
 worker drains it, applies the statistics and the record's `projected_at` stamp in one
 transaction, then tells any registered component. Nothing is processed in the request path,
 so the answer waits on none of it — and a projection therefore lags its consultation by the
-queue's drain (per user, FIFO, one job in flight: seconds on an idle library, longer behind a
-compile). `scripts/ops/rebuild_derived.py` re-derives the ledger by enqueueing one
+queue's drain (per user, FIFO, one job in flight per lane, and a projection is in the derived
+lane: seconds on an idle library, and no longer behind a compile, which drains in the other
+one — architecture.md §5). `scripts/ops/rebuild_derived.py` re-derives the ledger by enqueueing one
 `recall_rebuild` job and draining it, so the replay takes the same per-user claim and cannot
 interleave with a projection in flight.
 
