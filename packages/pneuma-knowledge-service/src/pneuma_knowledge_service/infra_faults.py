@@ -7,10 +7,12 @@ answer to that is to wait and try again — not to fail the job, not to take the
 
 This module is the one place that tells the two apart, so the worker's drain loop, the
 engine's task supervision and the API's 503 handler all mean the same thing by "transient".
-It is deliberately narrow: only the client exceptions each adapter raises when its peer is
-unreachable or dropped the connection. Anything else — a constraint violation, a statement
-timeout, a malformed request, an API error the server answered with — is not classified, so
-it keeps whatever behaviour it had before this module existed.
+It is deliberately narrow: the client exceptions each adapter raises when its peer is
+unreachable or dropped the connection, plus — checked last, when none of them claimed it —
+a bare httpx transport error, which is the same fact with no client's name attached.
+Anything else — a constraint violation, a statement timeout, a malformed request, an API
+error the server answered with — is not classified, so it keeps whatever behaviour it had
+before this module existed.
 
 The client libraries are looked up in `sys.modules` rather than imported: an exception can
 only be an instance of a class whose module is loaded, so a process that never imported
@@ -37,7 +39,10 @@ _REASON_CHARS = 160
 class InfraFault:
     """One transient infrastructure failure: which service, and what its client said."""
 
-    kind: str  #: postgres | qdrant | meilisearch | s3
+    #: postgres | qdrant | meilisearch | s3 | http — the last being a transport error that
+    #: reached us without its client's wrapper, so which peer went away is not known and
+    #: every one this body holds is asked (`compile_worker._probe`).
+    kind: str
     reason: str
 
     def describe(self) -> str:
@@ -113,6 +118,17 @@ def _classify_one(exc: BaseException) -> InfraFault | None:
         return None
     if _is_instance(exc, "botocore.exceptions", "ConnectionError", "HTTPClientError"):
         return InfraFault("s3", _short(exc))
+    # Last: a transport error with nobody's name on it. Every http client in this stack
+    # speaks through httpx, and "the peer did not answer" is the same fact whether the client
+    # wrapped it or let it through bare. It is checked after every client-specific rule
+    # above, so a fault that CAN name its service still does.
+    #
+    # What made it necessary: a Qdrant blip raised `httpx.ReadError()` directly, outside the
+    # `ResponseHandlingException` this module knew to look inside. Unclassified, it was not
+    # an outage to wait out but an error about the work — and since `ReadError` carries an
+    # empty message, the job was completed `worker error: ` with no reason on it at all.
+    if _httpx_transport(exc):
+        return InfraFault("http", _short(exc))
     return None
 
 
@@ -141,6 +157,7 @@ def infrastructure_exception_types() -> tuple[type[BaseException], ...]:
     also carries failures that are not transient (a statement timeout is an OperationalError).
     Imports here are real: a process that registers handlers is one that serves requests."""
     import botocore.exceptions as boto
+    import httpx
     import psycopg
     from meilisearch_python_sdk.errors import MeilisearchError
     from qdrant_client.http.exceptions import ResponseHandlingException
@@ -153,6 +170,7 @@ def infrastructure_exception_types() -> tuple[type[BaseException], ...]:
         MeilisearchError,
         boto.ConnectionError,
         boto.HTTPClientError,
+        httpx.TransportError,
     )
 
 

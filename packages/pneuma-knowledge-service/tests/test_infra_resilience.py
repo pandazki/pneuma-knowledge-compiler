@@ -32,7 +32,7 @@ from qdrant_client.http.exceptions import ResponseHandlingException
 
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_service import engine_process, wiring
-from pneuma_knowledge_service.adapters.draft_mock import InMemoryJobQueue
+from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore, InMemoryJobQueue
 from pneuma_knowledge_service.adapters.postgres import PostgresStore
 from pneuma_knowledge_service.api import app as app_module
 from pneuma_knowledge_service.infra_faults import infrastructure_fault
@@ -93,6 +93,22 @@ def test_an_answer_about_the_work_is_not_an_outage(exc):
     """A statement timeout, a deadlock, a duplicate key — the server answered, about the
     work. Retrying those forever would be the bug, so they keep the path they always had."""
     assert infrastructure_fault(exc) is None
+
+
+def test_a_bare_transport_error_is_the_outage_even_when_no_client_wrapped_it():
+    """Live, after the first fix shipped: a Qdrant blip raised `httpx.ReadError()` straight
+    out — not inside the `ResponseHandlingException` this module knew to open — so it was
+    read as an answer about the work. The windowed episodes job it hit was completed
+    `worker error: ` (the class carries an empty message) with nothing logged anywhere. Every
+    client here speaks over httpx, so a transport error is the peer being gone whoever let it
+    through; which peer, a bare one does not say, and the fault says so too."""
+    for exc in (httpx.ReadError(""), httpx.ConnectTimeout("timed out"), httpx.RemoteProtocolError("")):
+        fault = infrastructure_fault(exc)
+        assert fault is not None and fault.kind == "http"
+    assert infrastructure_fault(httpx.ReadError("")).reason == "ReadError"
+    # …and the exclusions above it still decide first, or stand.
+    assert infrastructure_fault(ResponseHandlingException(ValueError("1 validation error"))) is None
+    assert infrastructure_fault(ResponseHandlingException(httpx.ConnectError(REFUSED))).kind == "qdrant"
 
 
 def test_an_error_raised_from_a_dropped_connection_is_still_the_outage():
@@ -186,19 +202,23 @@ class FlakyQueue(InMemoryJobQueue):
 
 
 class Ctx:
-    def __init__(self, store, *, vectors=None) -> None:  # noqa: ANN001
-        self.settings = worker_settings()
+    def __init__(self, store, *, vectors=None, settings=None, flush=None) -> None:  # noqa: ANN001
+        self.settings = settings or worker_settings()
         self.store = store
         self.vectors = vectors
         self.lexical = None
         self.media = None
+        #: What the per-job trace flush does. It runs in the drain's `finally`, AFTER the
+        #: job's own body — the one place a failure carries no job id at all.
+        self.flush = flush
 
     @property
     def compile_executor(self):
         return wiring.executor_for(self.settings, "compile")
 
     async def flush_traces(self) -> None:
-        return None
+        if self.flush is not None:
+            self.flush()
 
 
 @pytest.fixture
@@ -207,8 +227,10 @@ def fast(monkeypatch):
     monkeypatch.setattr(compile_worker, "INFRA_BACKOFF_MAX_S", 0.02)
     monkeypatch.setattr(compile_worker, "IDLE_SWEEP_S", 0.01)
     compile_worker._INFRA_STRIKES.clear()
+    compile_worker._IN_FLIGHT.clear()
     yield
     compile_worker._INFRA_STRIKES.clear()
+    compile_worker._IN_FLIGHT.clear()
 
 
 def index_body(monkeypatch, fail=lambda job, attempt: None) -> list[str]:  # noqa: ANN001
@@ -227,8 +249,8 @@ def index_body(monkeypatch, fail=lambda job, attempt: None) -> list[str]:  # noq
 
 
 async def drain_until_done(ctx, *job_ids: str, timeout: float = 5.0) -> None:  # noqa: ANN001
-    """Run the worker's sweep loop until every named job is done, then stop it. A loop that
-    exits on its own is a failure surfaced as its exception."""
+    """Run the worker's sweep loop until every named job is done and the drain holds nothing,
+    then stop it. A loop that exits on its own is a failure surfaced as its exception."""
     task = asyncio.create_task(compile_worker.drain_forever(ctx, None))
     try:
         async with asyncio.timeout(timeout):
@@ -237,7 +259,10 @@ async def drain_until_done(ctx, *job_ids: str, timeout: float = 5.0) -> None:  #
                     await task
                     pytest.fail("the drain returned on its own")
                 rows = {r["job_id"]: r["status"] for r in await ctx.store.list_jobs(USER)}
-                if all(rows.get(j) == "done" for j in job_ids):
+                # Both halves: a job can be `done` while the lane that ran it is still
+                # riding an outage out, and it is what that recovery DID that these tests
+                # are about (`_IN_FLIGHT`).
+                if all(rows.get(j) == "done" for j in job_ids) and not compile_worker.in_flight_jobs():
                     return
                 await asyncio.sleep(0.005)
     finally:
@@ -268,7 +293,9 @@ async def test_the_drain_waits_out_a_database_that_went_away_at_the_claim(monkey
         f"(postgres: {DROPPED}); retrying in 0.01s"
         in out
     )
+    # Nothing was claimed when the database went: the line says so rather than saying nothing.
     assert f"[compile-worker] {DERIVED_LANE} lane: infrastructure back after " in out
+    assert "resuming (no job in flight)" in out
 
 
 async def test_a_claim_that_landed_as_the_connection_dropped_is_put_back_not_orphaned(
@@ -303,7 +330,7 @@ async def test_work_that_finished_as_the_database_dropped_is_recorded_not_run_ag
 
     assert runs == [a, b], "a job whose work was done was run again"
     assert outcomes(store) == [(a, True), (b, True)]
-    assert "(1 completion(s) written)" in capsys.readouterr().out
+    assert f"(1 completion(s) written, job {a} completed)" in capsys.readouterr().out
 
 
 async def test_a_job_the_vector_store_dropped_under_comes_back_instead_of_failing(
@@ -353,6 +380,247 @@ async def test_an_error_that_is_transient_only_in_name_fails_the_job_after_the_b
     assert runs.count(a) == compile_worker.INFRA_JOB_INTERRUPTIONS + 1
     assert outcomes(store) == [(a, False), (b, True)]
     assert store.completed[0]["detail"] == f"worker error: {DROPPED}"
+
+
+# ───────────────────────────────────── a claim is never left behind, wherever the fault was
+
+
+def agent_body(monkeypatch, fail=lambda job, attempt: None) -> list[str]:  # noqa: ANN001
+    """Stub one agent round: the harness runs, and then the work that FOLLOWS it happens.
+
+    The episodes job's shape (`cli/episodes.cmd_finish`): the round ends, the manifest is
+    recorded, the source's L2 vectors are rewritten, and only then is the job completed. A
+    fault in that tail is the one the recovery used not to cover."""
+    runs: list[str] = []
+
+    async def body(ctx, user_id, job):  # noqa: ANN001
+        runs.append(job.job_id)  # the round itself, which ended cleanly
+        exc = fail(job, runs.count(job.job_id))
+        if exc is not None:
+            raise exc  # …the projection/vector write after it
+        await ctx.store.complete(user_id, job.job_id, ok=True, detail="episodes: 3")
+
+    monkeypatch.setattr(compile_worker, "process_agent_job", body)
+    monkeypatch.setattr("pneuma_knowledge_service.cli.episodes.split_oversized", AsyncMock(return_value=None))
+    return runs
+
+
+async def test_a_fault_after_an_episodes_round_leaves_no_claim_behind(monkeypatch, fast, capsys):
+    """The live leak: a derived-lane episodes job whose round finished `exit 0`, and whose
+    vector write met a Qdrant that had gone away for two seconds. The job stayed `claimed`
+    with its draft open, so the derived lane could claim nothing more — and because every
+    compile waits on its own source's derived work, the canonical lane idled too: 542 jobs
+    pending, nothing finished for half an hour, until a person restarted the engine."""
+    store = FlakyQueue()
+    a = await store.enqueue(USER, "episodes", {"source_id": "s-1"})
+    b = await store.enqueue(USER, "episodes", {"source_id": "s-2"})
+    vectors = SimpleNamespace(ping=AsyncMock(return_value=None))
+    runs = agent_body(
+        monkeypatch,
+        fail=lambda job, attempt: (
+            ResponseHandlingException(httpx.ReadError("")) if job.job_id == a and attempt == 1
+            else None
+        ),
+    )
+    ctx = Ctx(store, vectors=vectors, settings=worker_settings(llm_model_compile="agent:codex"))
+
+    await drain_until_done(ctx, a, b)
+
+    assert runs == [a, a, b], "the interrupted round did not come back, or ran somebody else's job"
+    assert outcomes(store) == [(a, True), (b, True)]
+    assert compile_worker.in_flight_jobs() == (), "the drain still thinks it holds a job"
+    assert f"(job {a} requeued)" in capsys.readouterr().out
+
+
+async def test_a_bare_read_error_after_an_episodes_round_is_ridden_out_not_failed(
+    monkeypatch, fast, capsys
+):
+    """The second half of the live leak, exactly as it was recorded: the same windowed
+    episodes job came back after the restart, its round ended `exit 0`, and the vector write
+    after it raised a bare `httpx.ReadError()`. It was completed `ok=False`, detail
+    `worker error: `, and the queue moved on as if a judgement had been made. Now it is an
+    outage: the drain waits, the job comes back, and the round is judged."""
+    store = FlakyQueue()
+    a = await store.enqueue(USER, "episodes", {"source_id": "90a4", "window": {"start": 2376, "end": 2448}})
+    vectors = SimpleNamespace(ping=AsyncMock(return_value=None))
+    runs = agent_body(
+        monkeypatch,
+        fail=lambda job, attempt: httpx.ReadError("") if attempt == 1 else None,
+    )
+    ctx = Ctx(store, vectors=vectors, settings=worker_settings(llm_model_compile="agent:codex"))
+
+    await drain_until_done(ctx, a)
+
+    assert runs == [a, a]
+    assert outcomes(store) == [(a, True)], "an outage was recorded as the job's judgement"
+    out = capsys.readouterr().out
+    assert f"[compile-worker] {DERIVED_LANE} lane: infrastructure unavailable (http: ReadError)" in out
+    assert f"(job {a} requeued)" in out
+
+
+async def test_a_failure_is_never_written_without_a_reason_or_a_traceback(
+    monkeypatch, fast, caplog
+):
+    """Two shapes of the same rule. A job row holds one sentence, so that sentence must at
+    least name the class when the exception carries no words; and the stack that produced it
+    goes to the log, which is where an operator looks and where — the night this was written
+    — there was nothing at all."""
+    store = FlakyQueue()
+    blank = await store.enqueue(USER, "index", {})
+    spoken = await store.enqueue(USER, "index", {})
+    index_body(
+        monkeypatch,
+        fail=lambda job, attempt: (
+            ValueError() if job.job_id == blank else ValueError("a payload nobody can compile")
+        ),
+    )
+
+    with caplog.at_level("ERROR"):
+        await drain_until_done(Ctx(store), blank, spoken)
+
+    details = {row["job_id"]: row["detail"] for row in store.completed}
+    assert details[blank] == "worker error: ValueError"
+    assert details[spoken] == "worker error: a payload nobody can compile"
+    logged = [r for r in caplog.records if "job %s failed" in r.msg]
+    assert [r.args[1] for r in logged] == [blank, spoken]
+    assert all(r.args[0] == DERIVED_LANE and r.exc_info for r in logged), "no traceback was kept"
+
+
+async def test_a_fault_that_names_no_job_still_puts_this_body_s_claim_back(
+    monkeypatch, fast, capsys
+):
+    """What the job id must NOT depend on: the exception.
+
+    The recovery used to read the in-flight job off `InfrastructureInterrupted`, which only
+    the claim and the completion raise. A fault anywhere else — here the per-job trace flush,
+    which runs after the body in the drain's own `finally` — arrived carrying nothing, so the
+    recovery requeued nothing and said nothing while the claim stood. The drain now remembers
+    what it claimed, so the exception's silence costs nothing."""
+    store = FlakyQueue()
+    a = await store.enqueue(USER, "index", {})
+    faults = [ResponseHandlingException(httpx.ReadError(""))]
+
+    def flush():
+        if faults:
+            raise faults.pop()
+
+    runs: list[str] = []
+
+    async def body(ctx, user_id, job):  # noqa: ANN001
+        runs.append(job.job_id)
+        if runs.count(job.job_id) > 1:
+            # The second run completes; the first is the one the flush interrupted.
+            await ctx.store.complete(user_id, job.job_id, ok=True, detail="indexed")
+
+    monkeypatch.setattr(compile_worker, "process_index_job", body)
+    vectors = SimpleNamespace(ping=AsyncMock(return_value=None))
+
+    await drain_until_done(Ctx(store, vectors=vectors, flush=flush), a)
+
+    assert runs == [a, a]
+    assert compile_worker.in_flight_jobs() == ()
+    assert f"(job {a} requeued)" in capsys.readouterr().out
+
+
+async def test_a_round_whose_commit_already_happened_is_completed_not_run_again(
+    monkeypatch, fast, capsys
+):
+    """The other half of "never left behind": a compile whose commit landed and whose tail
+    met the outage. Its completion is the record of work that IS done, so the recovery keeps
+    it and says so — re-running the round would compile the same sources twice."""
+    store = FlakyQueue()
+    a = await store.enqueue(USER, "compile", {"source_ids": ["s-1"]})
+    runs: list[str] = []
+
+    async def body(ctx, chat_model, skill, user_id, job):  # noqa: ANN001
+        runs.append(job.job_id)
+        await ctx.store.complete(user_id, job.job_id, ok=True, detail="compiled")
+        raise ResponseHandlingException(httpx.ReadError(""))  # the usage/trace tail
+
+    monkeypatch.setattr(compile_worker, "process_job", body)
+    monkeypatch.setattr(compile_worker, "_resolve_user_skill", AsyncMock(return_value=None))
+    vectors = SimpleNamespace(ping=AsyncMock(return_value=None))
+
+    await drain_until_done(Ctx(store, vectors=vectors), a)
+
+    assert runs == [a], "a job whose commit had landed was run again"
+    assert outcomes(store) == [(a, True)]
+    assert f"(job {a} completed)" in capsys.readouterr().out
+
+
+async def test_the_recovery_always_says_what_became_of_the_job_in_flight(fast):
+    """Three shapes, and no fourth one called silence (`_recover`)."""
+    store = FlakyQueue()
+    ctx = Ctx(store)
+    assert await compile_worker._recover(ctx, None) == ["no job in flight"]
+
+    a = await store.enqueue(USER, "index", {})
+    await store.claim_next(USER, lane=DERIVED_LANE)
+    assert await compile_worker._recover(ctx, (str(USER), a)) == [f"job {a} requeued"]
+
+    await store.claim_next(USER, lane=DERIVED_LANE)
+    await store.complete(USER, a, ok=True, detail="indexed")
+    assert await compile_worker._recover(ctx, (str(USER), a)) == [f"job {a} completed"]
+
+
+# ─────────────────────────────────────────── the self-heal runs on a clock, not on a restart
+
+
+async def test_the_periodic_self_heal_requeues_a_dead_claim_and_spares_a_live_one(fast, capsys):
+    """A leaked claim now costs a minute, not a restart — and the sweep never takes a claim
+    this process is running: an index job carries no draft and no launch lease, so nothing on
+    its row tells a live one from an orphan. Only the body running it knows."""
+    store = FlakyQueue()
+    a = await store.enqueue(USER, "index", {})
+    assert (await store.claim_next(USER, lane=DERIVED_LANE)).job_id == a
+    ctx = Ctx(store, settings=worker_settings(worker_selfheal_s=0.02))
+
+    compile_worker._IN_FLIGHT[DERIVED_LANE] = (str(USER), a)  # this body is running it
+    task = asyncio.create_task(compile_worker._selfheal_forever(ctx))
+    try:
+        await asyncio.sleep(0.1)
+        rows = {r["job_id"]: r["status"] for r in await store.list_jobs(USER)}
+        assert rows[a] == "claimed", "the sweep requeued a job this body is running"
+        assert capsys.readouterr().out == ""
+
+        compile_worker._IN_FLIGHT.clear()  # the body that held it is gone
+        async with asyncio.timeout(2):
+            while (await store.get_job(USER, a)).status != "queued":
+                await asyncio.sleep(0.01)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert "[compile-worker self-heal] reclaimed 1 orphaned claimed job(s) → requeued" in (
+        capsys.readouterr().out
+    )
+
+
+async def test_the_periodic_self_heal_keeps_the_lease_rules_it_inherits(fast):
+    """The sweep on the clock is the startup sweep's own call, so a round whose launch lease
+    is live is spared and the same round is requeued once that launch is gone — the rule
+    `requeue_claimed_jobs` states and `test_draft_ownership.py` pins."""
+    store = FlakyQueue()
+    store.drafts = InMemoryDraftStore(store)
+    a = await store.enqueue(USER, "episodes", {"source_id": "s-1"})
+    claimed = await store.claim_next(USER, lane=DERIVED_LANE, claimed_by="worker:codex:live")
+    assert claimed.job_id == a
+    ctx = Ctx(store, settings=worker_settings(worker_selfheal_s=0.02))
+
+    async with store.drafts.launch(USER, "worker:codex:live"):
+        task = asyncio.create_task(compile_worker._selfheal_forever(ctx))
+        try:
+            await asyncio.sleep(0.1)
+            assert (await store.get_job(USER, a)).status == "claimed", "a live launch was cut"
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    assert await store.requeue_claimed_jobs(draft_ttl=3600, tenants=[str(USER)]) == 1
+
+
+async def test_the_periodic_self_heal_is_off_when_its_interval_is(fast):
+    ctx = Ctx(FlakyQueue(), settings=worker_settings(worker_selfheal_s=0))
+    await asyncio.wait_for(compile_worker._selfheal_forever(ctx), timeout=1)
 
 
 async def test_any_other_error_still_stops_the_drain(monkeypatch, fast):
