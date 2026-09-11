@@ -263,6 +263,7 @@ API 生成的简报，其输入只有机械记录——从 diff 推导出的 cla
 | `CONTEXT_STREAM_RENDER_ROLES` | `true` | 摄入时渲染 owner/participant 标签 |
 | `CONTEXT_STREAM_COMPILE_GUIDANCE` | `true` | 编译时注入按类型的指引 |
 | `BRIEFING_CITATION_ALIAS` | `true` | briefing 里把真实 source id 别名成 `sNN` 句柄 |
+| `WORKER_SELFHEAL_S` | `60` | worker 运行期间多久做一次自己的启动自愈（秒）。这次清扫就是 worker 第一次 drain 之前做的那一次——`requeue_claimed_jobs`，连同它的租约与锁规则：活着的启动租约不动，正在执行的 `pkc` 命令的锁要让，死掉的启动留下的、写有内容的草稿保留——只是再去掉本进程此刻正在跑的那些认领：它们不是任何人的孤儿，而行上的证据根本分辨不出来（一个 index 作业既没有草稿也没有租约）。它存在是因为：从认领一个作业到写下它的完结之间，只要哪一步出了岔子，那条认领就一直挂着——某个 library 曾因为一条没人放回的派生道认领，542 个作业挂起半小时，直到有人重启引擎。真的回收了才记一行日志，没有回收就不出声。`0` 关闭它，自愈便重新只剩进程启动时的那一次。它完全继承启动那次清扫的影响半径：一个 Postgres 上跑两个引擎时必须设 `WORKER_TENANTS`——这本来就是那次清扫的前提 |
 | `WORKER_TENANTS` | （空） | 这个 worker 只处理哪些租户的作业，逗号分隔的 user id。留空即全部租户——一个 worker 对一套栈，与一直以来的行为完全一致。它存在是因为一个 Postgres 上可以放多个 library，而一个 library 就是一个租户（[single-machine-edition](../design/single-machine-edition.md) §11.7）：每个 library 的引擎进程注册自己的编译契约，worker 若认领了邻居的作业，那份知识就会在错误的契约下被编译。这道限制是认领查询里的一个谓词，绝不是「先认领再放回」——放回去的作业已经占用过那个租户唯一的在途名额。启动时的孤儿回收也用同一道边界：别的引擎手上 claimed 的作业是它正在跑的一轮，不是这个 worker 的孤儿。设置之后，worker 启动行里会把它明说一次。不是引擎旋钮（属于部署接线） |
 | `CORS_ALLOW_ORIGIN_REGEX` | `https?://(localhost\|127\.0\.0\.1)(:\d+)?` | 设为空串完全关闭 CORS |
 

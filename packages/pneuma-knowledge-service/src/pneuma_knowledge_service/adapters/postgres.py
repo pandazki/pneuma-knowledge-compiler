@@ -1292,7 +1292,12 @@ class PostgresStore:
         return job_id
 
     async def requeue_claimed_jobs(
-        self, *, draft_ttl: int = 0, tenants: Sequence[str] = (), job_id: str | None = None
+        self,
+        *,
+        draft_ttl: int = 0,
+        tenants: Sequence[str] = (),
+        job_id: str | None = None,
+        skip_jobs: Sequence[str] = (),
     ) -> int:
         """Requeue abandoned work, preserving live launch leases and unexpired drafts.
 
@@ -1305,6 +1310,13 @@ class PostgresStore:
         recovered on exactly the terms the startup self-heal applies, and no other body's
         claim is touched while this process is still running.
 
+        `skip_jobs` are rows this sweep must not touch whatever their evidence says: the
+        claims the calling process is running RIGHT NOW (`compile_worker.in_flight_jobs`).
+        The startup sweep names none, because a process that has not drained anything holds
+        nothing; the worker's periodic sweep names its lanes' in-flight jobs, because the
+        evidence a row carries cannot tell a live index job (no draft, no launch lease) from
+        an orphan of a dead process, and only the process running it knows.
+
         A draft left by a DEAD worker launch that holds work is kept when its job is
         requeued. The draft lives in Postgres precisely so it survives the process that
         wrote it; dropping it threw away a round's writes (36 of 40 calls, the night this was
@@ -1314,6 +1326,7 @@ class PostgresStore:
         draft with nothing written in it is dropped as before: there is nothing to continue.
         """
         allowed = [t for t in tenants if t]
+        mine = [j for j in skip_jobs if j]
         drafts = PostgresDraftStore(self)
         where: list[str] = []
         params: list[Any] = []
@@ -1323,6 +1336,9 @@ class PostgresStore:
         if job_id is not None:
             where.append("job_id = %s")
             params.append(job_id)
+        if mine:
+            where.append("job_id <> ALL(%s)")
+            params.append(mine)
         async with self._pool.connection() as conn:
             users = await (await conn.execute(
                 "SELECT DISTINCT user_id FROM ("
@@ -1334,6 +1350,10 @@ class PostgresStore:
         one = " AND id = %s" if job_id is not None else ""
         one_draft = " AND d.job_id = %s" if job_id is not None else ""
         only = (job_id,) if job_id is not None else ()
+        # …and never the rows the caller is running (`skip_jobs`).
+        spare = " AND id <> ALL(%s)" if mine else ""
+        spare_draft = " AND d.job_id <> ALL(%s)" if mine else ""
+        spared = (mine,) if mine else ()
         reclaimed = 0
         for (uid,) in users:
             async with self._pool.connection() as conn:
@@ -1361,14 +1381,15 @@ class PostgresStore:
                     await conn.execute(
                         "DELETE FROM compile_drafts d USING compile_jobs j "
                         "WHERE d.user_id = %s AND j.user_id = d.user_id AND j.id = d.job_id "
-                        "AND (j.status = 'done' OR j.completed_at IS NOT NULL)" + one_draft,
-                        (uid, *only),
+                        "AND (j.status = 'done' OR j.completed_at IS NOT NULL)"
+                        + one_draft + spare_draft,
+                        (uid, *only, *spared),
                     )
                     jobs = await (await conn.execute(
                         "SELECT id, claimed_by FROM compile_jobs "
                         "WHERE user_id = %s AND completed_at IS NULL AND (status = 'claimed' "
                         "OR id IN (SELECT job_id FROM compile_drafts WHERE user_id = %s))"
-                        + one + " FOR UPDATE", (uid, uid, *only),
+                        + one + spare + " FOR UPDATE", (uid, uid, *only, *spared),
                     )).fetchall()
                     for claimed_id, claimed_by in jobs:
                         owner = await drafts.owner(UserId(uid), claimed_id)

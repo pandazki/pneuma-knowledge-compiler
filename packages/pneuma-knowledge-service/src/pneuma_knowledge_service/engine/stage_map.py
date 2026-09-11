@@ -1404,6 +1404,10 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # self-heal deletes it. The same plumbing decision one line up: it says when a body
         # has stopped holding something, never what is retrieved or how it is answered.
         "recall_handoff_ttl",
+        # How often that same self-heal runs while the worker works, rather than only at its
+        # start. The third line of the same plumbing: when a claim nobody can account for is
+        # returned, never what is compiled or how.
+        "worker_selfheal_s",
         # WHICH tenants this worker drains (docs/design/single-machine-edition.md §11.7).
         # It says which queue rows this PROCESS is willing to touch when several engines
         # share one Postgres — a deployment's own topology, and unstatable in an engine

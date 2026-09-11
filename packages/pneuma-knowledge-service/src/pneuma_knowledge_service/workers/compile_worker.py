@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -93,6 +94,40 @@ COMPILE_JOB_KIND = "compile"
 #: single-writer bug, and it fails loudly here instead of quietly running two harnesses over
 #: one draft. Cleared in a `finally`, so a failed round frees its lane.
 _AGENT_ROUNDS: dict[tuple[str, str], str] = {}
+
+#: What each lane holds right now: lane → `(user_id, job_id)`, set the moment `claim_next`
+#: hands a row over and cleared once that job's completion is written. It is the drain's OWN
+#: account of what it is holding, and it exists because the recovery used to read that fact
+#: off the exception instead: a failure inside the claim or the completion carried the job id
+#: (`InfrastructureInterrupted`), and a failure anywhere else — the work that FOLLOWS a round,
+#: an episodes job's vector write — carried nothing, so the outage recovery requeued nothing
+#: and the claim outlived the outage. One live library sat with 542 jobs pending behind such a
+#: claim for half an hour, until a person restarted the engine. Whatever raises between the
+#: claim and the completion, the job is named here, so `ride_out` can put it back.
+#:
+#: It is also what the periodic self-heal must NOT touch (`in_flight_jobs`): those claims are
+#: this body's work in flight, not anybody's orphan.
+_IN_FLIGHT: dict[str, tuple[str, str]] = {}
+
+#: Held across a claim and across the periodic self-heal, so that a row cannot be claimed
+#: between the sweep reading `in_flight_jobs()` and the sweep deciding on that row. Without
+#: it the skip list is a snapshot with a window behind it: a claim landing inside that window
+#: is not in the list and carries nothing on its row that says it is alive, so the sweep would
+#: hand a second body the job this one is running. Both sides are short — one statement and
+#: one sweep a minute — and only this process's own bodies take it; every other body is
+#: excluded by the queue's own advisory locks.
+_CLAIM_GATE = asyncio.Lock()
+
+
+def _lane_key(lane: str | None) -> str:
+    """The `_IN_FLIGHT` key for a drain of `lane` (`None` = the whole queue, one loop)."""
+    return lane or "*"
+
+
+def in_flight_jobs() -> tuple[str, ...]:
+    """Every job id this process holds a claim on right now, across its lanes."""
+    return tuple(job_id for _user, job_id in _IN_FLIGHT.values())
+
 
 #: Which (role, reason) pairs this process has already said the skip sentence about. The
 #: reason is a deployment fact, not a per-job event — a keyless library under an agent
@@ -1145,6 +1180,21 @@ async def _harness_unavailable(
         )
 
 
+def failure_reason(exc: BaseException) -> str:
+    """What a job row says about `exc`: its own words, or its class when it has none.
+
+    `httpx.ReadError()` carries an empty message, and `f"worker error: {exc}"` wrote exactly
+    `worker error: ` onto a real job row — a failure with no reason on it, for a windowed
+    episodes job, with nothing in the log either. A class name is a poor diagnosis and an
+    infinitely better one than a blank."""
+    text = str(exc).strip()
+    if text:
+        return text
+    name = type(exc).__qualname__
+    package = type(exc).__module__.split(".", 1)[0]
+    return name if package in ("builtins", "__main__") else f"{package}.{name}"
+
+
 def _interrupting_fault(job_id: str, exc: BaseException) -> InfraFault | None:
     """The infrastructure fault that interrupted this job, while it may still be put back.
 
@@ -1375,7 +1425,9 @@ def worker_tenants(ctx: AppContext) -> tuple[str, ...]:
     return ctx.settings.worker_tenant_ids()
 
 
-async def requeue_orphaned_jobs(ctx: AppContext, *, label: str = "compile-worker") -> int:
+async def requeue_orphaned_jobs(
+    ctx: AppContext, *, label: str = "compile-worker", skip_jobs: Sequence[str] = ()
+) -> int:
     """Startup self-heal: return every job orphaned as 'claimed' to 'queued'.
 
     A process killed mid-job (typically during a long LLM call) leaves its row 'claimed'
@@ -1405,11 +1457,19 @@ async def requeue_orphaned_jobs(ctx: AppContext, *, label: str = "compile-worker
     A dead launch's draft that holds work is kept with its requeued job and continued by
     the next launch, rather than thrown away (`PostgresStore.requeue_claimed_jobs`).
 
+    `skip_jobs` are the claims this very process is running right now (`in_flight_jobs`).
+    Empty at startup, where nothing is in flight by definition; stated by the periodic sweep
+    (`_selfheal_forever`), which applies these same rules WHILE the drain works — and a job
+    whose body is running in this process is nobody's orphan, whatever evidence its row
+    carries (an index job has no draft and no launch lease at all).
+
     Returns the number requeued and reports it on stdout (silence means nothing was stuck).
     """
     # The adapter checks the launch lease and timestamp under the command/queue locks.
     reclaimed = await ctx.store.requeue_claimed_jobs(
-        draft_ttl=ctx.settings.compile_draft_ttl, tenants=worker_tenants(ctx)
+        draft_ttl=ctx.settings.compile_draft_ttl,
+        tenants=worker_tenants(ctx),
+        skip_jobs=tuple(skip_jobs),
     )
     if reclaimed:
         print(f"[{label}] reclaimed {reclaimed} orphaned claimed job(s) → requeued", flush=True)
@@ -1505,7 +1565,12 @@ async def drain_user(
     the same time, and the claim's serialization is per lane too, so the canonical writer
     stays exactly as single as it was. `None` drains the whole queue in one loop, which is
     what every caller that is not the worker's own sweep wants: an ops command, a scaffolded
-    application's `compile` subcommand, a test that wants one ordering to assert."""
+    application's `compile` subcommand, a test that wants one ordering to assert.
+
+    Between a claim and that claim's completion the job is named in `_IN_FLIGHT` under this
+    lane. That mark is what the outage recovery puts back, so it survives the exception and
+    is cleared by whoever recovered — never here, unless what ends this drain is not an
+    outage at all."""
     resolved = skill
     processed = 0
     # Under an agent executor there are two postures, and they differ in exactly one place:
@@ -1542,9 +1607,18 @@ async def drain_user(
         if agent_cooling(user_id) is not None:
             skip += tuple(k for k in agent_path_kinds(ctx) if k not in skip)
         try:
-            job = await ctx.store.claim_next(
-                user_id, exclude_kinds=skip, tenants=worker_tenants(ctx), lane=lane
-            )
+            # The claim and the mark it leaves are one step (`_CLAIM_GATE`): a row that
+            # became this body's must never be a row the self-heal still reads as free.
+            async with _CLAIM_GATE:
+                job = await ctx.store.claim_next(
+                    user_id, exclude_kinds=skip, tenants=worker_tenants(ctx), lane=lane
+                )
+                if job is not None:
+                    # From here the row is this body's, and stays this body's until a
+                    # completion is written for it. Everything between — the dispatch, a
+                    # harness round, the derived work that FOLLOWS a round — is covered by
+                    # the mark rather than by whichever call happened to raise.
+                    _IN_FLIGHT[_lane_key(lane)] = (str(user_id), job.job_id)
         except Exception as exc:
             # A claim whose connection went after its UPDATE was sent may have landed. The
             # adapter names that job; it is this body's, so the recovery puts it back.
@@ -1589,6 +1663,7 @@ async def drain_user(
             elif kind == CHALLENGE_JOB_KIND:
                 if executor_for(ctx.settings, "compile").is_agent:
                     await ctx.store.complete(user_id, job.job_id, ok=True, detail="challenge skipped under an agent executor")
+                    _IN_FLIGHT.pop(_lane_key(lane), None)
                     processed += 1
                     continue
                 if resolved is None:
@@ -1618,12 +1693,28 @@ async def drain_user(
                 raise InfrastructureInterrupted(
                     fault, user_id=str(user_id), job_id=job.job_id
                 ) from exc
-            await _fail_or_interrupt(ctx, user_id, job, exc, f"worker error: {exc}")
+            # The traceback, once, where an operator looks. A job row holds one sentence;
+            # the stack that produced it lived only in a worker process that has since moved
+            # on, and a job completed `worker error: ` with nothing logged anywhere left
+            # nobody anything to read. Named by lane and job, because two lanes fail
+            # independently.
+            log.exception(
+                "[compile-worker] %s lane: job %s failed",
+                lane or "queued", job.job_id,
+            )
+            await _fail_or_interrupt(
+                ctx, user_id, job, exc, f"worker error: {failure_reason(exc)}"
+            )
         finally:
             # Short-lived per-job trace flush: a worker sweep may exit right after, so
             # never rely on the background batch surviving process end.
             await ctx.flush_traces()
+        # Reached only when this job ended with a row of its own — completed by its body, by
+        # the failure path, or re-queued by it. An exception on its way out (an outage above
+        # all) skips this line on purpose: the claim is still open, and the mark is what says
+        # so to the recovery.
         _INFRA_STRIKES.pop(job.job_id, None)
+        _IN_FLIGHT.pop(_lane_key(lane), None)
         processed += 1
 
 
@@ -1712,21 +1803,36 @@ def _in_flight(exc: BaseException) -> tuple[str, str] | None:
 async def _probe(ctx: AppContext, kind: str) -> None:
     """Ask the service that failed whether it is back. Raises the transient error while it
     is not; returns when it answers — with anything, since an answer that is not a connection
-    failure means the service is there and whatever it said is the drain's to meet."""
-    target = {
+    failure means the service is there and whatever it said is the drain's to meet.
+
+    A fault that names no service (`http`: a transport error that reached the drain without
+    its client's wrapper) asks every peer this body holds. Which one went away is exactly
+    what such an error does not say, and resuming on a probe of the wrong service is
+    resuming on no evidence at all."""
+    ports = {
         "postgres": getattr(ctx, "store", None),
         "qdrant": getattr(ctx, "vectors", None),
         "meilisearch": getattr(ctx, "lexical", None),
         "s3": getattr(ctx, "media", None),
-    }.get(kind)
-    ping = getattr(target, "ping", None)
-    if ping is None:
-        return
-    try:
-        await ping()
-    except Exception as exc:
-        if infrastructure_fault(exc) is not None:
-            raise
+    }
+    targets = [ports[kind]] if kind in ports else list(ports.values())
+    for target in targets:
+        ping = getattr(target, "ping", None)
+        if ping is None:
+            continue
+        try:
+            await ping()
+        except Exception as exc:
+            if infrastructure_fault(exc) is not None:
+                raise
+
+
+async def _job_status(ctx: AppContext, user_id: str, job_id: str) -> str:
+    """This job's status as the queue has it now, or "" when the store cannot say."""
+    getter = getattr(ctx.store, "get_job", None)
+    if getter is None:
+        return ""
+    return str(getattr(await getter(UserId(user_id), job_id), "status", "") or "")
 
 
 async def _recover(ctx: AppContext, in_flight: tuple[str, str] | None) -> list[str]:
@@ -1736,20 +1842,34 @@ async def _recover(ctx: AppContext, in_flight: tuple[str, str] | None) -> list[s
     completed, never run again); then the job that was in flight, if it is still claimed —
     requeued by the same `requeue_claimed_jobs` rules the self-heal applies (a live launch
     spared, a dead launch's draft with work kept), narrowed to that one job so no other
-    body's claim is touched. Returns what it did, for the recovery line."""
+    body's claim is touched.
+
+    Returns what it did, for the recovery line, and it always ends by saying what became of
+    the in-flight job — requeued, completed, or there was none. The silence that used to
+    stand for "nothing to do here" is exactly what hid a claim nobody put back."""
     done: list[str] = []
     writer = getattr(ctx.store, "write_unwritten_completions", None)
     if writer is not None:
         written = await writer()
         if written:
             done.append(f"{written} completion(s) written")
-    if in_flight is not None:
-        user_id, job_id = in_flight
-        requeued = await ctx.store.requeue_claimed_jobs(
-            draft_ttl=ctx.settings.compile_draft_ttl, tenants=(user_id,), job_id=job_id
-        )
-        if requeued:
-            done.append(f"job {job_id} requeued")
+    if in_flight is None:
+        done.append("no job in flight")
+        return done
+    user_id, job_id = in_flight
+    requeued = await ctx.store.requeue_claimed_jobs(
+        draft_ttl=ctx.settings.compile_draft_ttl, tenants=(user_id,), job_id=job_id
+    )
+    status = await _job_status(ctx, user_id, job_id)
+    if requeued or status == "queued":
+        done.append(f"job {job_id} requeued")
+    elif status == "claimed":
+        # The one case where the claim outlives the recovery on purpose: a launch whose lease
+        # is still live holds it, and the self-heal's rules spare exactly that. Said out loud,
+        # because the periodic sweep is what ends it and a person should know which it was.
+        done.append(f"job {job_id} still claimed (a live launch holds it)")
+    else:
+        done.append(f"job {job_id} completed")
     return done
 
 
@@ -1764,7 +1884,10 @@ async def ride_out(
     """Wait out one infrastructure outage, then put back what it interrupted.
 
     One line when it starts, one when it ends, nothing in between: an outage is one event,
-    and a log that printed every retry would bury it. A lane names itself in both, because
+    and a log that printed every retry would bury it. The ending line always says what
+    happened to the job this lane was holding — `(job <id> requeued)`, `(job <id> completed)`
+    or `(no job in flight)` — because a resume line that said nothing is what let a leaked
+    claim look like a recovery. A lane names itself in both, because
     each lane waits its own outage out — two lines mean two lanes are waiting, which is a
     different fact from one lane retrying twice. The wait doubles from
     `INFRA_BACKOFF_START_S` to `INFRA_BACKOFF_MAX_S`; each step probes the service that
@@ -1789,7 +1912,7 @@ async def ride_out(
             continue
         print(
             f"{where} infrastructure back after {time.monotonic() - started:.0f}s; resuming"
-            + (f" ({', '.join(done)})" if done else ""),
+            f" ({', '.join(done)})",
             flush=True,
         )
         return
@@ -1807,6 +1930,10 @@ async def drain_forever(
     too, which for a shared Postgres it will be). An error that is not an outage still stops
     the worker: it ends its lane, the gather re-raises it, and the sibling lane is cancelled
     on the way out, exactly as a single loop ended the worker before.
+
+    Beside the lanes runs one more task, on a clock rather than on the work: the self-heal
+    (`_selfheal_forever`), so a claim this process can no longer account for is returned
+    within a minute instead of at the next process start.
     """
     print(
         f"[{label}] draining {len(LANES)} lanes ({', '.join(LANES)}): one job in flight per "
@@ -1820,6 +1947,9 @@ async def drain_forever(
         )
         for lane in LANES
     ]
+    tasks.append(
+        asyncio.create_task(_selfheal_forever(ctx, label=label), name=f"{label}-selfheal")
+    )
     try:
         await asyncio.gather(*tasks)
     finally:
@@ -1836,6 +1966,7 @@ async def _drain_lane_forever(
     label: str = "compile-worker",
 ) -> None:
     """One lane's sweep loop (`drain_forever`)."""
+    key = _lane_key(lane)
     while True:
         try:
             n = await compile_pending(ctx, chat_model, lane=lane)
@@ -1843,11 +1974,52 @@ async def _drain_lane_forever(
             fault = infrastructure_fault(exc)
             if fault is None:
                 raise
-            await ride_out(ctx, fault, _in_flight(exc), label=label, lane=lane)
+            # The drain's own account of what it holds comes first; the exception's is the
+            # fallback for the one failure that happens before the mark exists — a claim
+            # whose commit was lost, which names the row it may have taken.
+            await ride_out(
+                ctx, fault, _IN_FLIGHT.get(key) or _in_flight(exc), label=label, lane=lane
+            )
+            _IN_FLIGHT.pop(key, None)
             continue
         if n:
             print(f"[{label}] {lane} lane: processed {n} job(s)")
         await asyncio.sleep(IDLE_SWEEP_S)
+
+
+async def _selfheal_forever(ctx: AppContext, *, label: str = "compile-worker") -> None:
+    """The startup self-heal, on a clock (`WORKER_SELFHEAL_S`, 0 turns it off).
+
+    Same call, same rules, same evidence as the sweep `run_forever` runs before its first
+    drain — a live launch lease spared, a `pkc` command's lock respected, a dead launch's
+    draft with work kept — narrowed by the claims this process is running right now, which
+    are not orphans.
+
+    It exists because "the next process start" was the only thing that ended a leaked claim,
+    and a claim blocks its lane for its whole library: a derived-lane claim nobody put back
+    left 542 jobs pending for half an hour, canonical included, because every compile waits
+    on its own source's derived work. A minute is short enough that a person does not notice
+    and long enough that the sweep costs nothing.
+
+    One line when it requeues something, nothing when it does not: this runs on a clock, and
+    a clock that logs is a log nobody reads."""
+    interval = float(getattr(ctx.settings, "worker_selfheal_s", 0) or 0)
+    if interval <= 0:
+        return
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            # Under the same gate the claim takes, so "what this process holds" cannot change
+            # between the question and the sweep that acts on the answer.
+            async with _CLAIM_GATE:
+                await requeue_orphaned_jobs(
+                    ctx, label=f"{label} self-heal", skip_jobs=in_flight_jobs()
+                )
+        except Exception as exc:  # noqa: BLE001 — an outage is the lanes' to wait out
+            if infrastructure_fault(exc) is None:
+                raise
+            # The stack is away. The lane that met it is already waiting it out with a line
+            # of its own; a second voice saying the same thing every minute is noise.
 
 
 async def run_forever(settings: Settings | None = None) -> None:

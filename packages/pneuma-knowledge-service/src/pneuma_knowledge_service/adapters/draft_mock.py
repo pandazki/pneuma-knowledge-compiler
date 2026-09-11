@@ -309,13 +309,16 @@ class InMemoryJobQueue:
                     return job_id, owner
         return None
 
-    async def requeue_claimed_jobs(self, *, draft_ttl=0, tenants=(), job_id=None):
+    async def requeue_claimed_jobs(self, *, draft_ttl=0, tenants=(), job_id=None, skip_jobs=()):
         reclaimed = 0
+        mine = {j for j in skip_jobs if j}
         for job in self.jobs:
             if tenants and str(job.user_id) not in tenants:
                 continue
             if job_id is not None and job.job_id != job_id:
                 continue
+            if job.job_id in mine:
+                continue  # the caller is running this one; it is nobody's orphan
             owner = await self.drafts.owner(job.user_id, job.job_id) if self.drafts else None
             if job.status == "done":
                 if owner:

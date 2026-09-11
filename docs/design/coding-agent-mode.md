@@ -1366,6 +1366,23 @@ went around the gate is stopped before the next round builds on it, rather than 
   own source still has an `index` or `episodes` job queued or claimed — both, because the
   index job is what commissions the judgement — and idles if every remaining compile is
   blocked that way.
+- **A claim outlives no outage.** The span in which a job is this worker's runs from the
+  moment `claim_next` hands the row over to the moment a completion is written for it, and
+  the drain remembers what it holds for that whole span (`_IN_FLIGHT`, one entry per lane)
+  instead of reading it off whichever exception came out. Reading it off the exception is
+  what failed live: only the claim and the completion carry the job id, so an episodes job
+  whose round ended `exit 0` and whose vector write — the work that FOLLOWS a round — met a
+  Qdrant that had gone away for two seconds stayed `claimed` with its draft open. Its lane
+  could claim nothing more, and because every compile waits on its own source's derived work,
+  the canonical lane idled behind it: 542 jobs pending, nothing finished for half an hour,
+  until a person restarted the engine. Whatever raises in that span now, the job is either
+  completed — when its completion is provably done, because re-running a committed round
+  would compile the same sources twice — or requeued, and the resume line always says which
+  (`(job <id> requeued)`, `(job <id> completed)`, `(no job in flight)`); the silence is what
+  hid this. Beside it the startup self-heal also runs on a clock (`WORKER_SELFHEAL_S`, 60 s)
+  under exactly its own rules — a live launch lease spared, a `pkc` command's lock respected —
+  skipping the claims this process is running, which nothing on a row could tell from an
+  orphan. A leak nothing else caught then costs a minute rather than a restart.
 - **A launch that never became a round.** The launcher waits a rate limit out (§8), but a
   subscription that is out of room for the night outlasts any backoff, and what came back was
   a non-zero exit with `rate_limited` on it. The runner reports that as its own outcome,

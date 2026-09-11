@@ -105,6 +105,22 @@ class Settings(BaseSettings):
     # rows then live until they are answered or deleted by hand.
     recall_handoff_ttl: int = 24 * 60 * 60
 
+    # How often the worker applies its own startup self-heal while it runs (seconds). The
+    # sweep is the one the worker does before its first drain — `requeue_claimed_jobs` with
+    # its lease and lock rules — minus the claims this process is running right now.
+    #
+    # It exists because a claim used to outlive anything that went wrong between claiming a
+    # job and completing it: an outage recovery that could not name the in-flight job put
+    # nothing back, the row stayed `claimed`, and its lane was blocked until somebody
+    # restarted the engine — 542 jobs pending for half an hour, live. A minute is short
+    # enough that nobody has to notice and long enough that the sweep is free. 0 turns it
+    # off, and the self-heal is again only what a process start does.
+    #
+    # It inherits the startup sweep's blast radius exactly: two engines on one Postgres must
+    # state `WORKER_TENANTS`, as they already must for the sweep this repeats — a neighbour's
+    # claimed job is that engine's work in flight, and nothing on the row says so.
+    worker_selfheal_s: float = 60.0
+
     # WHICH tenants this worker is allowed to drain, comma-separated. Empty (the default)
     # means every tenant — one worker over one stack, exactly as it has always behaved.
     #
