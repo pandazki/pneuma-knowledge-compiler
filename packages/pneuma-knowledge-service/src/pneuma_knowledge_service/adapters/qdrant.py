@@ -35,7 +35,32 @@ _POINT_NS = uuid.UUID("6f9619ff-8b86-d011-b42d-00cf4fc964ff")
 # ("chunk") from the L3 claim projection ("claim"). Retrieval always filters by layer.
 LAYER_CHUNK = "chunk"
 LAYER_CLAIM = "claim"
-_CLAIM_UPSERT_BATCH_SIZE = 128
+
+#: How many points one write request carries. Every write in this adapter goes out in
+#: batches of at most this many, because a request's size is the one thing the writer
+#: controls and the read that waits for its response is what breaks first: a source's whole
+#: L2 — a long window's points, each with a full vector — went out as ONE `upsert(wait=True)`
+#: and the read died mid-response (`httpx.ReadError`, live, three times in a row, until the
+#: job was failed for it).
+#:
+#: Partial progress is SAFE here, and not by luck: every point id in this collection is a
+#: uuid5 over the tenant and the thing it indexes (`upsert_chunks`, `_claim_point_id`), so a
+#: batch that landed and is sent again overwrites itself, and a batch that never landed is
+#: written by the retry. A write interrupted halfway leaves the collection with a prefix of
+#: its points and no duplicates — which is exactly what the retried job then completes.
+UPSERT_BATCH = 256
+
+#: How long a request to Qdrant may take before the client gives up. The library's own
+#: default is 5 seconds, which is a read timeout on a search and an ambush on a write of a
+#: few hundred vectors; batching bounds the size and this bounds the wait.
+CLIENT_TIMEOUT_S = 60.0
+
+
+def _batched(points: list[Any], size: int) -> list[list[Any]]:
+    """`points` in chunks of at most `size` (a non-positive size means one request)."""
+    if size <= 0 or len(points) <= size:
+        return [points]
+    return [points[start : start + size] for start in range(0, len(points), size)]
 
 
 @dataclass(frozen=True)
@@ -105,11 +130,13 @@ def _claim_point_id(user_id: UserId, document_path: str, anchor: str) -> str:
     )
 
 
-async def existing_dimension(url: str, collection: str) -> int | None:
+async def existing_dimension(
+    url: str, collection: str, *, timeout: float = CLIENT_TIMEOUT_S
+) -> int | None:
     """The vector size of an existing collection, or None when there is none yet. A process
     that only reads adopts the dimension the collection already has instead of spending a
     model call to learn it; the engine, which may have to CREATE the collection, still probes."""
-    client = AsyncQdrantClient(url=url)
+    client = AsyncQdrantClient(url=url, timeout=max(1, int(timeout)))
     try:
         if not await client.collection_exists(collection):
             return None
@@ -124,10 +151,27 @@ class QdrantVectorIndex:
     `__init__` is now `await ensure_collection()`, called once by `build_context` (and by
     the integration fixtures). An event loop cannot run I/O inside a constructor."""
 
-    def __init__(self, url: str, dim: int, *, collection: str = COLLECTION) -> None:
-        self._client = AsyncQdrantClient(url=url)
+    #: The write bound as a CLASS default, so it is the deployment's default for any instance
+    #: — including the ones tests build around an in-memory client without going through
+    #: `__init__`. A deployment states its own per instance below.
+    _upsert_batch: int = UPSERT_BATCH
+
+    def __init__(
+        self,
+        url: str,
+        dim: int,
+        *,
+        collection: str = COLLECTION,
+        timeout: float = CLIENT_TIMEOUT_S,
+        upsert_batch: int = UPSERT_BATCH,
+    ) -> None:
+        # The client's own default is 5 seconds (`CLIENT_TIMEOUT_S` says why that is not a
+        # timeout this deployment can live with). Stated as a whole number of seconds
+        # because that is what the client takes.
+        self._client = AsyncQdrantClient(url=url, timeout=max(1, int(timeout)))
         self._collection = collection
         self._dim = dim
+        self._upsert_batch = int(upsert_batch)
 
     #: The payload fields every filter in this adapter names, and therefore the indexes the
     #: collection must carry: the tenant clause (I1), the source a flip is addressed by, the
@@ -222,7 +266,16 @@ class QdrantVectorIndex:
             )
             for c in chunks
         ]
-        await self._client.upsert(self._collection, points=points, wait=True)
+        await self._upsert_points(points)
+
+    async def _upsert_points(self, points: list[models.PointStruct]) -> None:
+        """Write `points` in bounded batches (`UPSERT_BATCH`), never as one request.
+
+        The one place every write in this adapter goes through, so no caller has to remember
+        the bound and none of them can send a whole layer in a single request again."""
+        for batch in _batched(points, self._upsert_batch):
+            if batch:
+                await self._client.upsert(self._collection, points=batch, wait=True)
 
     # --- L3 claim layer (M4) --------------------------------------------------
 
@@ -265,13 +318,10 @@ class QdrantVectorIndex:
         # A full projection can contain thousands of 1536-dimension vectors. Sending
         # the whole tenant in one REST request is large enough to trip intermediary or
         # client read limits even though Qdrant finishes the write. Deterministic point
-        # ids make bounded batches idempotent, so a failed rebuild can safely retry.
-        for start in range(0, len(points), _CLAIM_UPSERT_BATCH_SIZE):
-            await self._client.upsert(
-                self._collection,
-                points=points[start : start + _CLAIM_UPSERT_BATCH_SIZE],
-                wait=True,
-            )
+        # ids make bounded batches idempotent, so a failed rebuild can safely retry — the
+        # same reasoning `UPSERT_BATCH` now states once for every write here, which is why
+        # this path no longer carries a bound of its own.
+        await self._upsert_points(points)
 
     async def sync_claims(
         self,
@@ -282,16 +332,20 @@ class QdrantVectorIndex:
     ) -> None:
         """Idempotently apply a claim-layer delta using deterministic point ids."""
         if deleted_keys:
-            await self._client.delete(
-                self._collection,
-                points_selector=models.PointIdsList(
-                    points=[
-                        _claim_point_id(user_id, document_path, anchor)
-                        for document_path, anchor in deleted_keys
-                    ]
-                ),
-                wait=True,
-            )
+            # Batched for the same reason the upserts are: a rebuild's delta can name
+            # thousands of ids, and one request carrying all of them is one read that can
+            # die on the way back. A delete of an id that is already gone is a no-op, so a
+            # retried batch costs nothing.
+            ids = [
+                _claim_point_id(user_id, document_path, anchor)
+                for document_path, anchor in deleted_keys
+            ]
+            for batch in _batched(ids, self._upsert_batch):
+                await self._client.delete(
+                    self._collection,
+                    points_selector=models.PointIdsList(points=batch),
+                    wait=True,
+                )
         if upserts:
             await self.upsert_claims(user_id, upserts, vectors)
 
@@ -457,7 +511,7 @@ class QdrantVectorIndex:
         )
 
     async def copy_tenant(
-        self, source: UserId, target: UserId, *, batch_size: int = 256
+        self, source: UserId, target: UserId, *, batch_size: int | None = None
     ) -> int:
         """Copy every point of `source` under `target`, CARRYING THE ORIGINAL VECTORS.
 
@@ -472,14 +526,18 @@ class QdrantVectorIndex:
 
         Returns the number of points copied. Idempotent (see `_copied_point_id`), so a failed
         pipeline can be retried without duplicating anything.
+
+        `batch_size` is how many points one round trip reads AND writes; it follows the
+        adapter's configured write bound unless a caller states its own.
         """
+        limit = int(batch_size or self._upsert_batch)
         copied = 0
         offset: Any = None
         while True:
             points, offset = await self._client.scroll(
                 self._collection,
                 scroll_filter=_tenant_filter(source),
-                limit=batch_size,
+                limit=limit,
                 offset=offset,
                 with_payload=True,
                 with_vectors=True,
@@ -506,7 +564,7 @@ class QdrantVectorIndex:
                         payload=payload,
                     )
                 )
-            await self._client.upsert(self._collection, points=batch, wait=True)
+            await self._upsert_points(batch)
             copied += len(batch)
             if offset is None:
                 break

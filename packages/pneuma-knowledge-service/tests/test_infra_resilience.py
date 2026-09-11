@@ -362,11 +362,15 @@ async def test_a_job_the_vector_store_dropped_under_comes_back_instead_of_failin
 
 
 async def test_an_error_that_is_transient_only_in_name_fails_the_job_after_the_bound(
-    monkeypatch, fast
+    monkeypatch, fast, caplog
 ):
     """Every probe answers and the same job meets the same "transient" error every time:
-    that is not an outage. After the bound it is failed like any other error, and the rest
-    of the queue drains."""
+    that is not an outage for this job, whatever it is for the stack. After the bound the job
+    is failed and the rest of the queue drains — and the row SAYS which of the two happened.
+
+    What it said before: `worker error: qdrant_client.ResponseHandlingException`, on a live
+    episodes job whose Qdrant write had in fact been interrupted three times and given up on
+    at the fourth. The class of the last attempt is not the reason; the count is."""
     store = FlakyQueue()
     a = await store.enqueue(USER, "index", {})
     b = await store.enqueue(USER, "index", {})
@@ -375,11 +379,18 @@ async def test_an_error_that_is_transient_only_in_name_fails_the_job_after_the_b
         fail=lambda job, attempt: psycopg.OperationalError(DROPPED) if job.job_id == a else None,
     )
 
-    await drain_until_done(Ctx(store), a, b)
+    with caplog.at_level("WARNING"):
+        await drain_until_done(Ctx(store), a, b)
 
-    assert runs.count(a) == compile_worker.INFRA_JOB_INTERRUPTIONS + 1
+    strikes = compile_worker.INFRA_JOB_INTERRUPTIONS + 1
+    assert runs.count(a) == strikes
     assert outcomes(store) == [(a, False), (b, True)]
-    assert store.completed[0]["detail"] == f"worker error: {DROPPED}"
+    said = f"infrastructure repeated: postgres ({DROPPED}) interrupted this job {strikes} times; failed"
+    assert store.completed[0]["detail"] == said
+    # The same words in the log, once, with the last attempt's stack still under them.
+    gave_up = [r for r in caplog.records if said in r.getMessage()]
+    assert len(gave_up) == 1 and gave_up[0].levelname == "WARNING" and gave_up[0].exc_info
+    assert f"job {a}" in gave_up[0].getMessage() and DERIVED_LANE in gave_up[0].getMessage()
 
 
 # ───────────────────────────────────── a claim is never left behind, wherever the fault was

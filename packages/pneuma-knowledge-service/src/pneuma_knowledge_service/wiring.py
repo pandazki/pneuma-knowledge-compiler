@@ -1228,7 +1228,11 @@ async def build_context(
             embeddings = build_embeddings(settings)
             dim = None
             if not probe_embedding:
-                dim = await existing_dimension(settings.qdrant_url, settings.qdrant_collection)
+                dim = await existing_dimension(
+                    settings.qdrant_url,
+                    settings.qdrant_collection,
+                    timeout=settings.qdrant_timeout_s,
+                )
             if dim is None:
                 dim = len(await embeddings.aembed_query("dimension probe"))
 
@@ -1236,7 +1240,11 @@ async def build_context(
         cleanup.push_async_callback(lexical.aclose)
         if embeddings is not None:
             vectors = QdrantVectorIndex(
-                settings.qdrant_url, dim, collection=settings.qdrant_collection
+                settings.qdrant_url,
+                dim,
+                collection=settings.qdrant_collection,
+                timeout=settings.qdrant_timeout_s,
+                upsert_batch=settings.qdrant_upsert_batch,
             )
             cleanup.push_async_callback(vectors.aclose)
             await vectors.ensure_collection()

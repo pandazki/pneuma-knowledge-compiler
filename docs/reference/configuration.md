@@ -20,6 +20,8 @@ One optional layer sits between environment and default: the **engine directory*
 | `PG_DSN` | `postgresql://pneuma_knowledge:pneuma_knowledge@localhost:15432/pneuma_knowledge` | Postgres (L0, jobs, projections, registries) |
 | `QDRANT_URL` | `http://localhost:16333` | vector store |
 | `QDRANT_COLLECTION` | `pneuma_knowledge_chunks` | one collection; its embedding dimension is fixed at creation — switching embedding models means a new collection name |
+| `QDRANT_UPSERT_BATCH` | `256` | how many points one Qdrant write request carries. Every write in the adapter — a source's L2 chunks, the claim projection, a snapshot copy, a delta's deletions — goes out in batches of at most this many, because the size of a request is the one thing the writer controls and the read waiting for its response is what breaks first: a source's whole L2 went out as one `upsert(wait=True)` and the read died mid-response (`httpx.ReadError`), three times in a row, until the episodes job was failed for it. Point ids are deterministic (uuid5 over the tenant and the thing indexed), so a batch that landed and is sent again overwrites itself and partial progress is safe |
+| `QDRANT_TIMEOUT_S` | `60` | how long any one Qdrant request may take. The client library's own default is 5 seconds, which is a read timeout on a search and an ambush on a write of a few hundred vectors; batching bounds the size and this bounds the wait. Whole seconds (the client takes an integer) |
 | `MEILI_URL` | `http://localhost:17700` | lexical index |
 | `MEILI_KEY` | `masterKey_change_me` | change in production |
 | `MEDIA_S3_ENDPOINT_URL` | `http://localhost:19000` | private S3-compatible L0 image store (RustFS in the local stack) |
