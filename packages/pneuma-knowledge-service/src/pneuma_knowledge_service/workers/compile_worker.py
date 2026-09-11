@@ -25,6 +25,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 
 from pneuma_knowledge_core.compile.brief import generate_brief
 from pneuma_knowledge_core.compile.runner import CompileResult, run_compile
@@ -1195,21 +1196,44 @@ def failure_reason(exc: BaseException) -> str:
     return name if package in ("builtins", "__main__") else f"{package}.{name}"
 
 
-def _interrupting_fault(job_id: str, exc: BaseException) -> InfraFault | None:
+class Interruption(NamedTuple):
+    """What the strike guard decided about one failure of one job.
+
+    Three states, and the third is why this is not just a fault: `put_back` set (wait the
+    outage out), `struck_out` set (it WAS an outage every time, and this job has now met one
+    once too often — it is failed, and the row must say that rather than name a class), or
+    neither (the error was never infrastructure and takes the path it always took)."""
+
+    put_back: InfraFault | None = None
+    struck_out: InfraFault | None = None
+    strikes: int = 0
+
+    def detail(self) -> str:
+        """The sentence a struck-out job's row carries, and the one the log repeats."""
+        fault = self.struck_out
+        return (
+            f"infrastructure repeated: {fault.kind} ({fault.reason}) "
+            f"interrupted this job {self.strikes} times; failed"
+        )
+
+
+def _interrupting_fault(job_id: str, exc: BaseException) -> Interruption:
     """The infrastructure fault that interrupted this job, while it may still be put back.
 
     Counts the interruptions per job: the first `INFRA_JOB_INTERRUPTIONS` are an outage and
-    the job goes back; one more means the error is not an outage at all, and the job is
-    failed like any other (None)."""
+    the job goes back; one more means waiting is no longer an answer for THIS job, and it is
+    failed — saying so, because `worker error: qdrant_client.ResponseHandlingException` is
+    what a real row said about a job that had in fact been interrupted three times by a
+    Qdrant write it could not finish, and nothing on it said so."""
     fault = infrastructure_fault(exc)
     if fault is None:
-        return None
+        return Interruption()
     strikes = _INFRA_STRIKES.get(job_id, 0) + 1
     _INFRA_STRIKES[job_id] = strikes
     if strikes > INFRA_JOB_INTERRUPTIONS:
         _INFRA_STRIKES.pop(job_id, None)
-        return None
-    return fault
+        return Interruption(struck_out=fault, strikes=strikes)
+    return Interruption(put_back=fault, strikes=strikes)
 
 
 async def _fail_or_interrupt(
@@ -1686,25 +1710,38 @@ async def drain_user(
             # because it also has a proposal row to fail.
             await _fail_or_interrupt(ctx, user_id, job, exc, exc.detail)
         except Exception as exc:  # noqa: BLE001 — never leave a job stuck 'claimed'
-            fault = _interrupting_fault(job.job_id, exc)
-            if fault is not None:
+            verdict = _interrupting_fault(job.job_id, exc)
+            if verdict.put_back is not None:
                 # The stack went away under this job. Not the job's failure: the drain stops,
                 # waits for the stack, and puts this job back (`ride_out`).
                 raise InfrastructureInterrupted(
-                    fault, user_id=str(user_id), job_id=job.job_id
+                    verdict.put_back, user_id=str(user_id), job_id=job.job_id
                 ) from exc
             # The traceback, once, where an operator looks. A job row holds one sentence;
             # the stack that produced it lived only in a worker process that has since moved
             # on, and a job completed `worker error: ` with nothing logged anywhere left
             # nobody anything to read. Named by lane and job, because two lanes fail
             # independently.
-            log.exception(
-                "[compile-worker] %s lane: job %s failed",
-                lane or "queued", job.job_id,
+            #
+            # A job the strike guard gave up on says THAT, in both places. `worker error:
+            # qdrant_client.ResponseHandlingException` is what such a row said live, and it
+            # named the class of the last of four interruptions rather than the fact that
+            # there had been four.
+            if verdict.struck_out is not None:
+                log.warning(
+                    "[compile-worker] %s lane: job %s — %s",
+                    lane or "queued", job.job_id, verdict.detail(), exc_info=True,
+                )
+            else:
+                log.exception(
+                    "[compile-worker] %s lane: job %s failed",
+                    lane or "queued", job.job_id,
+                )
+            detail = (
+                verdict.detail() if verdict.struck_out is not None
+                else f"worker error: {failure_reason(exc)}"
             )
-            await _fail_or_interrupt(
-                ctx, user_id, job, exc, f"worker error: {failure_reason(exc)}"
-            )
+            await _fail_or_interrupt(ctx, user_id, job, exc, detail)
         finally:
             # Short-lived per-job trace flush: a worker sweep may exit right after, so
             # never rely on the background batch surviving process end.

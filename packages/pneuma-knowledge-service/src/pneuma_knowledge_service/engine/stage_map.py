@@ -1349,6 +1349,11 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "pg_dsn",
         "qdrant_url",
         "qdrant_collection",
+        # How a write to that store is shaped and how long it may take. Transport, not
+        # judgement: the same points reach the same collection either way — these only
+        # decide in how many requests and with how much patience.
+        "qdrant_upsert_batch",
+        "qdrant_timeout_s",
         "meili_url",
         "meili_key",
         "media_s3_endpoint_url",

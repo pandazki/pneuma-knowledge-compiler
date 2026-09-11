@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     # app runs a real embedding of a different dim — tests set PNEUMA_KNOWLEDGE_QDRANT_COLLECTION to an
     # isolated name (see tests/conftest.py).
     qdrant_collection: str = "pneuma_knowledge_chunks"
+    # How many points one Qdrant write request carries, and how long any one request may
+    # take. Both are about the same failure: a source's whole L2 went out as ONE
+    # `upsert(wait=True)` against a client whose library default timeout is five seconds,
+    # the read died mid-response (`httpx.ReadError`), and the third such interruption failed
+    # the episodes job. Bounded batches and a real timeout make a large window a series of
+    # writes that finish rather than one that cannot. Point ids are deterministic, so a
+    # retried batch overwrites itself and partial progress is safe.
+    qdrant_upsert_batch: int = 256
+    qdrant_timeout_s: float = 60.0
     meili_url: str = "http://localhost:17700"
     # Matches the compose default (docker-compose.yml MEILI_MASTER_KEY fallback);
     # override via PNEUMA_KNOWLEDGE_MEILI_KEY in any real deployment.
