@@ -57,7 +57,7 @@ def _contract(args):
 
 async def run(args) -> int:
     contract = _contract(args)
-    ctx = await build_context(get_settings())
+    ctx = await build_context(get_settings(), application_name="pkc-ops:import_source")
     try:
         result = await ingest_source_contract(ctx, UserId(args.user), contract)
         print(f"contract={result.contract_schema} units={len(result.sources)}")

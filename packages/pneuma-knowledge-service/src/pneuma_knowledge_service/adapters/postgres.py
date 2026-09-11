@@ -10,6 +10,7 @@ omits it. Content dedup: same user + same checksum returns the existing source_i
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -34,10 +35,13 @@ from pneuma_knowledge_core.domain.source import (
 )
 from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
 from pneuma_knowledge_core.recall.projection import ProjectedClaim
+import psycopg
+from psycopg.conninfo import conninfo_to_dict
 from psycopg.types.json import Json, Jsonb
 from psycopg_pool import AsyncConnectionPool
 
 from ..access_stats import RECALL_PROJECTION_JOB_KIND, RECALL_REBUILD_JOB_KIND
+from ..infra_faults import infrastructure_fault
 from ..snapshot_tenant import RESERVED_PREFIX
 
 
@@ -135,21 +139,82 @@ class _JobRow:
         self.status = "claimed"
 
 
+def _names_itself(dsn: str) -> bool:
+    """Did the operator already name this deployment's connections?
+
+    In the DSN, or through libpq's own `PGAPPNAME`. Either wins over the role a process
+    would stamp: an operator who wrote a name down meant that name. A DSN psycopg cannot
+    parse is left to fail where it always failed — at connect — rather than here.
+    """
+    if os.environ.get("PGAPPNAME"):
+        return True
+    try:
+        return bool(conninfo_to_dict(dsn).get("application_name"))
+    except psycopg.ProgrammingError:
+        return False
+
+
+#: How long a liveness probe waits for a connection before it reports the database away.
+#: Short on purpose: the pool's own wait (30 s) is sized for load, and a probe that sat out
+#: the full wait would stretch every step of an outage's backoff by half a minute.
+PING_TIMEOUT_S = 5.0
+
+
 class PostgresStore:
     """ContentStore + JobQueue over one PG connection pool."""
 
-    def __init__(self, dsn: str, *, min_size: int = 1, max_size: int = 8) -> None:
+    def __init__(
+        self,
+        dsn: str,
+        *,
+        min_size: int = 1,
+        max_size: int = 8,
+        application_name: str | None = None,
+    ) -> None:
         # `open=False`: psycopg warns when an AsyncConnectionPool is opened from a
         # constructor (there may be no running loop, and the pool would then bind to
         # whichever loop happens to be current). Ownership is explicit instead — the
         # FastAPI lifespan / worker main / test fixture calls `await open()`, `await aclose()`.
-        self._pool = AsyncConnectionPool(
-            dsn, min_size=min_size, max_size=max_size, open=False
+        #
+        # `check`: every connection is asked one empty query before the pool hands it out.
+        # Without it a pool keeps the connections a Postgres restart killed and hands them to
+        # whoever asks next — which, the day this was added, was the worker ten minutes after
+        # the restart, and the error took the whole engine down. A dead connection found by
+        # the check is discarded and replaced; the cost is one round trip per checkout.
+        # `max_idle`/`max_lifetime`/`reconnect_timeout` stay at psycopg_pool's defaults
+        # (10 min / 1 h / 5 min): with the check in place no stale connection is ever handed
+        # out, so their only remaining job is churn, and the defaults are sound for that.
+        #
+        # `application_name` names the connection to the server by process role
+        # (`wiring.connection_role`), so a backend's log line says which client it served.
+        # Passed as a connection kwarg rather than spliced into the DSN, and never over a name
+        # the operator already set.
+        self.application_name = (
+            application_name if application_name and not _names_itself(dsn) else None
         )
+        self._pool = AsyncConnectionPool(
+            dsn,
+            min_size=min_size,
+            max_size=max_size,
+            open=False,
+            kwargs={"application_name": self.application_name} if self.application_name else None,
+            check=AsyncConnectionPool.check_connection,
+        )
+        #: Job completions this store could not write because the database went away,
+        #: keyed `(user_id, job_id)` → the arguments `complete` was called with. The body
+        #: that owns those jobs writes them once the database answers again
+        #: (`write_unwritten_completions`): the work they record is done, and running it a
+        #: second time because its last row never landed would be the double run.
+        self.unwritten_completions: dict[tuple[str, str], dict[str, Any]] = {}
 
     async def open(self) -> None:
         """Open the connection pool on the caller's event loop."""
         await self._pool.open()
+
+    async def ping(self) -> None:
+        """One round trip, or the transient error that says the database is not there."""
+        async with self._pool.connection(timeout=PING_TIMEOUT_S) as conn:
+            await conn.execute("SELECT 1")
 
     async def apply_schema(self) -> None:
         """Idempotently apply infra/schema.sql (v1 migration strategy, §5).
@@ -1189,23 +1254,48 @@ class PostgresStore:
         return job_id
 
     async def requeue_claimed_jobs(
-        self, *, draft_ttl: int = 0, tenants: Sequence[str] = ()
+        self, *, draft_ttl: int = 0, tenants: Sequence[str] = (), job_id: str | None = None
     ) -> int:
         """Requeue abandoned work, preserving live launch leases and unexpired drafts.
 
         Recovery takes the same tenant locks as commands and claims. A launch can be quiet
         for longer than the takeover grace without being dead; only its lease or the full
         draft TTL decides that. A completed row is never a recovery candidate.
+
+        `job_id` narrows the sweep to that one job. The worker uses it for its OWN in-flight
+        job after an infrastructure outage interrupted it (`compile_worker`), so that job is
+        recovered on exactly the terms the startup self-heal applies, and no other body's
+        claim is touched while this process is still running.
+
+        A draft left by a DEAD worker launch that holds work is kept when its job is
+        requeued. The draft lives in Postgres precisely so it survives the process that
+        wrote it; dropping it threw away a round's writes (36 of 40 calls, the night this was
+        written) and the round that replaced it started from nothing. The kept draft reserves
+        the tenant for its own job alone (`claim_next`), and the next launch adopts it
+        (`PostgresDraftStore.put(adopt_from=…)`) and continues where the dead one stopped. A
+        draft with nothing written in it is dropped as before: there is nothing to continue.
         """
         allowed = [t for t in tenants if t]
         drafts = PostgresDraftStore(self)
+        where: list[str] = []
+        params: list[Any] = []
+        if allowed:
+            where.append("user_id = ANY(%s)")
+            params.append(allowed)
+        if job_id is not None:
+            where.append("job_id = %s")
+            params.append(job_id)
         async with self._pool.connection() as conn:
             users = await (await conn.execute(
-                "SELECT user_id FROM (SELECT user_id FROM compile_jobs WHERE status = 'claimed' "
-                "UNION SELECT user_id FROM compile_drafts) candidates"
-                + (" WHERE user_id = ANY(%s)" if allowed else ""),
-                (allowed,) if allowed else (),
+                "SELECT DISTINCT user_id FROM ("
+                "SELECT user_id, id AS job_id FROM compile_jobs WHERE status = 'claimed' "
+                "UNION SELECT user_id, job_id FROM compile_drafts) candidates"
+                + (" WHERE " + " AND ".join(where) if where else ""),
+                tuple(params),
             )).fetchall()
+        one = " AND id = %s" if job_id is not None else ""
+        one_draft = " AND d.job_id = %s" if job_id is not None else ""
+        only = (job_id,) if job_id is not None else ()
         reclaimed = 0
         for (uid,) in users:
             async with self._pool.connection() as conn:
@@ -1223,32 +1313,49 @@ class PostgresStore:
                     await conn.execute(
                         "DELETE FROM compile_drafts d USING compile_jobs j "
                         "WHERE d.user_id = %s AND j.user_id = d.user_id AND j.id = d.job_id "
-                        "AND (j.status = 'done' OR j.completed_at IS NOT NULL)", (uid,),
+                        "AND (j.status = 'done' OR j.completed_at IS NOT NULL)" + one_draft,
+                        (uid, *only),
                     )
                     jobs = await (await conn.execute(
                         "SELECT id, claimed_by FROM compile_jobs "
                         "WHERE user_id = %s AND completed_at IS NULL AND (status = 'claimed' "
-                        "OR id IN (SELECT job_id FROM compile_drafts WHERE user_id = %s)) "
-                        "FOR UPDATE", (uid, uid),
+                        "OR id IN (SELECT job_id FROM compile_drafts WHERE user_id = %s))"
+                        + one + " FOR UPDATE", (uid, uid, *only),
                     )).fetchall()
-                    for job_id, claimed_by in jobs:
-                        owner = await drafts.owner(UserId(uid), job_id)
+                    for claimed_id, claimed_by in jobs:
+                        owner = await drafts.owner(UserId(uid), claimed_id)
                         executor = owner.executor if owner else (claimed_by or "")
                         expired = bool(owner and draft_ttl > 0 and owner.idle_seconds >= draft_ttl)
+                        keep = False
                         if executor.startswith("worker:"):
-                            if not expired and await drafts.worker_alive(UserId(uid), executor):
+                            alive = await drafts.worker_alive(UserId(uid), executor)
+                            if alive and not expired:
                                 continue
+                            keep = (
+                                owner is not None
+                                and not alive
+                                and await drafts.holds_work(UserId(uid), claimed_id)
+                            )
                         elif owner and not expired and draft_ttl > 0:
                             continue
-                        if owner:
+                        if owner and not keep:
                             await conn.execute(
                                 "DELETE FROM compile_drafts WHERE user_id = %s AND job_id = %s",
-                                (uid, job_id),
+                                (uid, claimed_id),
+                            )
+                        elif keep:
+                            # The mark that lets the next body claim this job and adopt its
+                            # draft — nothing else does (`claim_next`, `open_round`).
+                            await conn.execute(
+                                "UPDATE compile_drafts SET state = jsonb_set(state::jsonb, "
+                                "'{continue_from}', to_jsonb(%s::text)) "
+                                "WHERE user_id = %s AND job_id = %s",
+                                (executor, uid, claimed_id),
                             )
                         cur = await conn.execute(
                             "UPDATE compile_jobs SET status='queued', claimed_at=NULL, claimed_by=NULL "
                             "WHERE user_id = %s AND id = %s AND status = 'claimed' AND completed_at IS NULL",
-                            (uid, job_id),
+                            (uid, claimed_id),
                         )
                         reclaimed += cur.rowcount
         return reclaimed
@@ -1288,6 +1395,26 @@ class PostgresStore:
         in the first place and this body never has to give one back."""
         skip = [k for k in exclude_kinds if k]
         allowed = [t for t in tenants if t]
+        claimed_ref: list[str] = []
+        try:
+            return await self._claim_next(user_id, skip, allowed, claimed_ref)
+        except (psycopg.OperationalError, psycopg.InterfaceError) as exc:
+            # The claim's UPDATE was sent before the connection went: whether its COMMIT
+            # landed is unknown, and a claim that did land is a job this body now holds and
+            # will never run. Named on the exception so the drain can put exactly that job
+            # back once the database answers (`requeue_claimed_jobs(job_id=…)`, a no-op on a
+            # row that is still queued) instead of leaving it for the next process start.
+            if claimed_ref:
+                exc.unsettled_claim = (str(user_id), claimed_ref[0])
+            raise
+
+    async def _claim_next(
+        self,
+        user_id: UserId,
+        skip: list[str],
+        allowed: list[str],
+        claimed_ref: list[str],
+    ) -> _JobRow | None:
         async with self._pool.connection() as conn:
             async with conn.transaction():
                 locked = await (await conn.execute(
@@ -1315,7 +1442,14 @@ class PostgresStore:
                     "AND (not_before IS NULL OR not_before <= now()) "
                     + ("AND user_id = ANY(%s) " if allowed else "")
                     + ("AND NOT (kind = ANY(%s)) " if skip else "")
-                    + "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
+                    # An open draft reserves the tenant: nothing is handed out while one
+                    # exists — not even its own job, should that row read 'queued' (a
+                    # Steward's draft still holds it). The one exception is mechanical: a
+                    # draft the self-heal KEPT from a dead launch carries `continue_from`,
+                    # and its own job is then the one row that may be claimed.
+                    + "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s "
+                    "  AND NOT (d.job_id = compile_jobs.id "
+                    "           AND (d.state->>'continue_from') IS NOT NULL)) "
                     "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
                     "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
                     # Rank, then place. The rank lets derived-only work past a queue of
@@ -1336,6 +1470,7 @@ class PostgresStore:
                 )).fetchone()
                 if row is None:
                     return None
+                claimed_ref.append(row[0])
                 await conn.execute(
                     "UPDATE compile_jobs SET status = 'claimed', "
                     "claimed_at = %s, claimed_by = %s WHERE id = %s",
@@ -1372,7 +1507,9 @@ class PostgresStore:
                 row = await (await conn.execute(
                     "SELECT id, kind, payload, COALESCE(order_at, created_at) FROM compile_jobs "
                     "WHERE user_id = %s AND id = %s AND status = 'queued' AND completed_at IS NULL "
-                    "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s) "
+                    "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s "
+                    "  AND NOT (d.job_id = compile_jobs.id "
+                    "           AND (d.state->>'continue_from') IS NOT NULL)) "
                     "AND NOT EXISTS (SELECT 1 FROM compile_jobs j2 "
                     "  WHERE j2.user_id = %s AND j2.status = 'claimed') "
                     "FOR UPDATE SKIP LOCKED",
@@ -1392,8 +1529,12 @@ class PostgresStore:
             cur = await conn.execute(
                 "UPDATE compile_jobs SET claimed_by = %s WHERE user_id = %s AND id = %s "
                 "AND status = 'claimed' AND completed_at IS NULL AND claimed_by = 'worker' "
-                "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s)",
-                (executor, str(user_id), job_id, str(user_id)),
+                # The job's OWN kept draft does not refuse it: that is a round a dead launch
+                # left for this one to continue (`requeue_claimed_jobs` marks it
+                # `continue_from`). Any other draft does.
+                "AND NOT EXISTS (SELECT 1 FROM compile_drafts d WHERE d.user_id = %s "
+                "  AND NOT (d.job_id = %s AND (d.state->>'continue_from') IS NOT NULL))",
+                (executor, str(user_id), job_id, str(user_id), job_id),
             )
             return cur.rowcount == 1
 
@@ -1439,6 +1580,49 @@ class PostgresStore:
         executor: str | None = None,
         claimed_by: str | None = None,
         harness_output: str | None = None,
+    ) -> None:
+        fields = {
+            "ok": ok, "detail": detail, "snapshot_ref": snapshot_ref,
+            "token_usage": token_usage, "executor": executor, "claimed_by": claimed_by,
+            "harness_output": harness_output,
+        }
+        key = (str(user_id), job_id)
+        try:
+            await self._write_completion(user_id, job_id, **fields)
+        except (psycopg.OperationalError, psycopg.InterfaceError) as exc:
+            if infrastructure_fault(exc) is not None:
+                # The job's work is done; only its last row did not land. Kept for the body
+                # that owns the job to write once the database is back — see
+                # `unwritten_completions`.
+                self.unwritten_completions[key] = fields
+            raise
+        self.unwritten_completions.pop(key, None)
+
+    async def write_unwritten_completions(self) -> int:
+        """Write every completion an outage kept from landing; return how many were written.
+
+        Idempotent against the ambiguous case — a COMMIT that did land although its
+        acknowledgement never arrived — because a completion writes the same values twice and
+        its usage/executor columns COALESCE. One that fails again stays kept."""
+        written = 0
+        for (uid, job_id), fields in list(self.unwritten_completions.items()):
+            await self._write_completion(UserId(uid), job_id, **fields)
+            self.unwritten_completions.pop((uid, job_id), None)
+            written += 1
+        return written
+
+    async def _write_completion(
+        self,
+        user_id: UserId,
+        job_id: str,
+        *,
+        ok: bool,
+        detail: str | None,
+        snapshot_ref: str | None,
+        token_usage: dict[str, int] | None,
+        executor: str | None,
+        claimed_by: str | None,
+        harness_output: str | None,
     ) -> None:
         async with self._pool.connection() as conn:
             await conn.execute(
@@ -3407,6 +3591,43 @@ class PostgresStore:
                 )
 
 
+def draft_holds_work(state: dict[str, Any] | None) -> bool:
+    """Does this draft hold anything a gate could judge?
+
+    Writes pending against its base, or a round already in repair (whose findings are the
+    gate's own). Reads alone are not work: a draft that only looked has nothing to continue,
+    and keeping it would only hand the next round a smaller budget.
+    """
+    if not state:
+        return False
+    session = state.get("session") or {}
+    if session.get("round") == "repair":
+        return True
+    try:
+        from pneuma_knowledge_core.compile.patch import PatchDraft
+
+        return PatchDraft.from_state(state.get("draft") or {}).is_dirty()
+    except (KeyError, TypeError, ValueError):
+        return False  # a legacy or partial row carries nothing this code can continue
+
+
+async def adoptable(drafts: Any, user_id: UserId, owner: DraftOwner, adopt_from: str) -> bool:
+    """May a new executor take over this draft without a takeover's grace?
+
+    Only when the caller names the exact executor it is adopting from, and that executor is
+    a worker launch whose lease is gone. A dead launch cannot come back — its identity is a
+    fresh uuid per launch — so its draft has no other claimant, and continuing it is the
+    whole point of having kept it (`requeue_claimed_jobs`). A live launch, a Steward's
+    session, or a guess at the name is refused exactly as before.
+    """
+    return (
+        bool(adopt_from)
+        and owner.executor == adopt_from
+        and adopt_from.startswith("worker:")
+        and not await drafts.worker_alive(user_id, adopt_from)
+    )
+
+
 class PostgresDraftStore:
     """`DraftStore` over the `compile_drafts` table (core `ports/draft_store.py`).
 
@@ -3487,13 +3708,20 @@ class PostgresDraftStore:
             )).fetchone()
         return dict(row[0]) if row is not None else None
 
-    async def put(self, user_id: UserId, job_id: str, state: dict[str, Any]) -> None:
+    async def holds_work(self, user_id: UserId, job_id: str) -> bool:
+        return draft_holds_work(await self.get(user_id, job_id))
+
+    async def put(
+        self, user_id: UserId, job_id: str, state: dict[str, Any], *, adopt_from: str = ""
+    ) -> None:
         session = state.get("session") or {}
         executor = str(session.get("executor") or "")
         round_ = str(session.get("round") or "first")
         async with self.lock(user_id):
             owner = await self.owner(user_id, job_id)
-            if owner is not None and owner.executor != executor:
+            if owner is not None and owner.executor != executor and not (
+                await adoptable(self, user_id, owner, adopt_from)
+            ):
                 raise DraftOwnershipError(owner.refusal())
             async with self._pool.connection() as conn:
                 async with conn.transaction():

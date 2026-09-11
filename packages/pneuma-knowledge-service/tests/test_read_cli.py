@@ -352,6 +352,43 @@ async def test_requeue_selects_by_status_kind_and_detail_together():
     assert other not in out
 
 
+async def test_requeue_by_job_reopens_exactly_the_jobs_named():
+    """An operator who has read one job row reopens that job, not every row that looks like
+    it."""
+    lib = _lib()
+    first = await _finished(lib, detail=EMPTY_ROUND)
+    second = await _finished(lib, detail=EMPTY_ROUND)
+    third = await _finished(lib, detail=EMPTY_ROUND)
+
+    code, out, err = await run(lib, "jobs", "requeue", "--job", second, "--json")
+    assert code == 0 and err == ""
+    payload = json.loads(out)
+    assert [r["from"] for r in payload["requeued"]] == [second]
+    assert payload["summary"] == "requeued 1 (compile 1); sources reopened 1"
+
+    code, out, _err = await run(
+        lib, "jobs", "requeue", "--job", first, "--job", third, "--dry-run", "--json"
+    )
+    assert code == 0
+    assert sorted(r["from"] for r in json.loads(out)["requeued"]) == sorted([first, third])
+
+
+async def test_requeue_by_job_still_never_touches_work_in_flight():
+    lib = _lib()
+    queued_id = await lib.store.enqueue(USER, "compile", {"source_ids": ["s-01"]})
+    code, _out, err = await run(lib, "jobs", "requeue", "--job", queued_id)
+    assert code == 1
+    assert f"job {queued_id} is not a finished job of this user; not requeued" in err
+    assert [j["job_id"] for j in await lib.store.list_jobs(USER)] == [queued_id]
+
+
+async def test_requeue_by_job_ands_with_the_other_selectors():
+    lib = _lib()
+    failed = await _finished(lib, detail="citation missing", ok=False)
+    code, _out, err = await run(lib, "jobs", "requeue", "--job", failed, "--empty-rounds")
+    assert code == 1 and "no finished job matches" in err
+
+
 async def test_history_reports_the_ledger_newest_first():
     lib = _lib()
     lib.store.history = [

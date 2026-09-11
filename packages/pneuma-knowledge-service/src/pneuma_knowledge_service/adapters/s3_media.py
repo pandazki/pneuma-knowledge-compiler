@@ -190,6 +190,11 @@ class S3MediaStore:
             mapping[source_key] = target_key
         return mapping
 
+    async def ping(self) -> None:
+        """One request to the endpoint; raises botocore's connection error while it is away.
+        An answer of any kind — including "no such bucket" — means it is there."""
+        await asyncio.to_thread(self._client.head_bucket, Bucket=self.bucket)
+
     async def aclose(self) -> None:
         """Release the underlying HTTP connection pool when the process exits."""
 

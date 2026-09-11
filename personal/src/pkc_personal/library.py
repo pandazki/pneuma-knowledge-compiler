@@ -282,7 +282,8 @@ def _engine_files(name: str, choices: Choices, contract: str) -> dict[str, str]:
 
 
 async def _upsert_profile(dsn: str, tenant: UserId, data: dict, *, only_if_missing: bool) -> bool:
-    store = PostgresStore(dsn)
+    # Named, so a Postgres log line says which client it served (`wiring.connection_role`).
+    store = PostgresStore(dsn, application_name="pkchome:profile")
     await store.open()
     try:
         # The engine process applies the schema at boot, and on a cold start no engine has

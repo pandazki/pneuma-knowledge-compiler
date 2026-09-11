@@ -77,6 +77,14 @@ EXIT_NOTHING = 1
 EXIT_REFUSED = 2
 EXIT_BUDGET = 3
 EXIT_GATE = 4
+#: The worker finished a round whose launch did not end cleanly, and nothing was committed.
+#: Only reachable through `DraftRuntime.unclean_launch`, which only the runner sets.
+EXIT_INCOMPLETE = 5
+
+#: The detail a round that did not really run is recorded with — `round_incomplete: <why>;
+#: nothing was committed` — spelled once, for the finish that detects it and the worker that
+#: writes it onto the job row.
+ROUND_INCOMPLETE_DETAIL = "round_incomplete: {why}; nothing was committed"
 
 #: The write verbs, i.e. the calls whose result is post-checked on the page they touched.
 #: A read verb changes nothing a gate predicate can judge (`read_document` only records that
@@ -174,6 +182,13 @@ class DraftRuntime:
     #: The unattended runner must never load a later job belonging to this tenant.
     expected_job_id: str = ""
     kind: str = "compile"
+    #: Set by the unattended runner around the finish IT runs, when the launch before that
+    #: finish did not end cleanly: "timed out" or "exit N". A round like that which then
+    #: commits nothing is not a judgement that the material held nothing — the harness never
+    #: got to the end of it — so `cmd_finish` refuses to record it as one
+    #: (`EXIT_INCOMPLETE`). Empty everywhere else: the harness's own `pkc draft finish`, and
+    #: an Owner's terminal, never set it.
+    unclean_launch: str = ""
     record_brief: Callable[[str, str], Awaitable[None]] | None = None
     #: Does the owner profile still name nobody? A NOTICE, never a refusal: the round opens,
     #: the surfaces are byte-identical, and the langchain executor is untouched. What it buys
@@ -309,6 +324,12 @@ async def open_round(
     """
     existing = await rt.drafts.get(rt.user_id, job_id)
     if existing is not None:
+        previous = await _orphaned_by(rt, job_id, existing)
+        if previous:
+            code = await _adopt(rt, job_id, existing, previous, claim=claim)
+            if code != EXIT_OK:
+                return code, "", ""
+            existing = await rt.drafts.get(rt.user_id, job_id) or existing
         await require_owner(rt, job_id)
         if existing.get("kind", "compile") != rt.kind:
             print("this job has a different kind of draft", file=rt.err)
@@ -401,6 +422,49 @@ async def open_round(
     )
     await _store(rt, draft, session)
     return EXIT_OK, system_text, task_text
+
+
+async def _orphaned_by(rt: DraftRuntime, job_id: str, existing: dict) -> str:
+    """The dead worker launch this job's kept draft was left by, or "".
+
+    Two mechanical facts, both required. The self-heal decided to keep the draft for
+    continuation and said so on the row (`continue_from`, `requeue_claimed_jobs`) — nothing
+    else marks one. And the launch it names is dead now: a launch's identity is a fresh uuid
+    and its liveness a lease the database drops with the process, so a dead launch never
+    comes back for its draft. Whoever opens the job next continues it.
+    """
+    previous = str(existing.get("continue_from") or "")
+    if not previous or previous == rt.draft_executor:
+        return ""
+    owner = await rt.drafts.owner(rt.user_id, job_id)
+    if owner is None or owner.executor != previous:
+        return ""
+    return "" if await rt.drafts.worker_alive(rt.user_id, previous) else previous
+
+
+async def _adopt(
+    rt: DraftRuntime, job_id: str, existing: dict, previous: str, *, claim: bool
+) -> int:
+    """Take over the round a dead launch left, as it stands: same draft, same session, same
+    budget spent — only the owner changes. The job is claimed first when this is an open
+    (`claim=True`) rather than the worker's own already-claimed launch."""
+    job = await rt.jobs.get_job(rt.user_id, job_id)
+    if claim and job is not None and getattr(job, "status", "") == "queued":
+        job = await rt.jobs.claim(rt.user_id, job_id, claimed_by=rt.draft_executor)
+    if job is None or getattr(job, "status", "") != "claimed":
+        print(f"job {job_id} could not be claimed to continue its round", file=rt.err)
+        return EXIT_REFUSED
+    session = replace(
+        DraftSession.from_state(existing.get("session") or {}), **ownership_fields(rt)
+    )
+    draft = PatchDraft.from_state(existing.get("draft") or {})
+    await rt.drafts.put(rt.user_id, job_id, _draft_state(draft, session), adopt_from=previous)
+    print(
+        f"note: continuing the round {previous} left open "
+        f"({session.spent} of {session.budget} call(s) spent in its {session.round} round)",
+        file=rt.err,
+    )
+    return EXIT_OK
 
 
 async def outside_write(rt: DraftRuntime) -> str:
@@ -768,6 +832,16 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
             tool_calls=session.spent,
             executor_skill=rt.executor_skill,
         )
+
+    if result.status == "noop" and rt.unclean_launch:
+        # The round the worker is finishing ended by a timeout or a crash, and nothing in it
+        # reached canonical. Recording that as a noop would complete the job ok, stamp its
+        # sources digested and tell the Owner the material was compiled — about a round that
+        # never got to the end of it. The draft goes (there is nothing in it to keep); the job
+        # stays claimed for the worker to end as a failure and queue again.
+        await rt.drafts.delete(rt.user_id, session.job_id, executor=rt.draft_executor)
+        print(ROUND_INCOMPLETE_DETAIL.format(why=rt.unclean_launch), file=rt.err)
+        return EXIT_INCOMPLETE
 
     await _persist(rt, session, result)
     if brief is not None and result.snapshot is not None and result.status != "aborted":

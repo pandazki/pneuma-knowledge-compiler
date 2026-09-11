@@ -4838,6 +4838,7 @@ SURFACES: tuple[Surface, ...] = (
                 "steward.cli.jobs_requeue_empty",
                 "steward.cli.jobs_requeue_detail_like",
                 "steward.cli.jobs_requeue_dry_run",
+                "steward.cli.jobs_requeue_job",
                 "steward.cli.history",
                 "steward.cli.brief",
                 "steward.cli.consultations",

@@ -1076,6 +1076,10 @@ self-heal treats a draft older than `COMPILE_DRAFT_TTL` as orphaned — releases
 A worker launch holds a separate PG advisory lease for its entire run; process death drops
 that lease. Startup recovery preserves a live launch until the full TTL expires, even when
 it has been idle longer than the takeover grace, and requeues a dead launch immediately.
+A dead launch that had written something keeps its draft: the requeued job carries
+`continue_from: <the dead executor>`, which is what lets it be claimed while that draft is
+open and what lets the next launch adopt it, so the calls the crashed round already spent
+are continued rather than spent again. A dead launch with an untouched draft drops it.
 With TTL zero, idle-draft protection is disabled but a live launch's lease still protects it.
 The claim query refuses any tenant with an open draft, including one whose queue row was
 mistakenly requeued. Completed jobs cannot be claimed or reopened through `claim=False`;

@@ -743,9 +743,11 @@ def _forget_cooling():
     """The cooling map is process state, and one test's rate limit is not another's."""
     compile_worker._COOLING.clear()
     compile_worker._RATE_LIMIT_HITS.clear()
+    compile_worker._CAPACITY_HITS.clear()
     yield
     compile_worker._COOLING.clear()
     compile_worker._RATE_LIMIT_HITS.clear()
+    compile_worker._CAPACITY_HITS.clear()
 
 
 _MONTH_NAMES = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -887,6 +889,33 @@ async def test_a_refusal_with_no_hour_in_it_cools_for_longer_each_consecutive_ti
     await _refused(ceiling, jobs, user, UnavailableLaunch(output="429 Too Many Requests"))
     row = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"][0]
     assert round((row["not_before"] - before).total_seconds()) == 1200
+
+
+AT_CAPACITY = '{"type":"turn.failed","error":{"message":"Selected model is at capacity."}}'
+
+
+async def test_a_model_at_capacity_cools_the_tenant_briefly_and_on_its_own_clock():
+    """Capacity was seen to come back within minutes, and the usage limit's fallback — 900 s
+    doubling towards six hours — kept the tenant off the air long after the model had room.
+    A capacity refusal waits `AGENT_UNAVAILABLE_COOLDOWN_S` (120 s), doubling to a 900 s
+    ceiling; and it counts on its own, so the next usage limit still starts at its own base."""
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(), jobs)
+
+    async def wait_after(result) -> int:  # noqa: ANN001
+        before = datetime.now(timezone.utc)
+        await _refused(ctx, jobs, user, result)
+        newest = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"][0]
+        return round((newest["not_before"] - before).total_seconds())
+
+    capacity = [
+        await wait_after(UnavailableLaunch(output=AT_CAPACITY, harness_reason=UNAVAILABLE_AT_CAPACITY))
+        for _ in range(5)
+    ]
+    assert capacity == [120, 240, 480, 900, 900]
+    # A spent subscription right after: the usage limit's own first step, untouched.
+    assert await wait_after(UnavailableLaunch(output="429 Too Many Requests")) == 900
 
 
 async def test_a_model_at_capacity_is_named_as_itself_and_not_as_a_spent_quota():

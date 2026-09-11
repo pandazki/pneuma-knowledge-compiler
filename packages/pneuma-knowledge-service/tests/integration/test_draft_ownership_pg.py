@@ -29,6 +29,9 @@ from test_draft_ownership import (  # noqa: F401 — collected again over the PG
     test_disabled_ttl_removes_a_legacy_draft_when_requeuing_its_job,
     test_worker_failure_drops_its_own_draft_and_releases_the_tenant,
     test_a_late_launch_cannot_supply_a_replacements_finished_version_brief,
+    test_a_dead_launchs_draft_that_holds_work_survives_the_self_heal_and_is_continued,
+    test_a_live_or_unmarked_draft_is_never_adopted,
+    test_the_outage_recovery_touches_only_the_job_it_names,
 )
 
 

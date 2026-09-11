@@ -67,11 +67,20 @@ class DraftStore(Protocol):
         """This job's open draft state, or None when no round is open on it."""
         ...
 
-    async def put(self, user_id: UserId, job_id: str, state: dict[str, Any]) -> None:
+    async def put(
+        self, user_id: UserId, job_id: str, state: dict[str, Any], *, adopt_from: str = ""
+    ) -> None:
         """Write this job's state, refusing replacement by a different session.executor.
 
         Owned drafts require a claimed job. A completed job can never acquire a new draft.
+        `adopt_from` names the executor a new owner is continuing from; it is honoured only
+        when that executor is a worker launch whose lease is gone (a round a dead process
+        left behind, kept by the self-heal so it can be continued).
         """
+        ...
+
+    async def holds_work(self, user_id: UserId, job_id: str) -> bool:
+        """Whether this job's draft holds pending writes or a repair round — work to keep."""
         ...
 
     async def delete(self, user_id: UserId, job_id: str, *, executor: str = "") -> None:

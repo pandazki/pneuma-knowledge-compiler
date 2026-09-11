@@ -1434,6 +1434,9 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # provider states beats it anyway.
         "agent_rate_limit_cooldown_s",
         "agent_rate_limit_cooldown_max_s",
+        # The same statement for a model at capacity, on its own shorter clock.
+        "agent_unavailable_cooldown_s",
+        "agent_unavailable_cooldown_max_s",
         # How much source text an AGENT's task carries before it names the rest. What the
         # round may read is unchanged — every block is one `pkc source fetch` away and the gate
         # bounds citations against L0, not against the task — so this is about fitting a

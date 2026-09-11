@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextvars
 import logging
 import signal
 import sys
@@ -18,8 +19,22 @@ from fastapi import FastAPI
 
 from .api.app import create_app
 from .engine.contract import bootstrap_engine
+from .infra_faults import infrastructure_fault
 from .settings import Settings, get_settings
+from .wiring import CONNECTION_ROLE
 from .workers.compile_worker import run_forever
+
+#: The names the engine's two roles give their Postgres connections (`application_name`).
+API_CONNECTION_ROLE = "pkc-engine-api"
+WORKER_CONNECTION_ROLE = "pkc-engine-worker"
+
+#: How the engine restarts a worker that stopped because infrastructure was away: after
+#: this long, doubling to the maximum, and back to the start once a worker has run for
+#: `WORKER_HEALTHY_AFTER_S` — so a stack that keeps flapping never becomes a restart storm,
+#: and one outage a day never pays for yesterday's.
+WORKER_RESTART_START_S = 2.0
+WORKER_RESTART_MAX_S = 60.0
+WORKER_HEALTHY_AFTER_S = 60.0
 
 
 #: Whose log lines the engine process shows: the library's own. An application standing
@@ -131,6 +146,45 @@ async def _serve(server: uvicorn.Server) -> None:
         raise RuntimeError(f"[engine] API startup failed (exit {exc.code})") from exc
 
 
+def _in_role(role: str) -> contextvars.Context:
+    """A context whose tasks name their connections `role` (`wiring.CONNECTION_ROLE`)."""
+    context = contextvars.copy_context()
+    context.run(CONNECTION_ROLE.set, role)
+    return context
+
+
+async def _supervise_worker(settings: Settings) -> None:
+    """Run the worker; restart it in place when infrastructure took it down.
+
+    The worker waits out an outage that meets its drain on its own (`compile_worker.
+    ride_out`). What reaches here is an outage it met where there is nothing to wait in —
+    building its context, the startup self-heal — and the answer is the same: this is not
+    a reason to stop serving the API. One line per restart, with a bounded backoff. A worker
+    that stopped for any other reason propagates, so the engine exits and a supervisor sees
+    it, as it always did.
+    """
+    loop = asyncio.get_running_loop()
+    delay = WORKER_RESTART_START_S
+    while True:
+        started = loop.time()
+        try:
+            await run_forever(settings)
+            return
+        except Exception as exc:
+            fault = infrastructure_fault(exc)
+            if fault is None:
+                raise
+        if loop.time() - started >= WORKER_HEALTHY_AFTER_S:
+            delay = WORKER_RESTART_START_S
+        print(
+            f"[engine] worker stopped: infrastructure unavailable ({fault.describe()}); "
+            f"restarting in {delay:g}s",
+            flush=True,
+        )
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, WORKER_RESTART_MAX_S)
+
+
 async def run_engine(
     settings: Settings,
     *,
@@ -161,7 +215,9 @@ async def run_engine(
     server = _EngineServer(uvicorn.Config(app, host=host, port=port), stopping)
     with server.engine_signals():
         print(f"[engine] starting http://{host}:{port} worker={worker}", flush=True)
-        api_task = asyncio.create_task(_serve(server), name="engine-api")
+        api_task = asyncio.create_task(
+            _serve(server), name="engine-api", context=_in_role(API_CONNECTION_ROLE)
+        )
         # The worker starts only once the API's lifespan has finished starting up. Both
         # build an AppContext, and two contexts starting at once against one database raced
         # on a real cold start: one still applying the schema (DDL) while the other's
@@ -170,8 +226,14 @@ async def run_engine(
         # `apply_schema` covers separate processes, not two contexts in one.
         while worker and not server.started and not api_task.done() and not stopping.is_set():
             await asyncio.sleep(0.05)
+        # Supervised: infrastructure taking the worker down restarts the worker, and never
+        # takes the API with it (`_supervise_worker`).
         worker_task = (
-            asyncio.create_task(run_forever(settings), name="engine-worker")
+            asyncio.create_task(
+                _supervise_worker(settings),
+                name="engine-worker",
+                context=_in_role(WORKER_CONNECTION_ROLE),
+            )
             if worker and server.started
             else None
         )

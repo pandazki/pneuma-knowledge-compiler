@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 
-from contextlib import AsyncExitStack
+from collections.abc import Iterator
+from contextlib import AsyncExitStack, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 from langchain_core.embeddings import DeterministicFakeEmbedding, Embeddings
@@ -44,6 +46,31 @@ from .settings import Settings
 from pneuma_knowledge_core.ports.user_info_provider import UserInfoProvider
 
 log = logging.getLogger(__name__)
+
+#: The process role this task's connections name themselves as (`application_name`), so a
+#: Postgres log line — a backend that crashed, a connection that never closed — says which
+#: client it served. A ContextVar rather than a parameter because the engine runs two roles
+#: on one event loop: it starts the API task and the worker task each in a context of its own
+#: (`engine_process.run_engine`), and each `build_context` below reads its own task's role.
+#: Unset, a process names itself by what it is (`pkc-api`, `pkc-worker`) or, failing that,
+#: `DEFAULT_CONNECTION_ROLE`.
+CONNECTION_ROLE: ContextVar[str | None] = ContextVar("pkc_connection_role", default=None)
+DEFAULT_CONNECTION_ROLE = "pkc-service"
+
+
+def connection_role() -> str:
+    """The role this task's connections name themselves as."""
+    return CONNECTION_ROLE.get() or DEFAULT_CONNECTION_ROLE
+
+
+@contextmanager
+def connection_role_as(role: str) -> Iterator[None]:
+    """Run the enclosed block — typically one `build_context` — under `role`."""
+    token = CONNECTION_ROLE.set(role)
+    try:
+        yield
+    finally:
+        CONNECTION_ROLE.reset(token)
 
 
 def build_chunker(settings: Settings):
@@ -1144,6 +1171,7 @@ async def build_context(
     probe_agent: bool = True,
     probe_embedding: bool = True,
     semantic: bool = True,
+    application_name: str | None = None,
 ) -> AppContext:
     """Assemble the adapter singletons and bring their connections up on the CALLER's
     event loop (pool open, collection probe). Everything the constructors used to do
@@ -1185,7 +1213,11 @@ async def build_context(
     # A stop during startup must close the adapters already opened, even before an
     # AppContext exists for the API lifespan or worker to close.
     async with AsyncExitStack() as cleanup:
-        store = PostgresStore(settings.pg_dsn)
+        # Named by process role (`application_name` if the caller states one, else this
+        # task's `connection_role()`), never over a name the operator's DSN already carries.
+        store = PostgresStore(
+            settings.pg_dsn, application_name=application_name or connection_role()
+        )
         cleanup.push_async_callback(store.aclose)
         await store.open()
         await store.apply_schema()

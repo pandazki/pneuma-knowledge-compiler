@@ -12,6 +12,8 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from pneuma_knowledge_core.compile.patch import PatchDraft
+from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_service.cli import draft
 from pneuma_knowledge_service.coding_agent.backends import CODEX
 from pneuma_knowledge_service.coding_agent.launcher import LaunchResult
@@ -268,6 +270,103 @@ async def test_worker_failure_drops_its_own_draft_and_releases_the_tenant(owned)
     assert await rt.drafts.get(rt.user_id, job) is None
     next_job = await rt.jobs.enqueue(rt.user_id, "compile", {"source_ids": []})
     assert (await rt.jobs.claim_next(rt.user_id)).job_id == next_job
+
+
+async def _leave_work_in(rt, job):  # noqa: ANN001
+    """What a launch had written when its process died: a pending document, and 36 of its
+    40 calls spent."""
+    state = await rt.drafts.get(rt.user_id, job)
+    pending = PatchDraft.from_state(state["draft"])
+    pending.create_document(
+        "memory/topics/continued.md", {"type": "topic", "slug": "continued"}, "## Continued\n"
+    )
+    session = {**state["session"], "spent": 36, "budget": 40}
+    await rt.drafts.put(
+        rt.user_id, job, {**state, "draft": pending.to_state(), "session": session}
+    )
+
+
+async def test_a_dead_launchs_draft_that_holds_work_survives_the_self_heal_and_is_continued(owned):
+    """The self-heal used to drop every draft of a job it requeued. A draft is in the store
+    precisely so it outlives the process that wrote it; now a dead launch's draft that holds
+    work stays with its job, reserves the tenant for that job alone, and the next launch
+    adopts it as it stands."""
+    rt, job = owned.rt, owned.job_id
+    dead = "worker:codex:synthetic-crashed-launch"
+    rt.draft_executor, rt.worker_posture = dead, "unattended"
+    async with rt.drafts.launch(rt.user_id, dead):
+        assert await draft.cmd_open(rt, job) == 0
+        await _leave_work_in(rt, job)
+        left = await rt.drafts.get(rt.user_id, job)
+    # The process is gone, and its lease with it. The startup self-heal runs.
+    behind = await rt.jobs.enqueue(rt.user_id, "compile", {"source_ids": []})
+    assert await rt.jobs.requeue_claimed_jobs(draft_ttl=3600, tenants=[str(rt.user_id)]) == 1
+    kept = await rt.drafts.get(rt.user_id, job)
+    assert kept is not None, "the self-heal threw a round's work away"
+    assert kept["draft"] == left["draft"] and kept["session"]["spent"] == 36
+    assert kept["continue_from"] == dead
+    assert (await rt.jobs.get_job(rt.user_id, job)).status == "queued"
+
+    # Reserved for its own job, and only that job.
+    assert await rt.jobs.claim(rt.user_id, behind) is None
+    claimed = await rt.jobs.claim_next(rt.user_id)
+    assert claimed is not None and claimed.job_id == job
+
+    nxt = replace(
+        rt, draft_executor="worker:codex:synthetic-next-launch",
+        out=io.StringIO(), err=io.StringIO(),
+    )
+    async with rt.drafts.launch(rt.user_id, nxt.draft_executor):
+        assert await rt.jobs.attach_executor(rt.user_id, job, nxt.draft_executor)
+        code, _system, _task = await draft.open_round(nxt, job, claim=False)
+        assert code == 0, nxt.err.getvalue()
+        continued = await rt.drafts.get(rt.user_id, job)
+        assert (await rt.drafts.owner(rt.user_id, job)).executor == nxt.draft_executor
+        assert continued["draft"] == left["draft"]
+        assert continued["session"]["spent"] == 36
+        assert "continue_from" not in continued
+        assert f"continuing the round {dead} left open (36 of 40" in nxt.err.getvalue()
+
+
+async def test_a_live_or_unmarked_draft_is_never_adopted(owned):
+    """Adoption needs both facts: the self-heal's mark AND a dead lease. A launch that is
+    alive keeps its draft even when a mark says otherwise."""
+    rt, job = owned.rt, owned.job_id
+    live = "worker:codex:synthetic-live-launch"
+    rt.draft_executor, rt.worker_posture = live, "unattended"
+    async with rt.drafts.launch(rt.user_id, live):
+        assert await draft.cmd_open(rt, job) == 0
+        await _leave_work_in(rt, job)
+        state = await rt.drafts.get(rt.user_id, job)
+        nxt = replace(rt, draft_executor="worker:codex:synthetic-next", out=io.StringIO(), err=io.StringIO())
+        with pytest.raises(Exception):  # DraftOwnershipError, via the store's own check
+            await rt.drafts.put(rt.user_id, job, state | {"session": {**state["session"], "executor": nxt.draft_executor}}, adopt_from=live)
+        assert (await rt.drafts.owner(rt.user_id, job)).executor == live
+
+
+async def test_the_outage_recovery_touches_only_the_job_it_names(owned):
+    """The worker recovers its OWN interrupted job mid-life; a claim held by any other body
+    — another tenant's, here — is not its business while that body may still be running."""
+    rt, job = owned.rt, owned.job_id
+    neighbour = UserId(f"{rt.user_id}-n")
+    theirs = await rt.jobs.enqueue(neighbour, "compile", {"source_ids": []})
+    assert await rt.jobs.claim(neighbour, theirs) is not None
+    assert await rt.jobs.claim(rt.user_id, job) is not None
+    assert await rt.jobs.requeue_claimed_jobs(draft_ttl=3600, job_id=job) == 1
+    assert (await rt.jobs.get_job(rt.user_id, job)).status == "queued"
+    assert (await rt.jobs.get_job(neighbour, theirs)).status == "claimed"
+    await rt.jobs.release(neighbour, theirs)
+
+
+async def test_a_steward_draft_still_reserves_its_tenant_when_its_row_reads_queued(owned):
+    """The keyless mirror of the PG scenario: only the self-heal's mark lets a draft's own job
+    be claimed; an ordinary open draft reserves the tenant whatever its row says."""
+    rt, job = owned.rt, owned.job_id
+    assert await draft.cmd_open(rt, job) == 0
+    row = await rt.jobs.get_job(rt.user_id, job)
+    row.status, row.claimed_by = "queued", None
+    assert await rt.jobs.claim_next(rt.user_id) is None
+    assert await rt.jobs.claim(rt.user_id, job) is None
 
 
 async def test_a_late_launch_cannot_supply_a_replacements_finished_version_brief(owned, tmp_path):
