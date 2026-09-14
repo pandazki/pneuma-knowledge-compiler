@@ -292,8 +292,13 @@ async def skill_for_user(ctx, user_id: UserId) -> SkillVersion:
     base = load_skill_base(settings.user_schema_base_version)
     profile = await ctx.user_info.get_profile(user_id)
     # derive needs an LLM; a build/route failure degrades to matrix-only packs.
+    # The `skill` role, not `compile`: pack derivation has no draft door, so on a deployment
+    # whose compile is `agent:codex` asking for compile's model would resolve to the agent
+    # spec and silently drop every derived pack. Empty `LLM_MODEL_SKILL` borrows compile
+    # (`wiring._ROLE_FALLBACK`), so a model-executor deployment derives with exactly the model
+    # it did before, and a borrowed `agent:` spec falls to the base model instead of to None.
     try:
-        model = ctx.get_chat_model("compile")
+        model = ctx.get_chat_model("skill")
     except Exception:  # noqa: BLE001
         model = None
     packs = await packs_for_profile(

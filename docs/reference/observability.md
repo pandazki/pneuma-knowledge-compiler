@@ -35,7 +35,7 @@ Tracing is model-agnostic. Keyless `scripted:` / fake chat models go through lan
 |---|---|---|---|
 | `compile` | `compile` | `compile` job in the worker (also the challenge compensation compile) | one per tool-loop turn — a job is N traces, joined by session |
 | `compile.challenge` | `compile.challenge.questions`, `compile.challenge.reflect` | `challenge` job, enqueued after a committed compile when `CHALLENGE_ENABLED` | two per audit round (up to `CHALLENGE_MAX_ROUNDS`) |
-| `compile.groom` | `compile.groom.overview` | `groom` job — a document past `ROLLOVER_THRESHOLD_CHARS` | one (the overview rewrite) |
+| `compile.groom` | `compile.groom.overview` | `groom` job — a document past `ROLLOVER_THRESHOLD_CHARS`; runs on the `groom` role, a chat model under every executor (`LLM_MODEL_GROOM`, empty borrows compile) | one (the overview rewrite) |
 | `chunk.semantic` | `chunk.semantic` | `index` job under `CHUNK_STRATEGY=semantic`, first ingest or a genuine content/model change only — a manifest replay calls no model | one per block window |
 | `evolve.propose` | `evolve.propose` | `evolve` job, phase 1 | one structured call |
 | `evolve.reorganize` | `evolve` | `evolve` job, phase 2 (same job as propose) | one per tool-loop turn |

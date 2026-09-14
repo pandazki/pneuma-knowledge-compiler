@@ -488,7 +488,8 @@ _ROLE_FIELDS = {
     "recall": "llm_model_recall",  # retrieval planning/glance + briefing ask
     "answer": "llm_model_answer",  # final fast-answer generation
     "deep": "llm_model_deep",
-    "skill": "llm_model_skill",
+    "skill": "llm_model_skill",  # schema-pack derivation for a user's first compile
+    "groom": "llm_model_groom",  # rollover's volume card
     "live_context": "llm_model_live_context",  # briefing-scope evaluation + want_more
     "live_discover": "llm_model_live_discover",  # Live Context stage 1 (small reasoning)
     "live_pick": "llm_model_live_pick",  # Live Context stage 3 (weak, reasoning off)
@@ -505,6 +506,15 @@ _ROLE_FIELDS = {
 # `evolve` borrows `compile`'s model when its own field is empty: schema evolve is the same
 # heavy write-side reasoning as a compile (whole-KB reorganization), so a deployment that
 # already pointed compile at a strong model should not have to name it twice. One hop.
+# `groom` and `skill` borrow `compile` for the same reason and with the opposite outcome from
+# `evolve`: both are compile-register judgement (a volume card over closed claims; which schema
+# packs a profile needs), so a deployment that pointed compile at a strong model should get it
+# here too — but NEITHER has a draft door, so neither is in `AGENT_ROLES`, and a compile pointed
+# at a coding agent leaves the borrowed `agent:` spec skipped and the chain on the base model.
+# That is the whole fix for the groom job that failed three times on a coding-agent deployment
+# with `'agent:codex' names a coding-agent executor, not a chat model`: groom used to ASK FOR
+# the compile role by name, which is not a borrow and is therefore not skippable. A role that
+# needs a chat model must name its own role, never another role's.
 _ROLE_FALLBACK = {
     "answer": "recall",
     "live_context": "recall",
@@ -513,6 +523,8 @@ _ROLE_FALLBACK = {
     "evolve": "compile",
     "challenge": "compile",
     "brief": "compile",
+    "groom": "compile",
+    "skill": "compile",
 }
 
 
@@ -546,10 +558,10 @@ def resolve_model_name(settings: Settings, role: str = "default") -> str:
             and value.startswith(AGENT_PREFIX)
             and role not in AGENT_ROLES
         ):
-            # A BORROWED `agent:` spec is not a model this role can run — challenge
-            # and brief borrow compile's field, and pointing compile at a coding agent must
-            # not strand them. The chain keeps falling to the base model instead. A role
-            # that names `agent:` in its OWN field is a different matter: that is a stated
+            # A BORROWED `agent:` spec is not a model this role can run — challenge,
+            # brief, groom and skill borrow compile's field, and pointing compile at a coding
+            # agent must not strand them. The chain keeps falling to the base model instead. A
+            # role that names `agent:` in its OWN field is a different matter: that is a stated
             # misconfiguration and `executor_for` refuses it by name.
             continue
         return value
@@ -784,9 +796,9 @@ def executor_for(settings: Settings, role: str = "compile") -> Executor:
     rather than discovered later: a backend nothing can launch, and an `agent:` spec STATED
     for a role that has no CLI to drive it — in the role's own field, or as the base
     `LLM_MODEL` every role ends at. A role that would merely have BORROWED compile's agent
-    spec through `_ROLE_FALLBACK` (challenge, brief) never gets here: `resolve_model_name`
-    skips the borrowed spec and falls to the base model, so pointing compile at an agent does
-    not strand the roles that need chat models. Both refusals raise naming the role, and `build_context`
+    spec through `_ROLE_FALLBACK` (challenge, brief, groom, skill) never gets here:
+    `resolve_model_name` skips the borrowed spec and falls to the base model, so pointing
+    compile at an agent does not strand the roles that need chat models. Both refusals raise naming the role, and `build_context`
     asks about every role so they land at startup instead of on the first job of that kind.
     """
     spec = resolve_model_name(settings, role)

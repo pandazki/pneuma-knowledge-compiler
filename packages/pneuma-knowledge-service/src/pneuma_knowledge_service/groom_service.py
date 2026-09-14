@@ -47,7 +47,7 @@ from pneuma_knowledge_core.domain.ids import UserId, extract_anchors
 
 from .projection import sync_projection
 from .skills import skill_for_user
-from .wiring import AppContext, llm_call_config
+from .wiring import AppContext, can_build_chat_model, llm_call_config
 
 #: The job kind. On the shared per-user queue next to compile / index / evolve.
 GROOM_JOB_KIND = "groom"
@@ -56,6 +56,13 @@ GROOM_JOB_KIND = "groom"
 # Same shape as the compile gate's one repair round: the first refusal is usually this one
 # output being wrong, not the plan.
 GROOM_CARD_ATTEMPTS = 2
+
+#: The model role the volume card is written by. Its own role rather than `compile`'s, because
+#: the card is ALWAYS a chat-model call: there is no groom draft door, so a groom on a
+#: coding-agent deployment must not be handed compile's `agent:` spec. Empty
+#: `LLM_MODEL_GROOM` borrows compile (`wiring._ROLE_FALLBACK`), so nothing changes for a
+#: deployment whose compile is a model, and a borrowed `agent:` spec falls to the base model.
+GROOM_MODEL_ROLE = "groom"
 
 
 async def _enqueue_oversized(
@@ -183,7 +190,18 @@ async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
     The only model call is the volume card, and it is the only step that can fail for a
     non-mechanical reason. Every terminal state completes the job (never leaves it claimed)
     and records WHY in the job detail, because a rollover that quietly did not happen looks
-    exactly like a rollover that was never triggered.
+    exactly like a rollover that was never triggered. "This deployment has no chat model for
+    the card" is one of those states, not an exception: it is a fact about the deployment that
+    no retry changes, so it is recorded in the same sentence-shaped way as a document that
+    vanished, and canonical is untouched.
+
+    That one call names the `groom` role, NOT `compile`. The role exists so that the card is
+    always a chat model: groom has no draft door, so a deployment whose compile runs on a
+    coding agent (`models.compile: agent:codex`) would otherwise resolve the card to the agent
+    spec and every rollover would die with "names a coding-agent executor, not a chat model".
+    Empty `LLM_MODEL_GROOM` borrows compile, so an API deployment's card is written by exactly
+    the model it was before; a borrowed `agent:` spec is skipped and falls to the base model
+    (`wiring._ROLE_FALLBACK`).
     """
     job_id = getattr(job, "job_id")
     payload = getattr(job, "payload", {}) or {}
@@ -213,6 +231,32 @@ async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
         )
         return
 
+    # A deployment with no chat model for the card cannot roll over — keyless (an
+    # `openrouter:` spec and no key), or every candidate in the chain an agent spec. Asked
+    # BEFORE the card loop and AFTER the plan, so the refusal is only recorded for a rollover
+    # that was really about to happen, and asked without building a client or touching the
+    # network. The build itself is then done once, here rather than per attempt, so a spec
+    # that is unbuildable for any OTHER reason lands in the same refusal instead of escaping
+    # as `worker error: …`. Not a job failure: no retry changes it, and a red row the Owner
+    # reads as breakage is worse than a stated reason. The page stays oversized and the next
+    # compile that writes it triggers a fresh attempt, which succeeds the moment a model is
+    # there.
+    buildable, why = can_build_chat_model(ctx.settings, GROOM_MODEL_ROLE)
+    model = None
+    if buildable:
+        try:
+            model = ctx.get_chat_model(GROOM_MODEL_ROLE)
+        except Exception as exc:  # noqa: BLE001 — any unbuildable spec is the same refusal
+            buildable, why = False, str(exc)
+    if not buildable:
+        await ctx.store.complete(
+            user,
+            job_id,
+            ok=True,
+            detail=f"groom: {path} not rolled over: no chat model for the volume card — {why}",
+        )
+        return
+
     # The anchors a volume-card point may legitimately name: the volume this rollover closes
     # plus every volume already closed for this subject. Enforced again by the gate — this only
     # keeps the model's own output from being silently wrong.
@@ -232,7 +276,7 @@ async def run_groom_job(ctx: AppContext, user: UserId, job: object) -> None:
     detail = ""
     for attempt in range(GROOM_CARD_ATTEMPTS):
         points, reason = await write_overview(
-            model=ctx.get_chat_model("compile"),
+            model=model,
             plan=plan,
             known_anchors=known,
             **llm_call_config(

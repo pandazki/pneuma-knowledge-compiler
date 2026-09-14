@@ -391,7 +391,13 @@ follow-up (§13).
    honour it; an unset evolve role inherits compile's executor. Episodes use the compile
    executor's harness through the index door (§5.12). Briefs are the Steward's text.
    Challenge is skipped under an agent compile executor: no job, door or skill step,
-   even if an API challenge model is configured. The library's attribution trailer does not change; the job record
+   even if an API challenge model is configured.
+   **Every role without a draft door stays on a chat model** — it names its OWN role, and a
+   role that borrows compile (`challenge`, `brief`, `skill`, `groom`) skips a borrowed
+   `agent:` spec down to the base model. Rollover is the case that taught this: groom's one
+   model call, the volume card, has no agent posture, so it is a chat-model call even here.
+   A groom that asked for the `compile` role by name failed every rollover on a live
+   coding-agent library, which is a role a caller borrowed, not a routing table that bent. The library's attribution trailer does not change; the job record
    gains `executor`.
    **Under an agent executor, consumption is the agent's reading, guided by
    `references/consume.md`; the API lanes are quality-testing tools for a keyed console.**
@@ -1300,6 +1306,10 @@ went around the gate is stopped before the next round builds on it, rather than 
   and the worker asks `executor_for(settings, role)` for compile and evolve. Other roles
   naming `agent:` explicitly fail at startup. Episodes share compile's executor and their
   own draft door; challenge is skipped under it, and the agent supplies its own brief.
+  `groom` and `skill` are roles of their own (`LLM_MODEL_GROOM` / `_SKILL`) that borrow
+  compile's field and therefore skip its `agent:` spec: the rollover volume card and the
+  schema-pack derivation are chat-model calls under every executor. A groom on a deployment
+  with no chat model at all completes with the reason stated and writes nothing.
 - **`RoundRunner` in core.** `run_compile` keeps everything around the loop — aliasing,
   `prepare`, the draft, the gate, the commit — and delegates the loop to a protocol with one
   method: run a round under a budget over a draft's tool face, return calls spent, whether

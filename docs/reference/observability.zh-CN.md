@@ -30,7 +30,7 @@ scaffold 项目会把这三个变量同时传给 API 与 worker 容器。若自�
 |---|---|---|---|
 | `compile` | `compile` | worker 的 `compile` job（challenge 的补偿编译也走这里） | 工具循环每一轮一次——一个 job 是 N 条 trace，靠 session 串起来 |
 | `compile.challenge` | `compile.challenge.questions`、`compile.challenge.reflect` | `challenge` job：`CHALLENGE_ENABLED` 时每次编译提交后入队 | 每审计轮两次（最多 `CHALLENGE_MAX_ROUNDS` 轮） |
-| `compile.groom` | `compile.groom.overview` | `groom` job：文档超过 `ROLLOVER_THRESHOLD_CHARS` | 一次（概览重写） |
+| `compile.groom` | `compile.groom.overview` | `groom` job：文档超过 `ROLLOVER_THRESHOLD_CHARS`；跑在 `groom` 角色上，在任何执行器下都是聊天模型（`LLM_MODEL_GROOM`，留空借用 compile） | 一次（概览重写） |
 | `chunk.semantic` | `chunk.semantic` | `CHUNK_STRATEGY=semantic` 下的 `index` job，且仅首次入库或内容/模型真变了——manifest 回放不调模型 | 每个 block 窗口一次 |
 | `evolve.propose` | `evolve.propose` | `evolve` job 的 phase 1 | 一次结构化调用 |
 | `evolve.reorganize` | `evolve` | `evolve` job 的 phase 2（与 propose 同一个 job） | 工具循环每一轮一次 |

@@ -305,6 +305,11 @@ key 部署在 L2 也完整的那件事——是后续项（§13）。
    （`wiring.resolve_model_name`）。compile 与 evolve 都支持；evolve 未单独指定时继承 compile。
    episodes 经索引门使用 compile 执行器的 harness（§5.12），简报由 Steward 自己写。
    agent compile 执行器下跳过 challenge：没有作业、门或技能步骤，即使配置了 API challenge 模型也一样。
+   **没有草稿门的角色一律停在聊天模型上**——它报自己的角色名；借用 compile 的角色
+   （`challenge`、`brief`、`skill`、`groom`）会跳过借来的 `agent:` 规格、落到基础模型。
+   轮转正是教会这一条的那个案例：groom 只有一次模型调用（分卷卡片），它没有 agent 姿态，
+   所以在这里也仍是一次聊天模型调用。一个按名字去要 `compile` 角色的 groom，在真实的编码代理
+   知识库上让每一次轮转都失败——错的是调用方借了别人的角色，不是路由表该为它让步。
    库的归因 trailer 不变；作业记录增加
    `executor`。
    **在 agent 执行器下，消费是 agent 按 `references/consume.md` 指引自行阅读；
@@ -1018,6 +1023,9 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   拒绝据此构造 chat model（执行器不是模型），compile worker 改问 `executor_for(settings,
   role)`，支持 compile 和 evolve。其他角色显式写 `agent:` 会在启动时失败。
   episodes 共享 compile 的执行器并有自己的草稿门；该执行器下跳过 challenge，agent 自己提供简报。
+  `groom` 与 `skill` 是各自独立的角色（`LLM_MODEL_GROOM` / `_SKILL`），借用 compile 的字段，
+  因此会跳过它的 `agent:` 规格：轮转的分卷卡片与 schema pack 推导，在任何执行器下都是聊天模型
+  调用。若某个部署根本没有聊天模型，groom 会把原因写清楚地完结，并且什么也不写。
 - **core 里的 `RoundRunner`。** `run_compile` 保留循环周围的一切——别名、`prepare`、draft、gate、
   提交——把循环委托给一个只有一个方法的协议：在预算下对一份 draft 的工具面跑一轮，返回花掉的调用、
   是否被截断、用量。`LangchainRoundRunner` 就是今天的 `tool_loop`，挪了个位置。CLI 执行器不在进程
