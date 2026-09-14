@@ -766,8 +766,8 @@ def lens_title_duplicate(view: LibraryView) -> list[Finding]:
                 ID_TITLE_DUPLICATE,
                 scope=members[0],
                 paths=tuple(members),
-                targets=tuple(members[1:]),
-                evidence=tuple(members),
+                targets=(),
+                evidence=(title,),
                 fields={
                     "title": title,
                     "paths": ", ".join(members),
