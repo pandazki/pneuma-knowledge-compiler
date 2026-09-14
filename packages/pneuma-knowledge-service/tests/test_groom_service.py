@@ -31,6 +31,7 @@ from pneuma_knowledge_service.groom_service import (
     scan_oversized_documents,
 )
 from pneuma_knowledge_service.settings import Settings
+from pneuma_knowledge_service.wiring import AGENT_PREFIX, resolve_model_name
 
 ACTIVE = "work/products/aurora-planner.md"
 TEMPLATES = ["memory/profile.md", "work/products/{slug}.md"]
@@ -123,13 +124,45 @@ def _skill() -> SkillVersion:
 
 
 def _ctx(store, canonical=None, model=None, **over):
+    settings = Settings(**over)
+    asked: list[str] = []
+
+    def _get_chat_model(role: str = "default"):
+        """The real refusal, not a stub that answers every role.
+
+        `wiring._build_from_name` raises on an `agent:` spec — an executor has no `ainvoke` —
+        so a fake that hands back a model whatever the role is would have let the groom job
+        ask for `compile` on a coding-agent deployment forever. The role is resolved against
+        real Settings here, so what these tests exercise is the deployment's own routing."""
+        asked.append(role)
+        name = resolve_model_name(settings, role)
+        if name.startswith(AGENT_PREFIX):
+            raise RuntimeError(
+                f"{name!r} names a coding-agent executor, not a chat model: ask "
+                "`executor_for(settings, role)` instead of building a model from it"
+            )
+        return model
+
     return SimpleNamespace(
-        settings=Settings(**over),
+        settings=settings,
         store=store,
         canonical=canonical,
-        get_chat_model=lambda role="default": model,
+        get_chat_model=_get_chat_model,
+        asked_roles=asked,
         langfuse_handler=lambda: None,
     )
+
+
+#: A deployment that runs its compile rounds on a coding agent: the one line an Owner writes
+#: (`models.compile: agent:codex`), everything else left as it was.
+AGENT_DEPLOYMENT = {
+    "llm_model": "openrouter:x/base",
+    "llm_model_compile": "agent:codex",
+    "llm_model_groom": "",
+    # The field's validation alias is the unprefixed key name (settings.py), so this is how a
+    # keyed deployment is stated here; the session conftest blanks the env one for every test.
+    "OPENROUTER_API_KEY": "k-test",
+}
 
 
 def _install_stubs(monkeypatch, *, projected=7):
@@ -282,6 +315,68 @@ async def test_a_groom_commits_the_two_files_with_a_skill_trailer_and_reprojects
     assert done["ok"] is True and done["snapshot_ref"] == "sha-groomed"
     assert '"volume":"work/products/aurora-planner/a01.md"' in done["detail"]
     assert '"projected":7' in done["detail"]
+
+
+async def test_a_groom_on_a_coding_agent_deployment_still_runs_its_card_on_a_chat_model(
+    monkeypatch,
+):
+    """The live failure: three groom jobs died with `'agent:codex' names a coding-agent
+    executor, not a chat model` because the volume card asked for the `compile` role by name.
+
+    Groom has no draft door — there is no agent posture for a volume card — so its one call
+    names the `groom` role, which borrows compile and SKIPS a borrowed `agent:` spec down to
+    the base model. A coding-agent library must go on rolling over."""
+    active = _active(30)
+    store, canonical = _FakeStore(), _FakeCanonical([active])
+    _install_stubs(monkeypatch)
+    ctx = _ctx(
+        store, canonical, _good_model(), rollover_keep_recent_chars=400, **AGENT_DEPLOYMENT
+    )
+
+    await run_groom_job(ctx, "u-x", _job())
+
+    assert ctx.asked_roles == ["groom"]  # never "compile"
+    assert resolve_model_name(ctx.settings, "groom") == "openrouter:x/base"
+    assert len(canonical.commits) == 1
+    files, _message = canonical.commits[0]
+    assert set(files) == {ACTIVE, "work/products/aurora-planner/a01.md"}
+    done = store.completed[-1]
+    assert done["ok"] is True and done["snapshot_ref"] == "sha-groomed"
+    assert '"volume":"work/products/aurora-planner/a01.md"' in done["detail"]
+
+
+async def test_a_deployment_with_no_chat_model_states_the_refusal_and_writes_nothing(
+    monkeypatch,
+):
+    """Keyless (or otherwise modelless) is a stated terminal state, not a `worker error`.
+
+    A failed job the Owner reads as breakage, repeated on every rollover, is worse than a
+    sentence saying the rollover did not happen and why — and nothing retried changes the
+    answer. The page stays oversized and untouched until a model is configured."""
+    active = _active(30)
+    store, canonical = _FakeStore(), _FakeCanonical([active])
+    _install_stubs(monkeypatch)
+    ctx = _ctx(
+        store,
+        canonical,
+        _good_model(),
+        rollover_keep_recent_chars=400,
+        llm_model="openrouter:x/base",
+        llm_model_compile="",
+        llm_model_groom="",
+        OPENROUTER_API_KEY="",
+    )
+
+    await run_groom_job(ctx, "u-x", _job())
+
+    assert canonical.commits == []  # no half-rollover
+    assert ctx.asked_roles == []  # the refusal is decided before a client is built
+    done = store.completed[-1]
+    assert done["ok"] is True and done["snapshot_ref"] is None
+    assert done["detail"] == (
+        f"groom: {ACTIVE} not rolled over: no chat model for the volume card — "
+        "openrouter:x/base requires OPENROUTER_API_KEY"
+    )
 
 
 async def test_a_document_that_vanished_completes_the_job_instead_of_failing(monkeypatch):

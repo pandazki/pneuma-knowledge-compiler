@@ -1475,6 +1475,11 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         # meaning-preserving. Orthogonal to every knob above, which is why it is not one.
         "rollover_threshold_chars",
         "rollover_keep_recent_chars",
+        # And the model that writes a rollover's volume card. Empty — the only value any
+        # shipped deployment sets — borrows `models.compile`, so the card is written by the
+        # model the engine already states; this field exists so the role can be SPLIT OFF
+        # (and so a coding-agent compile falls through it to a chat model), not chosen.
+        "llm_model_groom",
         # The post-compile brief is display copy on the History timeline, narrated from the
         # mechanical claim events. Unlike the challenge it never changes what is compiled
         # or retrieved, so it is presentation wiring, not knowledge strategy.

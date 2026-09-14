@@ -23,6 +23,9 @@ from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_service.adapters.draft_mock import InMemoryJobQueue
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import (
+    AGENT_PREFIX,
+    AGENT_ROLES,
+    _ROLE_FIELDS,
     build_chat_model_for,
     check_executors,
     executor_for,
@@ -155,6 +158,42 @@ def test_a_role_that_would_borrow_compiles_agent_spec_falls_to_the_base_model():
     with pytest.raises(ValueError) as err:
         executor_for(config.model_copy(update={"llm_model_challenge": "agent:codex"}), "challenge")
     assert "challenge" in str(err.value)
+
+
+def test_every_role_without_a_draft_door_resolves_to_a_chat_model_under_an_agent_compile():
+    """The whole `_ROLE_FIELDS` table, pinned on the deployment shape that broke rollover.
+
+    `models.compile: agent:codex` with every other role left empty is the ONE line a
+    deployment writes to run on a coding agent, and it must leave every role that has no draft
+    door — recall, answer, deep, skill, live_*, challenge, brief, GROOM — on a chat model. A
+    groom job failed three times on a real library because its volume card asked for the
+    `compile` role by name; the role table is where that class of bug is visible, so the table
+    is asserted whole and derived from `_ROLE_FIELDS` rather than listed here: a role added
+    later is covered the day it is added.
+    """
+    config = Settings(
+        llm_model="openrouter:x/base",
+        llm_model_compile="agent:codex",
+        **{field: "" for role, field in _ROLE_FIELDS.items() if role != "compile"},
+    )
+    check_executors(config)
+    for role in _ROLE_FIELDS:
+        spec = resolve_model_name(config, role)
+        if role in AGENT_ROLES:
+            assert spec == "agent:codex", role  # compile and evolve have doors
+            continue
+        assert not spec.startswith(AGENT_PREFIX), role
+        assert spec == "openrouter:x/base", role
+        assert executor_for(config, role).kind == "langchain", role
+
+
+def test_the_groom_role_borrows_compiles_model_when_compile_is_a_model():
+    """Splitting groom off compile must not change what an API deployment's card is written
+    by: empty `LLM_MODEL_GROOM` is compile's model, and the field is there to override it."""
+    assert resolve_model_name(settings(), "groom") == "openrouter:x/compile"
+    assert resolve_model_name(settings(llm_model_groom="openrouter:x/cheap"), "groom") == (
+        "openrouter:x/cheap"
+    )
 
 
 def test_a_base_model_may_not_be_an_agent():

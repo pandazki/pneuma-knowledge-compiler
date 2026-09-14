@@ -36,7 +36,7 @@
 | 配置 | 默认 | 含义 |
 |---|---|---|
 | `LLM_MODEL` | `openrouter:openai/gpt-5.6-luna` | 基础模型规格，也是所有角色的兜底 |
-| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_LIVE_DISCOVER` / `_LIVE_PICK` / `_CHALLENGE` / `_BRIEF` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
+| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_LIVE_DISCOVER` / `_LIVE_PICK` / `_CHALLENGE` / `_BRIEF` / `_GROOM` | 空 | 按角色覆盖；`answer` 只负责 fast 的最终答题，留空则借用 `recall` |
 | `ANSWER_REASONING_EFFORT` | 空 | 只在 fast 最终答题调用中发送的推理强度；生成项目也留空，保持 provider 默认 |
 | `LLM_TIMEOUT` | `600` | 秒；防挂死，不防慢 |
 | `LLM_MAX_RETRIES` | `3` | 瞬时错误重试（langchain） |
@@ -48,7 +48,7 @@
 | `OVERVIEW_REQUIRED_AFTER_CLAIMS` | `8` | 一份文档能积累多少条账本断言，才必须由**改动它**的那次编译写出总览（至少写 `definition`）——它是上面那条预算的下限。`finish_compile` 先拒，闸门再拒，两处都点名该文档与它的断言数；本轮没碰过的文档不判。模型只维护已经存在的头部，从不主动开一个（实测：真实库 85 个页面里 41 个从未有过总览，其中不乏 20–31 条断言的）。`0` = 关闭。引擎键：`models.overview_required_after_claims` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = 只送带标签的 caption/OCR；`native` = 派生文本加真实图片块；`auto` = 读取编译模型 profile，未知则回落 `caption`。引擎键：`models.image_mode` |
 
-模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-5.6-luna`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`live_discover → recall`、`live_pick → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`，然后是 `LLM_MODEL`。
+模型规格三种形态：`scripted:<路径>`（本地回放、零密钥——且硬覆盖所有角色，scripted 运行完全确定）；`openrouter:<模型>`（需要 `OPENROUTER_API_KEY`）；以及 `init_chat_model` 认识的任意 provider 前缀（如 `anthropic:claude-sonnet-5`、`openai:gpt-5.6-luna`）。角色回退只有一跳：`answer → recall`、`live_context → recall`、`live_discover → recall`、`live_pick → recall`、`evolve → compile`、`challenge → compile`、`brief → compile`、`skill → compile`、`groom → compile`，然后是 `LLM_MODEL`。
 
 其中两个角色属于全量范围的实时上下文车道，它们之所以存在，是因为那条车道每一拍是两次小调用、而不是一次大调用（架构 §7）。`LLM_MODEL_LIVE_DISCOVER`（引擎键 `models.live_discover`）跑第①段——读待处理的对话，决定这一拍到底要不要检索——要的是**小型推理**模型：输出只有几十个 token，需要的是对一场对话的快速判断。`LLM_MODEL_LIVE_PICK`（引擎键 `models.live_pick`）跑第③段——在已经装配好的候选卡片里选一张或一张都不选、写一句短引言、裁剪引用、打分——要的是**又弱又快**的模型，因为这里没有什么要推理的：证据就摆在面前，而且它一个字都不许改写。生成出来的引擎分别写的是 `openrouter:openai/gpt-5.6-sol` 与 `openrouter:openai/gpt-5.6-luna`；两者留空都借用 `recall`，于是已有部署原样继续工作。它们的推理强度由**框架钉死**（发现为 `low`，挑选关闭），并且刻意不做成旋钮：能被部署调高的强度会改变这条车道每一拍的成本，而便宜正是「先花一次调用、再决定要不要检索」这件事的全部理由。`LLM_MODEL_LIVE_CONTEXT` 仍然负责简报范围的那一轮与卡片展开，两者各一次调用，均未改变。脚手架默认让 `recall` 使用 Luna，`answer` 和 `answer_reasoning_effort` 留空：fast 最终答题借用 `recall`，保持 provider 的默认推理强度。单独指定答题模型或推理强度是部署方的可选配置。
 
@@ -59,6 +59,7 @@
 这会改变四项行为：
 
 - **编译与演进都有 agent 门。** `LLM_MODEL_EVOLVE` 接受 `agent:<backend>`，留空时继承 compile 的执行器。两种角色都使用 harness 和各自的持久草稿闸门。challenge 仍跳过借来的 agent 规格、使用基础 API 模型，默认关闭。其他角色显式写 `agent:`，或基础 `LLM_MODEL` 写成它，都会在启动时被拒绝。
+- **没有门的角色一律停在聊天模型上。** 借用 `compile` 的角色——`challenge`、`brief`、`skill`、`groom`——会跳过借来的 `agent:` 规格、落到 `LLM_MODEL`，所以一行（`models.compile: agent:codex`）不会把它们撂在半路。轮转尤其如此：groom 只有一次模型调用（分卷卡片），即使编译跑在编码代理上，它也仍是一次聊天模型调用——groom 没有草稿门。
 - **worker 的姿态覆盖两扇门。** `AGENT_UNATTENDED=true` 时打开并交派 compile/evolve 作业；`false` 时 agent 作业留队等 `pkc draft open` 或 `pkc evolve draft open`。index、projection 和 adopt 等照常排干；两种执行体受同一个逐用户单写者锁约束。
 - **agent 编译自己提供简报。** `pkc draft finish --brief <f>` / `--brief -` 接收不超过 8,000 字符的非空文本；无人值守时 harness 的最后消息在同样界限下补全成功版本缺失的简报。不调用 brief API 模型，显式简报不会被覆盖，且不依赖 API 叙述开关 `BRIEF_ENABLED`。
 - **语义切分降级。** 编码代理不响应 `ainvoke`，所以 `CHUNK_STRATEGY=semantic` 会像 scripted / 无密钥部署一样回落到机械分句；引擎文件里仍然写着 `semantic`，之后补上密钥再跑 `rebuild_derived` 就能补齐。
@@ -167,6 +168,7 @@ id，于是一张按模型报的价目表，也能给通过网关买的同一个
 | `RECALL_HANDOFF_TTL` | `86400` | 一次**待答交接**在被同一个启动自愈删除之前，可以等多少秒。`pkc recall --evidence`（[coding-agent-mode](../design/coding-agent-mode.md) §5.1）把 fast lane 装配好的上下文交给 Steward，并记下这次交接——问题、时刻、library ref、证据清单——好让 `pkc consult answer` 之后把它变成一条咨询。一天足够 Steward 隔夜回来，也短到让无人作答的问题不会一直堆积；超时之后这一行就没了，那个问题也就没有留下任何咨询——事实本来就是如此。`0` 关闭这次清扫 |
 | `ROLLOVER_THRESHOLD_CHARS` | `40000` | 文档超过此字符数入队轮转；`0` 关闭 |
 | `ROLLOVER_KEEP_RECENT_CHARS` | `12000` | 活动文档保留的近期尾部 |
+| `LLM_MODEL_GROOM` | 空 | 轮转写分卷卡片用的模型；留空借用编译角色，借来的 `agent:` 规格则落到 `LLM_MODEL`——这张卡片永远是一次聊天模型调用 |
 | `RECALL_CLAIM_CANDIDATE_CAP` | `80` | 内容包含去重、可选重排与最终上下文裁剪之前的 claim 检索深度 |
 | `RECALL_CLAIM_CAP` | `40` | 进入 fast 最终回答上下文的已编译 claim 数 |
 | `RECALL_WINDOW_CANDIDATE_CAP` | `60` | 检索后保留的词法/raw/episode 融合源区间数 |

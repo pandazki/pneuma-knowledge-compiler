@@ -550,7 +550,11 @@ class Settings(BaseSettings):
         "", "none", "minimal", "low", "medium", "high", "xhigh", "max"
     ] = ""
     llm_model_deep: str = ""  # deep recall (agentic search)
-    llm_model_skill: str = ""  # skill synthesis (future)
+    llm_model_skill: str = ""  # skill synthesis (schema-pack derivation)
+    # Rollover's volume card. Empty borrows the compile role (same canonical-write
+    # judgement register), and a BORROWED `agent:` spec falls through to `llm_model` —
+    # groom has no draft door, so its one call is always a chat model. One hop, like brief.
+    llm_model_groom: str = ""
     llm_model_evolve: str = ""  # schema evolve (phase-1 propose + phase-2 reorganize)
     # Live Context evaluation + its want_more expansion. Empty falls back to
     # llm_model_recall BEFORE llm_model (see wiring._ROLE_FALLBACK): an evaluation is
