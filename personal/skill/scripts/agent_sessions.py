@@ -20,7 +20,10 @@ import sys
 import tempfile
 
 SCHEMA = "pneuma.source.agent-session/v1"
-CONVERTER_VERSION = 2
+#: 3: harness-injected context is no longer the Owner's words (`INJECTED_TURNS`), and the
+#: triage record counts the blocks it removed. Payload bytes changed, so a session ingested
+#: by an older converter is a different source if it is ever converted again.
+CONVERTER_VERSION = 3
 # The harness names the agent's turns are labelled with in L0, keyed by provider id.
 AGENT_NAMES = {"codex": "Codex", "claude-code": "Claude Code"}
 ACKNOWLEDGEMENTS = frozenset({
@@ -35,11 +38,76 @@ ALL_PROJECTS = "all"
 STEWARD_COMMANDS = frozenset({"pkc", "pkchome"})
 #: How far into a transcript to look for the directory it was opened in.
 CWD_SCAN_ROWS = 40
-CONTEXT_PREFIXES = (
-    "# AGENTS.md instructions", "<environment_context>", "<user_instructions>",
-    "<permissions instructions>", "<turn_aborted>", "<system-reminder>",
-    "<local-command-caveat>", "<local-command-stdout>",
+#: Wrappers a harness staples into what a reader would take for the Owner's own turn.
+#:
+#: The set is EXPLICIT — never "anything shaped like a tag" — because an Owner may
+#: legitimately paste XML, and dropping their words is worse than keeping a wrapper. Every
+#: entry below was found in real transcripts of both harnesses.
+#:
+#: `INJECTED_TURNS`: the harness speaks the WHOLE block. Whatever follows the element is
+#: the harness's prose too — `<system-info …></system-info>` is followed by the mode's
+#: briefing ("The user just opened the workspace…"), never by the Owner — so the block goes
+#: whole. A block holding only the closing half (Codex splits `<image …>` … `</image>`
+#: across blocks) is the same injection.
+INJECTED_TURNS = (
+    "system-info", "system-reminder", "permissions instructions", "turn_aborted",
+    "command-name", "command-message", "local-command-caveat", "local-command-stdout",
+    "local-command-stderr", "environment_context", "user_instructions", "task-notification",
+    "subagent_notification", "recommended_plugins", "codex_internal_context", "goal_context",
+    "hook_prompt", "user_action", "heartbeat", "fork-boilerplate", "skill", "image",
+    "pneuma:askq-answer",
 )
+#: `INJECTED_PREFIXES`: the harness staples a header in FRONT of what the Owner typed, in
+#: the same block — `<pneuma:env … />\n讲一节课：…`. Only the element is removed and the
+#: Owner's words stay: of 366 `pneuma:env` blocks on this machine, 155 carry the Owner's
+#: real question after the tag.
+INJECTED_PREFIXES = ("pneuma:env", "uploaded-files", "viewer-context", "in-app-browser-context")
+#: Plain-text preambles: the same rule, with no element to close.
+INJECTED_TEXT = ("# AGENTS.md instructions",)
+
+
+def _tag(name: str) -> str:
+    """`<tag>`, `<tag …>`, `<tag …/>` and the bare `</tag>`, by name and not by prefix.
+
+    The lookahead is the boundary: `<system-info…` matches, `<system-information>` does not.
+    """
+    return rf"<\s*/?\s*{re.escape(name)}(?=[\s/>])"
+
+
+TURN_WRAPPERS = tuple(re.compile(_tag(name), re.I) for name in INJECTED_TURNS) + tuple(
+    re.compile(re.escape(text), re.I) for text in INJECTED_TEXT)
+PREFIX_WRAPPERS = tuple((re.compile(rf"<\s*{re.escape(name)}(?=[\s/>])[^>]*>", re.I),
+                         re.compile(rf"<\s*/\s*{re.escape(name)}\b[^>]*>", re.I))
+                        for name in INJECTED_PREFIXES)
+
+
+def strip_injected(text: str) -> tuple[str, bool]:
+    """One text block as the Owner's own words, and whether a wrapper was removed.
+
+    A block whose head is an injected turn wrapper is the harness speaking and comes back
+    empty. A prefix wrapper is cut from the head, repeatedly — one turn may carry several —
+    and what the Owner typed after it stays. A block with no wrapper at its head is returned
+    byte for byte, leading whitespace included: an Owner who writes `<system-info>` inside a
+    sentence keeps their words.
+    """
+    body, injected = text.lstrip(), False
+    while body:
+        if any(pattern.match(body) for pattern in TURN_WRAPPERS):
+            return "", True
+        for opening, closing in PREFIX_WRAPPERS:
+            match = opening.match(body)
+            if match:
+                break
+        else:
+            break
+        end = match.end()
+        if not match.group(0).rstrip().endswith("/>"):
+            # An unclosed opening tag ends the wrapper at itself: what follows may be the
+            # Owner's, and only the tag is certainly not.
+            found = closing.search(body, end)
+            end = found.end() if found else end
+        body, injected = body[end:].lstrip(), True
+    return (body if injected else text), injected
 
 
 def timestamp(value: str) -> datetime:
@@ -74,19 +142,37 @@ def subagent(value) -> bool:
     )
 
 
-def text_content(content, *, owner: bool = False) -> str:
-    """Keep text blocks in order; join distinct blocks with one newline, never strip them."""
+def text_blocks(content) -> list[str]:
+    """The text blocks of one message, in order. A bare string is one block."""
     if isinstance(content, str):
-        texts = [content]
-    elif isinstance(content, list):
-        texts = [block["text"] for block in content if isinstance(block, dict)
-                 and block.get("type") in {"text", "input_text", "output_text"}
-                 and isinstance(block.get("text"), str)]
-    else:
-        texts = []
-    if owner:
-        texts = [text for text in texts if not text.lstrip().startswith(CONTEXT_PREFIXES)]
-    return "\n".join(texts)
+        return [content]
+    if isinstance(content, list):
+        return [block["text"] for block in content if isinstance(block, dict)
+                and block.get("type") in {"text", "input_text", "output_text"}
+                and isinstance(block.get("text"), str)]
+    return []
+
+
+def text_content(content) -> str:
+    """Keep text blocks in order; join distinct blocks with one newline, never strip them."""
+    return "\n".join(text_blocks(content))
+
+
+def owner_text(content) -> tuple[str, int]:
+    """What the Owner actually typed, and how many blocks carried harness-injected context.
+
+    Harness-injected context is never the Owner's words. A block the harness owns whole
+    leaves nothing behind and is not joined at all; a block it merely prefixed keeps what
+    the Owner typed. A block with no wrapper passes through byte for byte.
+    """
+    kept, injected = [], 0
+    for block in text_blocks(content):
+        text, stripped = strip_injected(block)
+        injected += stripped
+        if stripped and not text.strip():
+            continue
+        kept.append(text)
+    return "\n".join(kept), injected
 
 
 def action_stub(name, arguments=None) -> str:
@@ -128,12 +214,16 @@ class Session:
     turns: list[dict] = field(default_factory=list)
     last_at: datetime | None = None
     timestamp_repairs: int = 0
+    #: Owner text blocks harness-injected context was removed from (`owner_text`).
+    injected_blocks: int = 0
 
     def observe_time(self, value) -> None:
         if value is not None:
             self.last_at = timestamp(value)
 
     def add(self, role: str, kind: str, text: str) -> None:
+        # An Owner turn that was only a harness wrapper has no text left and is no turn:
+        # it counts toward nothing in triage and reaches no payload.
         if not text.strip():
             return
         if self.last_at is None:
@@ -205,7 +295,9 @@ def read_claude(path: Path, project: Path, data: bytes | None = None) -> Session
             continue
         content = message.get("content")
         if row["type"] == "user":
-            session.add("owner", "say", text_content(content, owner=True))
+            text, injected = owner_text(content)
+            session.injected_blocks += injected
+            session.add("owner", "say", text)
         else:
             if message.get("model"):
                 session.model = str(message["model"])
@@ -255,21 +347,28 @@ def read_codex(path: Path, project: Path, data: bytes | None = None) -> Session:
             if identity:
                 seen.add(key)
             if item_type == "message" and payload.get("role") in {"user", "assistant"}:
-                owner = payload["role"] == "user"
-                session.add("owner" if owner else "agent", "say" if owner else "narrative",
-                            text_content(payload.get("content"), owner=owner))
+                if payload["role"] == "user":
+                    text, injected = owner_text(payload.get("content"))
+                    session.injected_blocks += injected
+                    session.add("owner", "say", text)
+                else:
+                    session.add("agent", "narrative", text_content(payload.get("content")))
             elif item_type in {"function_call", "custom_tool_call", "tool_call"}:
                 session.add("agent", "action", action_stub(payload.get("name"), payload.get("arguments")))
         elif kind == "event_msg" and payload.get("type") in {"user_message", "agent_message"}:
             owner = payload["type"] == "user_message"
-            text = text_content(payload.get("message"), owner=owner)
+            text, injected = (owner_text(payload.get("message")) if owner
+                              else (text_content(payload.get("message")), 0))
             if text.strip() and session.last_at is not None:
                 events.append({"role": "owner" if owner else "agent", "kind": "say" if owner else "narrative",
-                               "at": session.last_at.isoformat(), "text": text})
+                               "at": session.last_at.isoformat(), "text": text, "injected": injected})
     # Older rollouts may have event messages only. Prefer response items per role:
     # modern rollouts repeat those exact messages in event_msg (including final answers).
     roles = {turn["role"] for turn in session.turns if turn["kind"] != "action"}
-    session.turns.extend(turn for turn in events if turn["role"] not in roles)
+    # Event mirrors of counted response items are dropped here, and with them their count.
+    retained = [turn for turn in events if turn["role"] not in roles]
+    session.injected_blocks += sum(turn.pop("injected") for turn in retained)
+    session.turns.extend(retained)
     return session.finish()
 
 
@@ -424,8 +523,11 @@ def triage(session: Session, *, min_owner_turns: int = 3, min_owner_chars: int =
         reasons.append("steward_session")
     verdict = ("skip" if steward or not owners or chars < min_owner_chars or session.project_conflict
                else "index" if reasons else "compile")
+    # A session demoted by the injection rule says so: the blocks it dropped are named,
+    # not left as a mysterious distance below the threshold.
     return {"verdict": verdict, "canonical_treatment": "full" if verdict == "compile" else "none",
-            "reasons": reasons, "owner_turns": len(owners), "owner_chars": chars, "purpose": purpose,
+            "reasons": reasons, "owner_turns": len(owners), "owner_chars": chars,
+            "injected_blocks": session.injected_blocks, "purpose": purpose,
             "thresholds": {"min_owner_turns": min_owner_turns, "min_owner_chars": min_owner_chars,
                            "ack_max_words": ack_max_words}}
 
@@ -739,7 +841,9 @@ def pending_turns(session: Session, earlier: Session, exported: int) -> Session:
             turns.append({**turn, "turn_id": f"t{exported + len(turns) + 1}"})
     if any(seen.values()):
         raise ValueError("rewritten: previously retained turns changed")
-    return replace(session, turns=turns)
+    # The count describes this increment, as its owner_turns/owner_chars do.
+    return replace(session, turns=turns,
+                   injected_blocks=max(session.injected_blocks - earlier.injected_blocks, 0))
 
 
 def legacy_prefix(session: Session, data: bytes, entry: dict, owner_id: str, options: dict):

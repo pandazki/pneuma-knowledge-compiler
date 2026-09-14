@@ -195,6 +195,128 @@ def test_multiblock_owner_message_counts_once_and_duplicate_uuid_is_ignored(prov
     assert sessions.triage(session, min_owner_chars=0)["owner_turns"] == 1
 
 
+# Synthetic wrappers in the shapes both harnesses really inject: a whole injected turn,
+# a self-closing header, a paired element whose tail is the harness's own prose, a case
+# variant, and the closing half Codex emits as a block of its own.
+INJECTED = [
+    '<system-info pneuma-mode="Synthetic Mode" session="new"></system-info>\n'
+    "The user just opened the workspace. Greet them briefly and offer to help.",
+    '<pneuma:env reason="opened" mode="synthetic" user_locale="en" />',
+    "<system-reminder>\n" + OMITTED + "\n</system-reminder>",
+    "<command-name>/compact</command-name>\n<command-message>compact</command-message>",
+    "<local-command-stderr>" + OMITTED + "</local-command-stderr>",
+    "<turn_aborted>\n" + OMITTED + "\n</turn_aborted>",
+    "<permissions instructions>" + OMITTED + "</permissions instructions>",
+    '<image name=[Image #1] path="/synthetic/clipboard.png">',
+    "</image>",
+    '<SYSTEM-INFO session="new"/>',
+    "  <task-notification>\n" + OMITTED + "\n</task-notification>",
+]
+# The fixtures' own injected blocks: the Codex rollout opens with the AGENTS.md preamble
+# and an environment_context, the Claude transcript with neither.
+BASELINE_INJECTED = {"claude-code": 0, "codex": 2}
+
+
+def rewrite(files, provider, extra_owner_blocks):
+    """The fixture transcript with one more Owner turn per block list, at the end."""
+    blocks = [[content] if isinstance(content, str) else content for content in extra_owner_blocks]
+    if provider == "claude-code":
+        rows = claude_rows(files.project) + [
+            claude_row("user", [{"type": "text", "text": text} for text in content], 11 + index)
+            for index, content in enumerate(blocks)]
+        return write_jsonl(files.claude_file, rows)
+    rows = codex_rows(files.project) + [
+        codex_row("response_item", {"type": "message", "role": "user",
+                                    "content": [{"type": "input_text", "text": text} for text in content]},
+                  11 + index)
+        for index, content in enumerate(blocks)]
+    return write_jsonl(files.codex_file, rows)
+
+
+@pytest.mark.parametrize("provider", ["claude-code", "codex"])
+@pytest.mark.parametrize("wrapper", INJECTED)
+def test_a_turn_that_is_only_harness_context_is_not_an_owner_turn(provider_files, provider, wrapper):
+    rewrite(provider_files, provider, [wrapper])
+    session = read_provider(provider_files, provider)
+    assert [turn["text"] for turn in session.turns if turn["role"] == "owner"] == OWNER_TEXTS
+    assert session.injected_blocks == BASELINE_INJECTED[provider] + 1
+    verdict = sessions.triage(session)
+    # The count is in the record, so a demotion by this rule is legible.
+    assert verdict["injected_blocks"] == BASELINE_INJECTED[provider] + 1
+    assert verdict["owner_turns"] == 3 and verdict["verdict"] == "compile"
+    payload = session.payload("lib-notes", verdict)
+    assert wrapper.strip() not in json.dumps(payload, ensure_ascii=False)
+    assert payload["metadata"]["triage"]["injected_blocks"] == BASELINE_INJECTED[provider] + 1
+
+
+TYPED = "Keep the offline guarantee in the overview, and cite the decision date."
+
+
+@pytest.mark.parametrize("provider", ["claude-code", "codex"])
+@pytest.mark.parametrize("blocks", [
+    # One block: the wrapper heads the Owner's own text, which is how both harnesses write it.
+    ['<pneuma:env reason="opened" mode="synthetic" user_locale="en" />\n' + TYPED],
+    # Several wrappers stapled in front of one another, then the Owner.
+    ['<pneuma:env reason="opened" mode="synthetic" />\n'
+     '<uploaded-files count="1" dir=".pneuma/uploads/">\n  <file path="notes.md" />\n</uploaded-files>\n\n'
+     '<viewer-context mode="synthetic" file="index.html">\nViewing page 1/1\n</viewer-context>\n\n' + TYPED],
+    # The other shape: the wrapper is a block of its own beside the Owner's block.
+    [['<pneuma:env reason="opened" mode="synthetic" />', TYPED]],
+    [['<system-info session="new"></system-info>\nThe user just opened the workspace.', TYPED]],
+])
+def test_a_wrapper_in_front_of_the_owners_words_costs_only_the_wrapper(provider_files, provider, blocks):
+    rewrite(provider_files, provider, blocks)
+    session = read_provider(provider_files, provider)
+    assert [turn["text"] for turn in session.turns if turn["role"] == "owner"] == [*OWNER_TEXTS, TYPED]
+    assert session.injected_blocks == BASELINE_INJECTED[provider] + 1
+
+
+@pytest.mark.parametrize("provider", ["claude-code", "codex"])
+def test_a_session_of_only_harness_context_is_never_compiled(provider_files, provider):
+    if provider == "claude-code":
+        rows = [claude_row("user", text, index) for index, text in enumerate(INJECTED, 1)]
+        write_jsonl(provider_files.claude_file, rows)
+    else:
+        rows = [codex_rows(provider_files.project)[0]] + [
+            codex_message("user", text, index) for index, text in enumerate(INJECTED, 1)]
+        write_jsonl(provider_files.codex_file, rows)
+    session = read_provider(provider_files, provider)
+    assert not [turn for turn in session.turns if turn["role"] == "owner"]
+    verdict = sessions.triage(session, min_owner_chars=0)
+    assert verdict["verdict"] == "skip" and "no_owner_turns" in verdict["reasons"]
+    assert verdict["injected_blocks"] == len(INJECTED)
+    with pytest.raises(ValueError, match="owner turn"):
+        session.payload("lib-notes", verdict)
+
+
+@pytest.mark.parametrize("text, kept", [
+    # An Owner may legitimately write about a wrapper. Their words are not the harness's.
+    ("The harness injects a <system-info> element here, which I want documented.", False),
+    ("<system-information> is a tag I invented for this note.", False),
+    ("<systeminfo>not the wrapper</systeminfo>", False),
+    ("<pneuma:environment>mine</pneuma:environment>", False),
+    ("<system-info-extra>mine</system-info-extra>", False),
+    # The wrapper itself, in every spelling a harness writes it.
+    ("<system-info/>", True),
+    ("<system-info />", True),
+    ('<SYSTEM-INFO mode="x"></SYSTEM-INFO>', True),
+    ("  \n<turn_aborted>\ninterrupted\n</turn_aborted>", True),
+    ("# AGENTS.md instructions for momo", True),
+])
+def test_the_wrapper_set_is_matched_by_name_and_never_by_resemblance(text, kept):
+    result, injected = sessions.strip_injected(text)
+    assert injected is kept
+    assert result == ("" if kept else text)
+
+
+def test_an_owner_turn_with_nothing_left_is_added_to_nothing():
+    session = sessions.Session("codex", "synthetic", Path("synthetic.jsonl"), Path("/synthetic/momo"))
+    session.last_at = sessions.timestamp("2026-09-01T10:00:00+08:00")
+    for text in ("", "   \n ", "<system-reminder>a reminder</system-reminder>"):
+        session.add("owner", "say", sessions.owner_text(text)[0])
+    assert session.finish().turns == []
+
+
 def test_codex_old_event_only_rollout_and_repeated_real_messages(provider_files):
     rows = [codex_rows(provider_files.project)[0]] + [
         codex_row("event_msg", {"type": "user_message", "message": text}, index)
