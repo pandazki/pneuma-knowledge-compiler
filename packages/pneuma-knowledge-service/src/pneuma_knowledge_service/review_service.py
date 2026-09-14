@@ -27,7 +27,6 @@ from __future__ import annotations
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.prompts import prompt
 
-from .lens import check_report
 
 #: The job kind. `job_lanes.py` classifies it into the canonical lane by this spelling, and
 #: `tests/test_job_lanes.py` pins the two against each other.
@@ -41,6 +40,11 @@ REVIEW_TASK_KEY = "steward.review.task"
 
 def render_check_task(report, *, bound: int = 0) -> str:
     """The check's report as the round's task text, bounded, with the instruction under it.
+
+    Called when the round OPENS and never at enqueue: a review job may sit in the queue
+    behind a compile that repairs half of what the check found, and a task frozen at enqueue
+    would send the round after findings that no longer exist. That is also why the queued row
+    carries no payload — there is nothing about the library for it to hold.
 
     The report first and the instruction after it, because the instruction is written about
     the report ("repair what a round can repair") and a reader meets the subject before the
@@ -75,17 +79,6 @@ def render_check_task(report, *, bound: int = 0) -> str:
     return "\n".join(lines).strip("\n") + "\n\n" + prompt(REVIEW_TASK_KEY).strip("\n")
 
 
-async def review_task(ctx, user_id: UserId, *, at: str | None = None) -> str:
-    """The round's task text, computed from this library as it stands.
-
-    Computed at OPEN and not at enqueue: a job may sit in the queue behind a compile that
-    repairs half of what the check found, and a task frozen at enqueue would send the round
-    after findings that no longer exist.
-    """
-    report = await check_report(ctx, user_id, at=at)
-    return render_check_task(report, bound=int(ctx.settings.agent_task_structure_chars))
-
-
 async def enqueue_review(ctx, user_id: UserId) -> str:
     """Queue one review round for this library. Returns the job id.
 
@@ -100,5 +93,4 @@ __all__ = [
     "REVIEW_TASK_KEY",
     "enqueue_review",
     "render_check_task",
-    "review_task",
 ]

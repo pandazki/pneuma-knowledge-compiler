@@ -38,9 +38,19 @@ from pneuma_knowledge_service.review_service import (
     render_check_task,
 )
 from pneuma_knowledge_service.settings import Settings
+from pneuma_knowledge_core.compile.session import DraftSession
+from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+from pneuma_knowledge_core.domain.ids import DocumentId
+from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+from pneuma_knowledge_service.cli import draft as draft_cmd, review as review_cli
+from pneuma_knowledge_service.coding_agent.round_runner import COMMITTED_BY_HARNESS
+from pneuma_knowledge_service.lens import read_check_over
 from pneuma_knowledge_service.workers import compile_worker
 
 from _cli_library import USER, document, library  # noqa: E402
+from test_agent_round import FakeHarness, runner  # noqa: E402
+from test_draft_cli import SKILL, FakeCanonicalStore  # noqa: E402
+from test_draft_cli import USER as DRAFT_USER  # noqa: E402
 
 PAGE = "memory/topics/pricing.md"
 OTHER = "memory/people/cheng-ye.md"
@@ -390,15 +400,167 @@ async def test_under_a_model_executor_the_review_round_is_skipped_and_says_so(mo
     assert completed["ok"] and "not a coding agent" in (completed["detail"] or "")
 
 
-def test_the_review_round_is_finished_by_the_ordinary_gate():
-    """No second rulebook: its OPEN is its own (the task is a report, not a source), and its
-    FINISH is `cli/draft.py`'s — the same predicates judging the same kind of draft."""
+# ───────────────────────────────────── the round, over the runtime the worker really builds
+
+#: A page written before the leading-`# ` rule existed: the check reports `id.title_degenerate`
+#: against it and names `retitle` as the repair, so one round can actually close it.
+UNNAMED = "memory/people/legacy.md"
+
+
+def _legacy_base():
+    return [
+        CanonicalDocument(
+            doc_id=DocumentId("legacy01"),
+            path=UNNAMED,
+            frontmatter={"doc_id": "legacy01", "type": "person", "slug": "legacy"},
+            body="## 旧页\n\n- 旧的一条。[cite: src-old ¶0] <!-- c:bb22 -->",
+        )
+    ]
+
+
+async def review_runtime(base=None):
+    """A REAL `DraftRuntime` for a queued review job — the dataclass, not a stand-in.
+
+    This is the fixture the missing test needed. `open_round` reached for `rt.ctx`, which a
+    `DraftRuntime` does not carry, and every test that "covered" the round did so through a
+    `SimpleNamespace` or by reading the source for a string — so the round died at open on the
+    Owner's library with nothing to show for it. A runtime with exactly the fields the real one
+    has is the only fixture that can tell the two apart.
+    """
+    store = FakeCanonicalStore(_legacy_base() if base is None else base)
+    jobs = InMemoryJobQueue()
+    drafts = InMemoryDraftStore(jobs)
+    job_id = await jobs.enqueue(DRAFT_USER, REVIEW_JOB_KIND, {})
+
+    async def no_inputs(job):  # noqa: ANN001
+        # PINNED rather than stubbed: a review round has no source, so anything that reached
+        # for compile material would be reaching for material this job never had.
+        raise AssertionError("a review round loads no compile inputs")
+
+    async def no_sources(ids):  # noqa: ANN001
+        assert not list(ids), "a review round's session names no sources"
+        return []
+
+    async def load_bounds():
+        return None
+
+    rt = draft_cmd.DraftRuntime(
+        user_id=DRAFT_USER,
+        canonical=store,
+        drafts=drafts,
+        jobs=jobs,
+        skill=SKILL,
+        load_inputs=no_inputs,
+        load_sources=no_sources,
+        load_bounds=load_bounds,
+        overview_budget_chars=2000,
+        overview_required_after_claims=8,
+        kind=REVIEW_JOB_KIND,
+        out=io.StringIO(),
+        err=io.StringIO(),
+    )
+    return rt, jobs, drafts, store, job_id
+
+
+async def test_the_round_opens_over_what_the_runtime_carries_and_nothing_else():
+    """The regression. `open_round` may read only the runtime's own fields — `canonical`,
+    `skill.path_templates` — because that is all a `DraftRuntime` has."""
+    rt, _jobs, drafts, _store, job_id = await review_runtime()
+    code, system_text, task_text = await review_cli.open_round(rt, job_id)
+    assert code == draft_cmd.EXIT_OK, rt.err.getvalue()
+
+    assert task_text.startswith("review · ")  # the report's own head
+    assert "id.title_degenerate" in task_text and UNNAMED in task_text
+    assert prompt(REVIEW_TASK_KEY).strip("\n") in task_text
+    assert system_text.strip(), "the round is given the write contract it is judged by"
+
+    state = await drafts.get(DRAFT_USER, job_id)
+    assert state is not None and state["kind"] == REVIEW_JOB_KIND
+    assert state["session"]["task_sha256"]
+
+
+async def test_the_round_refuses_a_job_of_another_kind():
+    rt, jobs, _drafts, _store, _job_id = await review_runtime()
+    other = await jobs.enqueue(DRAFT_USER, "compile", {"source_ids": ["src-01"]})
+    code, _system, _task = await review_cli.open_round(rt, other)
+    assert code == draft_cmd.EXIT_REFUSED
+    assert "not a review job" in rt.err.getvalue()
+
+
+async def test_the_worker_path_opens_the_round_and_the_harness_repairs_what_it_found(tmp_path):
+    """The whole round as the worker runs it: the runner opens the draft, hands the report to
+    a harness, and the harness's repair goes through the ORDINARY verbs and the ordinary gate.
+
+    Only the subprocess is a double. Everything else — the open, the `retitle`, the gate, the
+    commit, the job row — is the shipped code."""
+    rt, jobs, drafts, store, job_id = await review_runtime()
+    assert await jobs.claim(DRAFT_USER, job_id) is not None
+
+    seen: dict = {}
+
+    async def look(inside):  # noqa: ANN001 — the runtime, mid-round
+        seen["state"] = await inside.drafts.get(inside.user_id, job_id)
+
+    fake = FakeHarness(rt, [[look, ("retitle", {"path": UNNAMED, "title": "旧页"}), "finish"]])
+    result = await runner(fake, tmp_path).run_job(rt, job_id)
+
+    (request,) = fake.requests
+    assert "id.title_degenerate" in request.task_text, "the round was not given the report"
+    assert prompt(REVIEW_TASK_KEY).strip("\n") in request.task_text
+    assert "already open" in request.task_text  # the unattended preamble rides above it
+    assert seen["state"]["kind"] == REVIEW_JOB_KIND, "no draft was open during the round"
+
+    assert result.outcome == COMMITTED_BY_HARNESS
+    assert len(store.commits) == 1
+    assert "# 旧页" in store.commits[-1][UNNAMED]
+    assert jobs.completed and jobs.completed[0]["ok"] is True
+
+
+async def test_the_repaired_page_no_longer_answers_for_the_finding(tmp_path):
+    """The round is measurable the way the design says: the same library, a reading before and
+    a reading after (§7). Nothing asserts it IMPROVES — this asserts the loop is closed."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+    before, _docs = await read_check_over(store, DRAFT_USER, SKILL.path_templates)
+    assert any(f.id == "id.title_degenerate" for f in before.findings)
+
+    assert await jobs.claim(DRAFT_USER, job_id) is not None
+    fake = FakeHarness(rt, [[("retitle", {"path": UNNAMED, "title": "旧页"}), "finish"]])
+    await runner(fake, tmp_path).run_job(rt, job_id)
+
+    after, _docs = await read_check_over(store, DRAFT_USER, SKILL.path_templates)
+    assert not any(
+        f.id == "id.title_degenerate" and UNNAMED in f.paths for f in after.findings
+    )
+
+
+async def test_a_review_draft_reopens_as_a_review_draft_and_not_as_a_compile_one():
+    """The second half of the same defect. `DraftSession.from_state` allow-lists the kinds it
+    will reopen, so a kind missing from that list comes back as `compile` — and every shared
+    command then refuses the round it is standing in with "the open draft is compile". The
+    round survives one command and dies on the next, which no in-memory session can show."""
+    rt, _jobs, drafts, _store, job_id = await review_runtime()
+    code, _system, _task = await review_cli.open_round(rt, job_id)
+    assert code == draft_cmd.EXIT_OK, rt.err.getvalue()
+
+    state = await drafts.get(DRAFT_USER, job_id)
+    assert DraftSession.from_state(state["session"]).kind == REVIEW_JOB_KIND
+    assert await draft_cmd.draft_kind(rt, job_id) == REVIEW_JOB_KIND
+    # And the shared verbs accept it, which is the thing the kind is read for.
+    assert await draft_cmd.cmd_status(rt) == draft_cmd.EXIT_OK, rt.err.getvalue()
+
+
+def test_the_round_reads_only_fields_the_runtime_has():
+    """The audit, mechanically. `open_round` runs on a `DraftRuntime` and on nothing else, so
+    every `rt.<field>` it names must be one — the defect was a single `rt.ctx`."""
     import inspect
+    import re
 
-    from pneuma_knowledge_service.cli import review as review_cli
-    from pneuma_knowledge_service.coding_agent import round_runner
+    fields = set(draft_cmd.DraftRuntime.__dataclass_fields__)
+    named = set(re.findall(r"\brt\.([a-z_]+)", inspect.getsource(review_cli)))
+    assert named <= fields, f"not on DraftRuntime: {sorted(named - fields)}"
 
+
+def test_the_round_has_no_finish_of_its_own():
+    """Its OPEN is its own — the task is a report, not a source — and its FINISH is
+    `cli/draft.py`'s, so the same predicates judge the same kind of draft."""
     assert not hasattr(review_cli, "cmd_finish")
-    body = inspect.getsource(round_runner.AgentRoundRunner._run_owned_job)
-    assert 'elif rt.kind == "review"' in body
-    assert "from ..cli.review import open_round as open_draft" in body

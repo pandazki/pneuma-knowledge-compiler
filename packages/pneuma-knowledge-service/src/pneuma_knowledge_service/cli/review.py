@@ -18,12 +18,11 @@ from __future__ import annotations
 from pneuma_knowledge_core.compile.patch import PatchDraft
 from pneuma_knowledge_core.compile.runner import first_round_budget
 from pneuma_knowledge_core.compile.session import DraftSession, content_sha256
-from pneuma_knowledge_core.components import component_job
 from pneuma_knowledge_core.domain.archive import live_documents
 from pneuma_knowledge_core.skill.contract import render_system_contract
 
+from ..lens import read_check_over
 from ..review_service import REVIEW_JOB_KIND, render_check_task
-from ..lens import read_check
 from . import draft as shared
 from .draft import DraftRuntime
 
@@ -40,6 +39,7 @@ async def build_runtime(ctx, user_id, *, executor=None) -> DraftRuntime:
     return await build(ctx, user_id, executor=executor, kind=REVIEW_JOB_KIND)
 
 
+@shared.draft_command
 async def open_round(
     rt: DraftRuntime, job_id: str, *, claim: bool = True
 ) -> tuple[int, str, str]:
@@ -105,10 +105,14 @@ async def open_round(
             f"job {job_id} is claimed by {job.claimed_by}; cannot join its round"
         )
 
-    report, documents = await read_check(rt.ctx, rt.user_id)
-    task_text = render_check_task(
-        report, bound=int(rt.task_structure_chars)
+    # Over what the RUNTIME holds, not over an application context: a `DraftRuntime` carries
+    # `canonical` and a resolved `skill`, and has no `ctx` to resolve anything out of. The
+    # templates are the round's own — the same ones the draft's path ownership is judged by,
+    # so the check cannot find a family the gate then refuses.
+    report, documents = await read_check_over(
+        rt.canonical, rt.user_id, rt.skill.path_templates
     )
+    task_text = render_check_task(report, bound=int(rt.task_structure_chars))
     # The contract alone, with no owner or time context: those two carry the material's
     # situation, and this round has no material. What it needs from the system surface is the
     # write contract and the families — which is what a Steward is judged against here.
@@ -142,8 +146,7 @@ async def open_round(
         commit_message="review: repair what the check found",
         context={"system_text": system_text, "task_text": task_text},
     )
-    async with component_job(str(rt.user_id)):
-        await shared._store(rt, draft, session)
+    await shared._store(rt, draft, session)
     return shared.EXIT_OK, system_text, task_text
 
 

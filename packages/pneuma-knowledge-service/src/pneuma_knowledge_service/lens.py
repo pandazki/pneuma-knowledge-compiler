@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timezone
 
 from pneuma_knowledge_core.check import CheckReport, build_check
@@ -53,7 +54,7 @@ def _read_at() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-async def _history(ctx, user_id: UserId, *, limit: int, after: str = ""):
+async def _history(canonical, user_id: UserId, *, limit: int, after: str = ""):
     """One newest-first page of this user's canonical history, or `[]` if it cannot be read.
 
     Every ref question both tiers ask goes through here, so a library whose history is
@@ -61,7 +62,7 @@ async def _history(ctx, user_id: UserId, *, limit: int, after: str = ""):
     the same way everywhere: the reading is still true, it simply cannot name a commit.
     """
     try:
-        page, _total, _more = await ctx.canonical.snapshots_page(
+        page, _total, _more = await canonical.snapshots_page(
             user_id, limit=limit, **({"after_ref": after} if after else {})
         )
     except Exception as exc:  # noqa: BLE001 — an unnameable commit is not a failed reading
@@ -70,7 +71,7 @@ async def _history(ctx, user_id: UserId, *, limit: int, after: str = ""):
     return list(page)
 
 
-async def _read_ref(ctx, user_id: UserId, *, at: str) -> str:
+async def _read_ref(canonical, user_id: UserId, *, at: str) -> str:
     """WHICH COMMIT this reading was taken at — `at` as passed, else HEAD, resolved.
 
     HEAD is not a ref a reader can come back to. A report that left `ref` empty for the
@@ -81,44 +82,57 @@ async def _read_ref(ctx, user_id: UserId, *, at: str) -> str:
     """
     if at:
         return at
-    page = await _history(ctx, user_id, limit=1)
+    page = await _history(canonical, user_id, limit=1)
     return page[0].ref if page else ""
 
 
-async def _library_at(
-    ctx, user_id: UserId, *, at: str | None
-) -> tuple[list[CanonicalDocument], dict]:
-    """The documents at one ref and the templates they are judged against.
+async def _documents_at(canonical, user_id: UserId, *, at: str | None):
+    """This user's canonical documents at one ref (None = HEAD)."""
+    return list(await canonical.list(user_id, at=SnapshotRef(ref=at) if at else None))
 
-    `path_templates_for` is the read-only resolution of the user's families: it never writes
-    a manifest and never calls a model, which is what makes it usable from a read face.
+
+async def _templates(ctx, user_id: UserId) -> Sequence[str]:
+    """The families the documents are judged against, as this deployment resolves them.
+
+    `path_templates_for` is the read-only resolution: it never writes a manifest and never
+    calls a model, which is what makes it usable from a read face.
     """
-    ref = SnapshotRef(ref=at) if at else None
-    documents, templates = await asyncio.gather(
-        ctx.canonical.list(user_id, at=ref),
-        path_templates_for(ctx.settings, ctx.canonical, user_id),
-    )
-    return list(documents), templates
+    return await path_templates_for(ctx.settings, ctx.canonical, user_id)
 
 
 # ────────────────────────────────────────────────────────────────────── tier two: the check
 
 
-async def read_check(
-    ctx, user_id: UserId, *, at: str | None = None
+async def read_check_over(
+    canonical, user_id: UserId, path_templates: Sequence[str], *, at: str | None = None
 ) -> tuple[CheckReport, list[CanonicalDocument]]:
-    """The check's report at one ref, and the documents it was computed over.
+    """The check's report at one ref, over a canonical store and templates ALREADY resolved.
+
+    The check needs exactly two things — the documents and the families — and this is the
+    face for a caller that already holds both. The review round is that caller: it runs on a
+    `DraftRuntime`, which carries `canonical` and a resolved `skill`, and has no application
+    context to resolve anything out of. A round that reached for one would fail at open, on
+    the Owner's library, with nothing to show for it.
 
     The documents come back because a caller that addresses ONE page (`pkc library review
     --path`) has to be able to say "no such page" rather than "no findings" — a clean page
     and a typo must not render the same. Nothing else reads them.
     """
     at = (at or "").strip()
-    (documents, templates), ref = await asyncio.gather(
-        _library_at(ctx, user_id, at=at or None), _read_ref(ctx, user_id, at=at)
+    documents, ref = await asyncio.gather(
+        _documents_at(canonical, user_id, at=at or None),
+        _read_ref(canonical, user_id, at=at),
     )
-    report = build_check(documents, templates, ref=ref, read_at=_read_at())
-    return report, documents
+    return build_check(documents, path_templates, ref=ref, read_at=_read_at()), documents
+
+
+async def read_check(
+    ctx, user_id: UserId, *, at: str | None = None
+) -> tuple[CheckReport, list[CanonicalDocument]]:
+    """The same report for a caller that holds an application context: resolve, then delegate."""
+    return await read_check_over(
+        ctx.canonical, user_id, await _templates(ctx, user_id), at=at
+    )
 
 
 async def check_report(ctx, user_id: UserId, *, at: str | None = None) -> CheckReport:
@@ -130,7 +144,7 @@ async def check_report(ctx, user_id: UserId, *, at: str | None = None) -> CheckR
 # ───────────────────────────────────────────────────────────────────── tier three: the lens
 
 
-async def _refs(ctx, user_id: UserId, *, at: str) -> tuple[str, str]:
+async def _refs(canonical, user_id: UserId, *, at: str) -> tuple[str, str]:
     """`(the commit this reading is at, the commit before it)` — both resolved, either "".
 
     One history page answers both, because they are two rows of the same walk. A named `at`
@@ -143,9 +157,9 @@ async def _refs(ctx, user_id: UserId, *, at: str) -> tuple[str, str]:
     failure of the reading: the reading is still true, it simply has nothing to move against.
     """
     if at:
-        page = await _history(ctx, user_id, limit=1, after=at)
+        page = await _history(canonical, user_id, limit=1, after=at)
         return at, (page[0].ref if page else "")
-    page = await _history(ctx, user_id, limit=2)
+    page = await _history(canonical, user_id, limit=2)
     return (
         page[0].ref if page else "",
         page[1].ref if len(page) > 1 else "",
@@ -217,8 +231,10 @@ async def read_reading(
     possible to ask for the reading alone.
     """
     at = (at or "").strip()
-    (documents, templates), (ref, parent) = await asyncio.gather(
-        _library_at(ctx, user_id, at=at or None), _refs(ctx, user_id, at=at)
+    documents, templates, (ref, parent) = await asyncio.gather(
+        _documents_at(ctx.canonical, user_id, at=at or None),
+        _templates(ctx, user_id),
+        _refs(ctx.canonical, user_id, at=at),
     )
 
     wanted = (previous or "").strip()
@@ -259,5 +275,6 @@ __all__ = [
     "NO_PREVIOUS",
     "check_report",
     "read_check",
+    "read_check_over",
     "read_reading",
 ]
