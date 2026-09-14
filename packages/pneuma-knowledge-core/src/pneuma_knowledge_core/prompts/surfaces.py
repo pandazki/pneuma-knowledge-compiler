@@ -483,6 +483,17 @@ SURFACES: tuple[Surface, ...] = (
                 "修复动作：两者改一个，让这个名字只落在一页上。",
             ),
             f(
+                "check.id.title_sibling_collision.impact",
+                "Shown when two live pages in ONE directory carry one name — the legacy "
+                "instances of what the gate now refuses at the write.",
+                "同一个目录下有两页活页同名时出现——闸门从此拒绝的那件事，库里已经留下的实例。",
+            ),
+            f(
+                "check.id.title_sibling_collision.action",
+                "The repair: retitle all but one of them, so the name falls on one page only.",
+                "修复动作：除一页外都用 retitle 改名，让这个名字只落在一页上。",
+            ),
+            f(
                 "check.form.unordered_chronology.impact",
                 "Shown when a chronology's dated sections do not ascend, or repeat a date.",
                 "历程页的日期小节不升序，或有重复日期时出现。",

@@ -6,6 +6,7 @@ import { getLensReading } from "@/lib/api";
 import { fmtCount, fmtDateTime, fmtDelta, shortSha } from "@/lib/format";
 import {
   catalogText,
+  isShareMetric,
   orderDimensions,
   previousParam,
   PREVIOUS_AUTO,
@@ -300,16 +301,50 @@ function DimensionSection({ dimension, no }: { dimension: LensDimension; no: num
 }
 
 /**
+ * How precise a percentage is: none above ten per cent, one decimal below it.
+ *
+ * A share of 0.5 is a half and reads as "50 %"; a share of 0.004 is four subjects in a
+ * thousand and would read as "0 %", which is the wrong lie. The step is where the extra digit
+ * starts carrying information.
+ */
+function percent(value: number): string {
+  // An exact zero is a whole answer — "none of them" — and "0.0%" would imply a measurement
+  // that landed just short of a fraction of a per cent.
+  if (value === 0) return "0%";
+  const pct = value * 100;
+  return `${Math.abs(pct) >= 10 ? pct.toFixed(0) : pct.toFixed(1)}%`;
+}
+
+/**
  * A metric's number.
  *
- * Rendered as it came: a count as a count, anything else to two decimals. The console does not
- * guess that a metric between 0 and 1 is a share — a lens that sent 14 under a name spelled
- * like a share would then read as 1 400 %, and a reading that lies about its own units is
- * worse than one that asks to be read literally. The name says what the number is.
+ * A share is shown as the percentage it is — `0.50` under "dead-end share" reads worse than
+ * `50%` — and the console knows it is a share from the NAME (`*_share`, `*_coverage`), never
+ * from the magnitude: a lens that sent 14 under a share-shaped name would otherwise read as
+ * 1 400 %. Everything else is rendered as it came: a count as a count, anything else to two
+ * decimals.
  */
-function metricNumber(value: number | null): string {
+function metricNumber(name: string, value: number | null): string {
   if (value == null) return "—";
+  if (isShareMetric(name)) return percent(value);
   return Number.isInteger(value) ? fmtCount(value) : value.toFixed(2);
+}
+
+/**
+ * A metric's movement, in the unit the two numbers beside it are read in — so a share moves in
+ * percentage points and carries the same `%` as the columns it sits next to, rather than an
+ * absolute step of 0.09 nobody can place against 22 % and 31 %.
+ */
+function metricDelta(name: string, delta: number | null): string {
+  if (delta == null) return "—";
+  const share = isShareMetric(name);
+  const value = share ? delta * 100 : delta;
+  const decimals = share ? (Math.abs(value) >= 10 ? 0 : 1) : Number.isInteger(value) ? 0 : 2;
+  // A movement that rounds away at the precision being shown is no movement to a reader:
+  // "−0.0%" beside two identical percentages claims a change and prints a zero to prove it.
+  // `fmtDelta(0)` is the en dash that says the reading held still.
+  if (Number(value.toFixed(decimals)) === 0) return fmtDelta(0);
+  return share ? `${fmtDelta(value, decimals)}%` : fmtDelta(value, decimals);
 }
 
 /** The dimension's metrics and their movement: what it is now, what it was, and the step. */
@@ -347,15 +382,13 @@ function MetricTable({ metrics }: { metrics: readonly LensMetric[] }) {
                 {tOr(`lens.metric.${metric.name}`, humanize(metric.name))}
               </td>
               <td className="py-1.5 pr-3 text-right font-mono text-12 text-ink tabular-nums">
-                {metricNumber(metric.value)}
+                {metricNumber(metric.name, metric.value)}
               </td>
               <td className="py-1.5 pr-3 text-right font-mono text-12 text-ink-2 tabular-nums">
-                {metricNumber(metric.previous)}
+                {metricNumber(metric.name, metric.previous)}
               </td>
               <td className="py-1.5 text-right font-mono text-12 text-ink-2 tabular-nums">
-                {metric.delta == null
-                  ? "—"
-                  : fmtDelta(metric.delta, Number.isInteger(metric.delta) ? 0 : 2)}
+                {metricDelta(metric.name, metric.delta)}
               </td>
             </tr>
           ))}

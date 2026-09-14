@@ -53,6 +53,38 @@ def _read_at() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+async def _history(ctx, user_id: UserId, *, limit: int, after: str = ""):
+    """One newest-first page of this user's canonical history, or `[]` if it cannot be read.
+
+    Every ref question both tiers ask goes through here, so a library whose history is
+    unreadable — a fresh repository with no commit, a store that does not keep one — answers
+    the same way everywhere: the reading is still true, it simply cannot name a commit.
+    """
+    try:
+        page, _total, _more = await ctx.canonical.snapshots_page(
+            user_id, limit=limit, **({"after_ref": after} if after else {})
+        )
+    except Exception as exc:  # noqa: BLE001 — an unnameable commit is not a failed reading
+        log.debug("canonical history unreadable for %s (after %r): %s", user_id, after, exc)
+        return []
+    return list(page)
+
+
+async def _read_ref(ctx, user_id: UserId, *, at: str) -> str:
+    """WHICH COMMIT this reading was taken at — `at` as passed, else HEAD, resolved.
+
+    HEAD is not a ref a reader can come back to. A report that left `ref` empty for the
+    default read could not say which library it came out of: the console showed a dash, and
+    two readings taken either side of a compile were indistinguishable after the fact. The
+    documents are still read at HEAD (not re-read at the resolved ref) — resolving is how the
+    report NAMES what it read, not a second read of it.
+    """
+    if at:
+        return at
+    page = await _history(ctx, user_id, limit=1)
+    return page[0].ref if page else ""
+
+
 async def _library_at(
     ctx, user_id: UserId, *, at: str | None
 ) -> tuple[list[CanonicalDocument], dict]:
@@ -81,10 +113,11 @@ async def read_check(
     --path`) has to be able to say "no such page" rather than "no findings" — a clean page
     and a typo must not render the same. Nothing else reads them.
     """
-    documents, templates = await _library_at(ctx, user_id, at=at)
-    report = build_check(
-        documents, templates, ref=(at or "").strip(), read_at=_read_at()
+    at = (at or "").strip()
+    (documents, templates), ref = await asyncio.gather(
+        _library_at(ctx, user_id, at=at or None), _read_ref(ctx, user_id, at=at)
     )
+    report = build_check(documents, templates, ref=ref, read_at=_read_at())
     return report, documents
 
 
@@ -97,30 +130,26 @@ async def check_report(ctx, user_id: UserId, *, at: str | None = None) -> CheckR
 # ───────────────────────────────────────────────────────────────────── tier three: the lens
 
 
-async def _previous_ref(ctx, user_id: UserId, *, at: str) -> str:
-    """The canonical commit BEFORE `at` (default: HEAD's parent), or "" when there is none.
+async def _refs(ctx, user_id: UserId, *, at: str) -> tuple[str, str]:
+    """`(the commit this reading is at, the commit before it)` — both resolved, either "".
 
-    A reading's default comparison is the state the library was in one commit ago, because
-    that is the only previous reading every library has without anyone having asked for one.
-    `snapshots_page(after_ref=…)` walks that commit's ancestors, so a named `at` is one page
-    of one; an unnamed one is HEAD and its parent, of which the SECOND is the answer. Taking
-    the first would compare a reading with itself, which is a movement of zero rather than no
-    movement — two different sentences, and only one of them true.
+    One history page answers both, because they are two rows of the same walk. A named `at`
+    is its own answer and one page of its ancestors; an unnamed one is HEAD and its parent,
+    of which the FIRST names the reading and the SECOND is what it moved from. Taking the
+    first for both would compare a reading with itself, which is a movement of zero rather
+    than no movement — two different sentences, and only one of them true.
 
     A ref the history does not hold — a tag that moved, a frozen snapshot, a typo — is not a
     failure of the reading: the reading is still true, it simply has nothing to move against.
     """
-    try:
-        if at:
-            page, _total, _more = await ctx.canonical.snapshots_page(
-                user_id, limit=1, after_ref=at
-            )
-            return page[0].ref if page else ""
-        page, _total, _more = await ctx.canonical.snapshots_page(user_id, limit=2)
-    except Exception as exc:  # noqa: BLE001 — a movement nobody can compute is not an error
-        log.debug("no previous canonical ref for %s at %r: %s", user_id, at, exc)
-        return ""
-    return page[1].ref if len(page) > 1 else ""
+    if at:
+        page = await _history(ctx, user_id, limit=1, after=at)
+        return at, (page[0].ref if page else "")
+    page = await _history(ctx, user_id, limit=2)
+    return (
+        page[0].ref if page else "",
+        page[1].ref if len(page) > 1 else "",
+    )
 
 
 def _consultation(record) -> Consultation:  # noqa: ANN001 — core's ConsultationRecord
@@ -188,7 +217,9 @@ async def read_reading(
     possible to ask for the reading alone.
     """
     at = (at or "").strip()
-    documents, templates = await _library_at(ctx, user_id, at=at or None)
+    (documents, templates), (ref, parent) = await asyncio.gather(
+        _library_at(ctx, user_id, at=at or None), _refs(ctx, user_id, at=at)
+    )
 
     wanted = (previous or "").strip()
     if wanted.lower() == NO_PREVIOUS:
@@ -196,7 +227,7 @@ async def read_reading(
     elif wanted:
         previous_ref = wanted
     else:
-        previous_ref = await _previous_ref(ctx, user_id, at=at)
+        previous_ref = parent
 
     before: tuple[list[CanonicalDocument], str] | None = None
     if previous_ref:
@@ -215,7 +246,7 @@ async def read_reading(
     return build_reading(
         documents,
         templates,
-        ref=at,
+        ref=ref,
         read_at=_read_at(),
         previous=before,
         consultations=consultations,

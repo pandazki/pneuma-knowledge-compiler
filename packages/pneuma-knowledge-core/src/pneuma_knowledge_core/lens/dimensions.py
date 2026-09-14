@@ -29,6 +29,7 @@ from ..shape import (
     subject_of,
     template_of,
 )
+from ..shape.phrase import clip_evidence
 from ..shape.text import (
     SESSION_DATE_PREFIX_RE,
     citation_sources,
@@ -53,11 +54,13 @@ SHAPE_EVEN_LEAD_SHARE = 0.10
 SHAPE_LEANING_LEAD_SHARE = 0.20
 SHAPE_FAMILY_RATIO = 2.0
 #: …and the guard that makes a SHARE mean concentration: how many times an even share the
-#: lead subject must hold. A share alone says nothing in a small library — a sixth subject
-#: holding a quarter of thirteen claims is a page with one extra paragraph, not a catch-all —
-#: and past ten subjects the share threshold implies this ratio anyway, so the guard only ever
-#: speaks where the share does not.
-SHAPE_LEAD_RATIO = 2.0
+#: lead subject must hold (`lead_over_even`, not `lead_ratio` — the first is the lead against
+#: what every subject would hold if the claims were spread flat, the second is the lead
+#: against the subject behind it, which is what §4.2 calls the lead ratio). A share alone says
+#: nothing in a small library — a sixth subject holding a quarter of thirteen claims is a page
+#: with one extra paragraph, not a catch-all — and past ten subjects the share threshold
+#: implies this multiple anyway, so the guard only ever speaks where the share does not.
+SHAPE_LEAD_OVER_EVEN = 2.0
 
 #: `knowledge_vs_log`: the share of claims carrying the session signature, and what makes one
 #: SUBJECT a log rather than a subject.
@@ -148,6 +151,15 @@ def _pct(value: float | None) -> str:
 
 def _rounded(value: float, digits: int = 4) -> float:
     return round(value, digits)
+
+
+def _by_weight(counts: Mapping[str, int]) -> list[str]:
+    """The paths a proxy caught, the one carrying most of it first, ties by path.
+
+    Evidence is bounded (five items), so which five it is has to be the five worth opening
+    rather than the five that sorted first alphabetically.
+    """
+    return [path for path, _count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
 def _components(view: LibraryView) -> list[set[str]]:
@@ -269,7 +281,7 @@ def read_walkability(view: LibraryView) -> Observation:
             "largest_component_share": _rounded(_share(largest, subjects)),
             "islands": len(islands),
         },
-        evidence=tuple((*islands, *dead_ends)[:5]),
+        evidence=clip_evidence((*islands, *dead_ends)),
         fields={
             "subjects": subjects,
             "dead_ends": len(dead_ends),
@@ -294,7 +306,14 @@ def read_shape(view: LibraryView) -> Observation:
     lead_claims = view.claims.get(lead, 0) if lead else 0
     lead_share = _share(lead_claims, total)
     even = _share(total, subjects)
-    lead_ratio = _share(lead_claims, even)
+    #: Two different numbers, and the console showed what happens when one wears the other's
+    #: name: a real library's lead held 159 claims against a second subject's 54 — 2.9× the
+    #: next subject — and the reading said "23.41× an even share" under the name `lead_ratio`.
+    #: `lead_ratio` is the lead against the subject BEHIND it (§4.2); `lead_over_even` is the
+    #: lead against a flat spread, which is what the band guard needs.
+    lead_over_even = _share(lead_claims, even)
+    second_claims = view.claims.get(ranked[1], 0) if len(ranked) > 1 else 0
+    lead_ratio = _share(lead_claims, second_claims) if second_claims else 0.0
     rows = _family_rows(view)
     heaviest = max(
         (row for row in rows if row[1] and row[4]),
@@ -304,7 +323,7 @@ def read_shape(view: LibraryView) -> Observation:
     heaviest_ratio = (heaviest[3] / heaviest[4]) if heaviest else 0.0
     empty = [row[0] for row in rows if not row[1]]
     clusters = len(_components(view))
-    concentrated = lead_ratio >= SHAPE_LEAD_RATIO
+    concentrated = lead_over_even >= SHAPE_LEAD_OVER_EVEN
     if (
         lead_share <= SHAPE_EVEN_LEAD_SHARE or not concentrated
     ) and heaviest_ratio < SHAPE_FAMILY_RATIO:
@@ -319,13 +338,14 @@ def read_shape(view: LibraryView) -> Observation:
         metrics={
             "lead_share": _rounded(lead_share),
             "lead_ratio": _rounded(lead_ratio, 2),
+            "lead_over_even": _rounded(lead_over_even, 2),
             "heaviest_family_ratio": _rounded(heaviest_ratio, 2),
             "empty_families": len(empty),
             "clusters": clusters,
         },
-        evidence=tuple(item for item in (lead, heaviest[0] if heaviest else "", *empty) if item)[
-            :5
-        ],
+        evidence=clip_evidence(
+            item for item in (lead, heaviest[0] if heaviest else "", *empty) if item
+        ),
         fields={
             "subjects": subjects,
             "claims": total,
@@ -333,6 +353,7 @@ def read_shape(view: LibraryView) -> Observation:
             "title": view.titles.get(lead, ""),
             "lead_share": _pct(lead_share),
             "lead_ratio": _rounded(lead_ratio, 2),
+            "lead_over_even": _rounded(lead_over_even, 2),
             "count": lead_claims,
             "family": heaviest[0] if heaviest else "",
             "family_share": _pct(heaviest[3] if heaviest else 0.0),
@@ -347,20 +368,18 @@ def read_shape(view: LibraryView) -> Observation:
 
 
 def read_knowledge_vs_log(view: LibraryView) -> Observation:
-    narration_blocks: list[str] = []
+    narration_count = 0
     total_blocks = 0
-    log_subjects: list[str] = []
+    log_subjects: list[tuple[float, str]] = []
     for subject in view.subjects:
         blocks = _subject_blocks(view, subject)
         total_blocks += len(blocks)
-        shaped = [block for block in blocks if _is_narration(block)]
-        narration_blocks.extend(shaped)
-        if (
-            len(blocks) >= LOG_SUBJECT_MIN_CLAIMS
-            and _share(len(shaped), len(blocks)) >= LOG_SUBJECT_SHARE
-        ):
-            log_subjects.append(subject)
-    narration_share = _share(len(narration_blocks), total_blocks)
+        shaped = sum(1 for block in blocks if _is_narration(block))
+        narration_count += shaped
+        share = _share(shaped, len(blocks))
+        if len(blocks) >= LOG_SUBJECT_MIN_CLAIMS and share >= LOG_SUBJECT_SHARE:
+            log_subjects.append((share, subject))
+    narration_share = _share(narration_count, total_blocks)
     rows = _family_rows(view)
     lead_family = max(rows, key=lambda row: row[3], default=None)
     if narration_share <= NARRATION_KNOWLEDGE_SHARE:
@@ -369,13 +388,16 @@ def read_knowledge_vs_log(view: LibraryView) -> Observation:
         band = "mixed"
     else:
         band = "log"
-    samples = [
-        match.group(0).strip()
-        for match in (
-            SESSION_DATE_PREFIX_RE.match(claim_words(block))
-            for block in narration_blocks
+    # Evidence is what a reader can OPEN. The date prefix is the MECHANISM — a console that
+    # showed `2026-08-12,` three times told the Owner nothing they could act on — so what
+    # travels is the subjects that are made of those claims, the most log-shaped first.
+    # Most log-shaped first, ties by path — the same ordering rule `_by_weight` uses, so
+    # which five of them travel is a function of the library and not of sort luck.
+    worst = [
+        subject
+        for _share_of, subject in sorted(
+            log_subjects, key=lambda item: (-item[0], item[1])
         )
-        if match is not None
     ]
     return Observation(
         id="knowledge_vs_log",
@@ -385,10 +407,10 @@ def read_knowledge_vs_log(view: LibraryView) -> Observation:
             "log_subject_share": _rounded(_share(len(log_subjects), len(view.subjects))),
             "lead_family_claim_share": _rounded(lead_family[3] if lead_family else 0.0),
         },
-        evidence=(*log_subjects[:2], *samples[:3])[:5],
+        evidence=clip_evidence(worst),
         fields={
             "claims": total_blocks,
-            "count": len(narration_blocks),
+            "count": narration_count,
             "narration_share": _pct(narration_share),
             "log_subjects": len(log_subjects),
             "log_subject_share": _pct(_share(len(log_subjects), len(view.subjects))),
@@ -482,7 +504,7 @@ def read_liveness(
             "untouched_subject_share": untouched_share,
             "median_days_since_write": median_days,
         },
-        evidence=tuple(sorted(volumes)[:3]),
+        evidence=clip_evidence(sorted(volumes)[:3]),
         fields={
             "subjects": len(view.subjects),
             "claims": claims,
@@ -509,31 +531,40 @@ def read_type_structure(view: LibraryView) -> Observation:
     declared for it.
     """
     claims = 0
-    dated_outside: list[str] = []
-    decision_outside: list[str] = []
     sections = 0
+    dated_outside = 0
+    decision_outside = 0
+    #: The PAGES each proxy caught, with how much of it each one carries: the evidence is
+    #: something the Owner can open, never the matched fragment. A console that showed
+    #: `rationale` and `2026-08-12,` gave a reader three words and nowhere to go.
+    dated_pages: dict[str, int] = {}
+    decision_pages: dict[str, int] = {}
     for subject in view.subjects:
         chronology = role_of(subject, view.path_templates) == ROLE_CHRONOLOGY
+        template = template_of(subject, view.path_templates) or ""
+        decisions_family = "decisions" in template.split("/")
         for path in view.files_of(subject):
             body = view.body(path)
             blocks = claim_blocks(body)
             claims += len(blocks)
             if not chronology:
-                dated_outside.extend(
-                    claim_words(block)
+                dated = sum(
+                    1
                     for block in blocks
                     if SESSION_DATE_PREFIX_RE.match(claim_words(block))
                 )
-            template = template_of(subject, view.path_templates) or ""
-            decisions_family = "decisions" in template.split("/")
+                dated_outside += dated
+                if dated:
+                    dated_pages[subject] = dated_pages.get(subject, 0) + dated
             for _line, heading in section_headings(body):
                 sections += 1
                 if not decisions_family and heading.strip().casefold() in DECISION_SECTION_WORDS:
-                    decision_outside.append(heading.strip())
+                    decision_outside += 1
+                    decision_pages[subject] = decision_pages.get(subject, 0) + 1
     rows = _family_rows(view)
     empty = [row[0] for row in rows if not row[1]]
-    dated_share = _share(len(dated_outside), claims)
-    decision_share = _share(len(decision_outside), sections)
+    dated_share = _share(dated_outside, claims)
+    decision_share = _share(decision_outside, sections)
     empty_share = _share(len(empty), len(rows))
     worst = max(dated_share, decision_share, empty_share)
     if worst <= TYPE_ALIGNED_SHARE:
@@ -550,12 +581,14 @@ def read_type_structure(view: LibraryView) -> Observation:
             "decision_shaped_outside_share": _rounded(decision_share),
             "empty_family_share": _rounded(empty_share),
         },
-        evidence=(*decision_outside[:2], *empty[:3])[:5],
+        evidence=clip_evidence(
+            (*_by_weight(decision_pages), *_by_weight(dated_pages), *empty)
+        ),
         fields={
             "claims": claims,
-            "dated": len(dated_outside),
+            "dated": dated_outside,
             "dated_share": _pct(dated_share),
-            "decision_shaped": len(decision_outside),
+            "decision_shaped": decision_outside,
             "decision_share": _pct(decision_share),
             "empty_families": len(empty),
             "families": len(rows),
@@ -626,7 +659,7 @@ def read_demand_supply(
             "consulted_subject_share": _rounded(_share(len(consulted), subjects)),
             "lead_family_demand_ratio": _rounded(ratio, 2),
         },
-        evidence=tuple(item for item in (lead_family,) if item),
+        evidence=clip_evidence(item for item in (lead_family,) if item),
         fields={
             "consultations": len(records),
             "count": len(gaps),
@@ -675,7 +708,7 @@ __all__ = [
     "NARRATION_MIXED_SHARE",
     "SHAPE_EVEN_LEAD_SHARE",
     "SHAPE_FAMILY_RATIO",
-    "SHAPE_LEAD_RATIO",
+    "SHAPE_LEAD_OVER_EVEN",
     "SHAPE_LEANING_LEAD_SHARE",
     "TYPE_ALIGNED_SHARE",
     "TYPE_STRAINED_SHARE",

@@ -396,6 +396,52 @@ def test_a_page_sharing_a_name_with_a_page_below_it_is_a_child_collision():
     assert "id.title_duplicate" not in ids_of(report)
 
 
+def test_two_pages_in_one_directory_under_one_name_are_a_sibling_collision():
+    """The legacy half of the gate's `title_sibling_collision`. The hook judges only the
+    pages a round touched, so a pair two feature pages have carried since before the rule
+    reaches a reader through nothing else: `id.title_duplicate` is the cross-directory case,
+    and a child collision needs one page to sit below the other. A real 250-subject library
+    held exactly this pair."""
+    docs = healthy() + [
+        doc(
+            "projects/aurora/features/pump-two.md",
+            "# Pump control\n\n## What it does\n\n"
+            + claim("It holds pressure steady too.", "a000000f")
+            + "\n\n"
+            + claim("It belongs to [the plant](../overview.md).", "a0000010"),
+        )
+    ]
+    report = check(docs)
+    sibling = [f for f in report.findings if f.id == "id.title_sibling_collision"]
+    assert len(sibling) == 1 and sibling[0].kind == "legacy"
+    assert sibling[0].paths == (
+        "projects/aurora/features/pump-two.md",
+        "projects/aurora/features/pump.md",
+    )
+    assert sibling[0].evidence == ("Pump control",)
+    assert "Retitle" in render_action(sibling[0])
+    # One observation, one finding: the cross-directory item says nothing about this pair.
+    assert "id.title_duplicate" not in ids_of(report)
+
+
+def test_a_chronology_and_its_hub_under_one_name_stay_the_hub_items_observation():
+    """They are siblings in the file tree — `overview.md` and `evolution.md` sit in one
+    directory — and the hub item is the one that says which of the two keeps the name."""
+    docs = replace(
+        healthy(),
+        "projects/aurora/evolution.md",
+        "# Aurora\n\n"
+        "## 2026-01-04\n\n" + claim("The first prototype ran.", "a0000003") + "\n\n"
+        "## 2026-02-04\n\n"
+        + claim("[The pump](features/pump.md) was rebuilt.", "a0000004")
+        + "\n\n"
+        "## 2026-03-04\n\n" + claim("The plant went live.", "a0000005"),
+    )
+    found = ids_of(check(docs))
+    assert "id.title_shared_with_hub" in found
+    assert "id.title_sibling_collision" not in found
+
+
 def test_dated_sections_that_do_not_run_forward_name_the_verb_that_reorders_them():
     docs = replace(
         healthy(),
@@ -626,7 +672,7 @@ def test_every_item_carries_an_impact_and_an_action_in_both_packs(item):
 def test_the_two_kinds_are_exactly_the_designs_two_tables():
     assert set(CHECK_IDS) == set(JUDGEMENT_IDS) | set(LEGACY_IDS)
     assert not set(JUDGEMENT_IDS) & set(LEGACY_IDS)
-    assert len(JUDGEMENT_IDS) == 8 and len(LEGACY_IDS) == 9
+    assert len(JUDGEMENT_IDS) == 8 and len(LEGACY_IDS) == 10
 
 
 #: What a finding has to be ABOUT for its sentence to be worth reading: the page, or the

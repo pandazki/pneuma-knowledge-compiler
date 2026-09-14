@@ -24,6 +24,7 @@ import pytest
 from fastapi import FastAPI
 
 from pneuma_knowledge_core.domain.ids import UserId
+from pneuma_knowledge_core.domain.snapshot import SnapshotRef
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_service.adapters.draft_mock import InMemoryJobQueue
 from pneuma_knowledge_service.api.routes.v1 import router
@@ -116,12 +117,19 @@ async def test_the_route_answers_the_report_shape_the_design_fixes():
         assert finding["impact"]["key"] and finding["action"]["key"]
 
 
-async def test_the_route_reads_the_ref_it_is_given_and_says_which_one():
-    lib = _lib()
-    assert (await get(lib, f"/v1/users/{USER}/review")).json()["ref"] == ""
+async def test_the_route_always_names_the_commit_it_read():
+    """HEAD is not a ref a reader can come back to: a report that left `ref` empty for the
+    default read could not say which library it came out of."""
+    lib = _lib(snapshots=[SnapshotRef(ref="c1"), SnapshotRef(ref="c0")])
+    assert (await get(lib, f"/v1/users/{USER}/review")).json()["ref"] == "c1"
     at = (await get(lib, f"/v1/users/{USER}/review?at=c0")).json()
-    assert at["ref"] == "c0"
+    assert at["ref"] == "c0"  # a named ref stays exactly as it was passed
     assert at["files"] == 2
+
+
+async def test_a_library_with_no_history_names_no_commit_rather_than_inventing_one():
+    lib = _lib(snapshots=[])
+    assert (await get(lib, f"/v1/users/{USER}/review")).json()["ref"] == ""
 
 
 async def test_an_empty_library_is_a_report_and_not_an_error():

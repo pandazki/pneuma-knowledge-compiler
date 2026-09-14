@@ -596,7 +596,10 @@ through the ordinary draft verbs under the ordinary gate. `{job_id, kind}`. The 
 and the only one — nothing in this version schedules it.
 
 Both reads accept any canonical ref for `at` (a commit, a tag, a frozen snapshot); omitted
-means HEAD, and the body's own `ref` is then empty. Design authority:
+means HEAD. Either way the body's own `ref` names the commit that was read — HEAD is resolved
+at read time, because a reading that could not say which library it came out of would be
+indistinguishable from one taken on the other side of a compile. It is empty only for a
+library whose history holds no commit at all. Design authority:
 [structure lens](../design/structure-lens.md).
 
 ## Briefings

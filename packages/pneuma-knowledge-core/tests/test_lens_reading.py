@@ -150,7 +150,11 @@ def test_one_subject_holding_most_of_the_claims_reads_collapsing():
     assert found.band == "collapsing"
     assert "memory/topics/flow.md" in found.evidence
     values = {m.name: m.value for m in found.metrics}
-    assert values["lead_share"] > 0.2 and values["lead_ratio"] > 2
+    # `lead_ratio` is the lead against the subject BEHIND it (§4.2); `lead_over_even` is the
+    # lead against a flat spread, which is the multiple the band guard reads.
+    assert values["lead_share"] > 0.2
+    assert values["lead_ratio"] == pytest.approx(31 / 3, abs=1e-2)
+    assert values["lead_over_even"] > 2
     # The statement names the subject; the direction names the lever and no page.
     assert "Flow shaping" in render_statement(found)
     assert "memory/topics/flow.md" not in render_direction(found)
@@ -161,6 +165,9 @@ def test_a_small_library_is_not_called_collapsing_for_holding_one_extra_paragrap
     anything: the lead subject of the healthy library holds 23% of thirteen claims and is
     1.4× an even share, which is a page with one more paragraph."""
     assert band(healthy(), "shape") == "even"
+    values = metrics(healthy(), "shape")
+    assert values["lead_over_even"] == pytest.approx(3 / (13 / 6), abs=1e-2)
+    assert values["lead_ratio"] == pytest.approx(3 / 2, abs=1e-2)
 
 
 # ────────────────────────────────────────────────────────────── 3. knowledge vs log
@@ -186,8 +193,10 @@ def test_dated_single_source_entries_read_as_a_log():
     values = {m.name: m.value for m in found.metrics}
     assert values["narration_share"] > 0.5
     assert values["log_subject_share"] == pytest.approx(2 / 6, abs=1e-3)
-    # Evidence is verbatim library text: the subjects, and the dated openings themselves.
-    assert any(item.startswith("2026-") for item in found.evidence)
+    # Evidence is what a reader can OPEN: the log-shaped subjects, the most log-shaped
+    # first. The date prefix is the mechanism and never the evidence — a row reading
+    # `2026-08-12,` tells an Owner nothing they can act on.
+    assert found.evidence == ("memory/people/mei.md", "memory/topics/flow.md")
 
 
 # ───────────────────────────────────────────────────────────────────── 4. liveness
@@ -272,7 +281,8 @@ def test_decision_shaped_sections_outside_the_decisions_family_are_counted():
     found = dimension_of(reading(docs), "type_structure")
     values = {m.name: m.value for m in found.metrics}
     assert values["decision_shaped_outside_share"] > 0
-    assert "Decision" in found.evidence
+    # …and the evidence is the page carrying them, not the heading words.
+    assert found.evidence[0] == "memory/topics/flow.md"
 
 
 # ──────────────────────────────────────────────────────────────── 6. demand/supply

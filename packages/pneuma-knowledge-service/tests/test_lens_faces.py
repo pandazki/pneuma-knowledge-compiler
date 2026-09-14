@@ -42,6 +42,11 @@ DIMENSIONS = {
 }
 
 
+def _history(*refs: str):
+    """A canonical history, newest first — the order the adapter's own page comes back in."""
+    return [SnapshotRef(ref=ref, label=f"compile {index}") for index, ref in enumerate(refs)]
+
+
 def _lib(**kw):
     return library(
         docs=[
@@ -98,12 +103,20 @@ async def test_the_reading_lists_no_pages_anywhere():
     assert "findings" not in json.dumps(body)
 
 
-async def test_the_route_reads_the_ref_it_is_given_and_says_which_one():
-    lib = _lib()
-    assert (await get(lib, f"/v1/users/{USER}/lens")).json()["ref"] == ""
+async def test_the_route_always_names_the_commit_it_read():
+    """HEAD is not a ref a reader can come back to. A reading that left `ref` empty for the
+    default read could not say which library it came out of, so two readings taken either
+    side of a compile were indistinguishable after the fact."""
+    lib = _lib(snapshots=_history("c1", "c0"))
+    assert (await get(lib, f"/v1/users/{USER}/lens")).json()["ref"] == "c1"
     at = (await get(lib, f"/v1/users/{USER}/lens?at=c0")).json()
-    assert at["ref"] == "c0"
+    assert at["ref"] == "c0"  # a named ref stays exactly as it was passed
     assert at["files"] == 2
+
+
+async def test_a_library_with_no_history_names_no_commit_rather_than_inventing_one():
+    lib = _lib(snapshots=[])
+    assert (await get(lib, f"/v1/users/{USER}/lens")).json()["ref"] == ""
 
 
 async def test_the_reading_is_a_function_of_the_ref_and_nothing_else():
@@ -115,10 +128,6 @@ async def test_the_reading_is_a_function_of_the_ref_and_nothing_else():
 
 
 # ──────────────────────────────────────────────────────────────── the previous reading
-
-
-def _history(*refs: str):
-    return [SnapshotRef(ref=ref, label=f"compile {index}") for index, ref in enumerate(refs)]
 
 
 async def test_the_default_previous_reading_is_the_commit_before_this_one():
@@ -157,7 +166,7 @@ async def test_a_library_with_one_commit_reads_without_a_previous_one():
 async def test_a_previous_ref_the_history_does_not_hold_is_no_movement_not_a_failure():
     lib = _lib(snapshots=_history("c0"))
     body = (await get(lib, f"/v1/users/{USER}/lens?at=not-a-ref")).json()
-    assert body["previous_ref"] == ""
+    assert body["ref"] == "not-a-ref" and body["previous_ref"] == ""
     assert {d["id"] for d in body["dimensions"]} == DIMENSIONS
 
 

@@ -107,7 +107,11 @@ export default function ReviewView() {
         description={t("review.description")}
         actions={
           <Button
-            variant="primary"
+            // The quiet form, not the accent one: the blue pencil is rare in this console
+            // (DESIGN.md hard rule 4), and a filled button here would be the loudest thing on a
+            // page whose whole content is findings the Owner came to read.
+            variant="default"
+            size="sm"
             loading={enqueueing}
             disabled={!currentUser || readOnly || enqueueing}
             title={readOnly ? t("review.round.readOnlyHint") : t("review.round.hint")}

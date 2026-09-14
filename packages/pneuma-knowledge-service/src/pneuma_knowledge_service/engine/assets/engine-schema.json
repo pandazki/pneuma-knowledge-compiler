@@ -967,6 +967,8 @@
             "check.id.title_duplicate.impact",
             "check.id.title_shared_with_hub.action",
             "check.id.title_shared_with_hub.impact",
+            "check.id.title_sibling_collision.action",
+            "check.id.title_sibling_collision.impact",
             "check.nav.chronology_unlinked.action",
             "check.nav.chronology_unlinked.impact",
             "check.nav.dead_link.action",

@@ -37,6 +37,7 @@ FORM_COLLAPSED_BODY = "form.collapsed_body"
 ID_TITLE_DEGENERATE = "id.title_degenerate"
 ID_TITLE_SHARED_WITH_HUB = "id.title_shared_with_hub"
 ID_TITLE_CHILD_COLLISION = "id.title_child_collision"
+ID_TITLE_SIBLING_COLLISION = "id.title_sibling_collision"
 FORM_UNORDERED_CHRONOLOGY = "form.unordered_chronology"
 FORM_OVERVIEW_RESTATES = "form.overview_restates"
 FORM_DEFINITION_EMPTY = "form.definition_empty"
@@ -62,6 +63,7 @@ LEGACY_IDS: tuple[str, ...] = (
     ID_TITLE_DEGENERATE,
     ID_TITLE_SHARED_WITH_HUB,
     ID_TITLE_CHILD_COLLISION,
+    ID_TITLE_SIBLING_COLLISION,
     FORM_UNORDERED_CHRONOLOGY,
     FORM_OVERVIEW_RESTATES,
     FORM_DEFINITION_EMPTY,
@@ -148,6 +150,7 @@ __all__ = [
     "ID_TITLE_CHILD_COLLISION",
     "ID_TITLE_DEGENERATE",
     "ID_TITLE_DUPLICATE",
+    "ID_TITLE_SIBLING_COLLISION",
     "ID_TITLE_SHARED_WITH_HUB",
     "JUDGEMENT_IDS",
     "KIND_ORDER",

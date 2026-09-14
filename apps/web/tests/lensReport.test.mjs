@@ -29,11 +29,33 @@ const {
   catalogText,
   countByKind,
   groupByPage,
+  isShareMetric,
   orderDimensions,
   parseCheckReport,
   parseLensReading,
   previousParam,
 } = await import(moduleUrl);
+
+// The console's own chrome table, loaded the way tests/i18n.test.mjs loads a bundle: the file
+// imports nothing but `./define`, whose `defineMessages` is the identity function.
+const lensBundleUrl = new URL("../src/i18n/lens.ts", import.meta.url);
+const lensBundleText = (await readFile(lensBundleUrl, "utf8")).replace(
+  /^import \{[^}]*\} from "\.\/define";$/m,
+  "const defineMessages = (bundle) => bundle;",
+);
+const lensBundle = (
+  await import(
+    `data:text/javascript;base64,${Buffer.from(
+      (
+        await transformWithEsbuild(lensBundleText, lensBundleUrl.pathname, {
+          loader: "ts",
+          format: "esm",
+          target: "es2022",
+        })
+      ).code,
+    ).toString("base64")}`
+  )
+).lens;
 
 /** One catalogue sentence, spelled as the service spells it. */
 function sentence(key) {
@@ -265,4 +287,81 @@ test("a sentence is the reader's language, then the other, then the key spelled 
     "lens.shape.statement · lead=alpha.md · share=42",
   );
   assert.equal(catalogText("en", { key: "", fields: {}, text: { en: "", zh: "" } }), "");
+});
+
+/* --------------------------------------------------------------- the metric vocabulary */
+
+/**
+ * Every metric name the lens sends, by dimension (docs/design/structure-lens.md §4.2).
+ *
+ * The console renders a readable label for each; a name with no label falls through to the
+ * humanized raw name, which on a Chinese page means an English metric in the middle of the
+ * table. That fallback is the safety net for a name this build has never heard of — it must
+ * not be how the ordinary reading renders — so the wire's own list is pinned here and a
+ * rename on either side fails loudly instead of quietly showing `lead family claim share`.
+ */
+const WIRE_METRICS = [
+  "edges_per_subject",
+  "dead_end_share",
+  "arrival_blind_share",
+  "largest_component_share",
+  "islands",
+  "lead_share",
+  "lead_ratio",
+  "heaviest_family_ratio",
+  "empty_families",
+  "clusters",
+  "narration_share",
+  "log_subject_share",
+  "lead_family_claim_share",
+  "supersessions_per_100_claims",
+  "rollovers",
+  "overview_coverage",
+  "untouched_subject_share",
+  "median_days_since_write",
+  "dated_outside_chronology_share",
+  "decision_shaped_outside_share",
+  "empty_family_share",
+  "consultations",
+  "uncited_share",
+  "consulted_subject_share",
+  "lead_family_demand_ratio",
+];
+
+/** A rename core has signalled but not shipped: labelled ahead of the wire, on purpose. */
+const AHEAD_OF_THE_WIRE = ["lead_over_even"];
+
+/** The four table-chrome keys under the same prefix, which name no metric. */
+const METRIC_CHROME = ["name", "value", "previous", "noPrevious"];
+
+test("every metric the lens sends has a label in both packs", () => {
+  const missing = [];
+  for (const name of WIRE_METRICS) {
+    for (const locale of ["zh", "en"]) {
+      const label = lensBundle[locale][`lens.metric.${name}`];
+      if (!label) missing.push(`${locale}: ${name}`);
+    }
+  }
+  assert.deepEqual(missing, [], "a metric with no label renders its raw name to the reader");
+});
+
+test("no label lingers for a metric nobody sends any more", () => {
+  const known = new Set([...WIRE_METRICS, ...AHEAD_OF_THE_WIRE, ...METRIC_CHROME]);
+  const stale = Object.keys(lensBundle.en)
+    .filter((key) => key.startsWith("lens.metric."))
+    .map((key) => key.slice("lens.metric.".length))
+    .filter((name) => !known.has(name));
+  // A label for a metric that no longer exists is copy nobody will ever read and the first
+  // thing to go stale; a deliberate one ahead of the wire is listed above rather than left
+  // to look like a leftover.
+  assert.deepEqual(stale, []);
+});
+
+test("a share is known by its name, never by how big the number is", () => {
+  for (const name of ["dead_end_share", "overview_coverage", "uncited_share"]) {
+    assert.equal(isShareMetric(name), true, name);
+  }
+  for (const name of ["islands", "lead_ratio", "supersessions_per_100_claims", "shares"]) {
+    assert.equal(isShareMetric(name), false, name);
+  }
 });

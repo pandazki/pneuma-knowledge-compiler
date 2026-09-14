@@ -327,6 +327,18 @@ export function orderDimensions(dimensions: readonly LensDimension[]): LensDimen
   });
 }
 
+/**
+ * Whether a metric's number is a 0–1 share and should be read as a percentage.
+ *
+ * The suffix is the contract, not a guess about the value: the lens names every share metric
+ * `*_share` or `*_coverage`, so `0.50` under "dead-end share" can be shown as the 50 % it is
+ * without the console ever inferring units from a number's magnitude. A metric that is not
+ * named that way stays literal, whatever its size.
+ */
+export function isShareMetric(name: string): boolean {
+  return /_(share|coverage)$/.test(name);
+}
+
 /* -------------------------------------------------------------- the previous reading */
 
 /**

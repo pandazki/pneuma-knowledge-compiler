@@ -64,6 +64,7 @@ from .model import (
     ID_TITLE_DEGENERATE,
     ID_TITLE_DUPLICATE,
     ID_TITLE_SHARED_WITH_HUB,
+    ID_TITLE_SIBLING_COLLISION,
     NAV_CHRONOLOGY_UNLINKED,
     NAV_DEAD_LINK,
     NAV_DECISION_UNLINKED,
@@ -362,12 +363,12 @@ def check_dead_link(view: LibraryView) -> list[Finding]:
 def check_title_duplicate(view: LibraryView) -> list[Finding]:
     """Two live subjects under one name, in DIFFERENT directories.
 
-    One directory is the gate's business, not the check's: `title_sibling_collision` refuses a
-    name a live neighbour already carries, so a same-directory pair is either a fault the
-    write face now keeps out or — between two pages nobody has touched since — the child
-    collision and hub-shared items below, which say which of the two keeps the name. Across
-    directories no write can see the collision at all, which is exactly what makes it the
-    check's (§3.1).
+    Across directories no write can see the collision at all, which is exactly what makes it
+    the check's (§3.1). The same name INSIDE one directory is a different observation with a
+    different reader's problem — two files side by side under one name — and it has its own
+    item, `id.title_sibling_collision`. A name standing in three places, twice in one
+    directory, is honestly both: the sibling item is about that pair, this one about the name
+    reaching across the library.
     """
     child = {frozenset(pair) for pair in _child_collisions(view)}
     by_title: dict[str, list[str]] = {}
@@ -564,6 +565,15 @@ def check_title_degenerate(view: LibraryView) -> list[Finding]:
     return findings
 
 
+def _hub_shared_pairs(view: LibraryView) -> set[frozenset[str]]:
+    """`{chronology, its hub}` for every project whose two pages answer to one name."""
+    return {
+        frozenset((subject, hub))
+        for subject in view.subjects
+        if (hub := shares_hub_title(subject, view.titles, view.path_templates))
+    }
+
+
 def check_title_shared_with_hub(view: LibraryView) -> list[Finding]:
     findings: list[Finding] = []
     for subject in view.subjects:
@@ -622,6 +632,53 @@ def check_title_child_collision(view: LibraryView) -> list[Finding]:
                 targets=(child,),
                 evidence=(child,),
                 fields={"path": subject, "title": title, "target": child},
+            )
+        )
+    return findings
+
+
+def check_title_sibling_collision(view: LibraryView) -> list[Finding]:
+    """Two live pages in ONE directory under one name — the legacy half of the gate's
+    `title_sibling_collision`.
+
+    The hook refuses a new one from now on, and it judges only the pages a round touched, so a
+    collision two pages have carried since before the rule cannot reach a reader through the
+    gate at all. A real 250-subject library held exactly that: two feature pages of one
+    project, both called 『屏幕内容地形』, reported by nothing — `id.title_duplicate` is the
+    cross-directory case and a child collision needs one page to sit below the other.
+
+    One observation, one finding, across the four title items: a pair that is a project's
+    chronology and its hub is `id.title_shared_with_hub`, which says which of the two keeps
+    the name, so it is not repeated here.
+    """
+    hub_shared = _hub_shared_pairs(view)
+    groups: dict[tuple[str, str], list[str]] = {}
+    for subject in view.subjects:
+        key = normalize_title(view.titles.get(subject, ""))
+        if not key:
+            continue
+        directory = subject.rsplit("/", 1)[0] if "/" in subject else ""
+        groups.setdefault((directory, key), []).append(subject)
+    findings: list[Finding] = []
+    for (_directory, _key), members in sorted(groups.items()):
+        members = sorted(members)
+        if len(members) < 2:
+            continue
+        if len(members) == 2 and frozenset(members) in hub_shared:
+            continue
+        title = view.titles.get(members[0], "")
+        findings.append(
+            make_finding(
+                ID_TITLE_SIBLING_COLLISION,
+                scope=members[0],
+                paths=tuple(members),
+                targets=tuple(members[1:]),
+                evidence=(title,),
+                fields={
+                    "title": title,
+                    "paths": ", ".join(members),
+                    "count": len(members),
+                },
             )
         )
     return findings
@@ -751,6 +808,7 @@ CHECKS: tuple = (
     check_title_degenerate,
     check_title_shared_with_hub,
     check_title_child_collision,
+    check_title_sibling_collision,
     check_unordered_chronology,
     check_overview_restates,
     check_definition_empty,

@@ -3716,6 +3716,15 @@ The task follows.
         "Rename one of the two — retitle `{path}` so 『{title}』 names one page only; the gate "
         "now refuses a new title that collides with a sibling."
     ),
+    "check.id.title_sibling_collision.impact": (
+        "{count} live pages in one directory are called 『{title}』 ({paths}), so neither a "
+        "reader looking at the two files nor a citation can tell which of them that name "
+        "means."
+    ),
+    "check.id.title_sibling_collision.action": (
+        "Retitle all but one of them so 『{title}』 names one page only; the gate now refuses "
+        "a new title a live page in the same directory already carries."
+    ),
     "check.form.unordered_chronology.impact": (
         "The {count} dated sections of `{path}` do not run forward in time ({first}), so the "
         "page reads in the order it was compiled rather than in the order things happened."
@@ -3859,8 +3868,9 @@ The task follows.
     ),
     "lens.shape.leaning.statement": (
         "The library is leaning: 『{title}』 holds {lead_share} of {claims} claims — "
-        "{lead_ratio}× an even share across {subjects} subjects — and `{family}` carries "
-        "{family_share} of them on {family_pages} of the pages."
+        "{lead_over_even}× an even share across {subjects} subjects, {lead_ratio}× the next "
+        "subject — and `{family}` carries {family_share} of them on {family_pages} of the "
+        "pages."
     ),
     "lens.shape.leaning.direction": (
         "Ask whether the material piling up wants a family of its own. If it does, that is an "
@@ -3868,8 +3878,8 @@ The task follows.
     ),
     "lens.shape.collapsing.statement": (
         "One subject is where knowledge goes when nothing else fits: 『{title}』 holds "
-        "{lead_share} of {claims} claims, {lead_ratio}× an even share across {subjects} "
-        "subjects."
+        "{lead_share} of {claims} claims — {lead_over_even}× an even share across {subjects} "
+        "subjects, and {lead_ratio}× the subject behind it."
     ),
     "lens.shape.collapsing.direction": (
         "This is a structure question and not a page question: decide what the contract expects "

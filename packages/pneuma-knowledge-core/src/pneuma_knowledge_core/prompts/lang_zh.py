@@ -2870,6 +2870,14 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
         "两者改一个——用 retitle 改 `{path}`，让『{title}』只落在一页上；闸门现在会拒绝与同级"
         "页面撞名的新标题。"
     ),
+    "check.id.title_sibling_collision.impact": (
+        "同一个目录下有 {count} 页都叫『{title}』（{paths}），无论是看着这两个文件的读者还是"
+        "一条引用，都分不出这个名字指的是哪一页。"
+    ),
+    "check.id.title_sibling_collision.action": (
+        "用 retitle 给其中除一页之外的每一页改名，让『{title}』只落在一页上；闸门现在会拒绝"
+        "与同目录活页撞名的新标题。"
+    ),
     "check.form.unordered_chronology.impact": (
         "`{path}` 的 {count} 个日期小节没有按时间往前走（{first}），这一页读起来是编译的顺序，"
         "不是事情发生的顺序。"
@@ -2993,8 +3001,8 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
     ),
     "lens.shape.leaning.statement": (
         "这座库在倾斜：『{title}』占 {claims} 条断言（claim）的 {lead_share}——是 {subjects} "
-        "个主题均分的 {lead_ratio} 倍——而 `{family}` 用 {family_pages} 的页面占了其中 "
-        "{family_share}。"
+        "个主题均分的 {lead_over_even} 倍，是排在它后面那个主题的 {lead_ratio} 倍——而 "
+        "`{family}` 用 {family_pages} 的页面占了其中 {family_share}。"
     ),
     "lens.shape.leaning.direction": (
         "问一句堆起来的材料是不是想要一个自己的族。若是，那是一次 evolve；若只是一页长厚了，"
@@ -3002,7 +3010,8 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
     ),
     "lens.shape.collapsing.statement": (
         "有一个主题成了「别处放不下就放这里」的地方：『{title}』占 {claims} 条断言（claim）的 "
-        "{lead_share}，是 {subjects} 个主题均分的 {lead_ratio} 倍。"
+        "{lead_share}——是 {subjects} 个主题均分的 {lead_over_even} 倍，是排在它后面那个主题的 "
+        "{lead_ratio} 倍。"
     ),
     "lens.shape.collapsing.direction": (
         "这是结构的问题，不是某一页的问题：定下契约期待在那个主题旁边还应该有什么，再让 "
