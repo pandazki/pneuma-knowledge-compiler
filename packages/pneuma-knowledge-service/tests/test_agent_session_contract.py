@@ -107,6 +107,26 @@ async def test_http_import_intake_dedup_and_l0_isolation(count, treatment, seman
         assert "agent_session_tool_payload" in response.text
 
 
+async def test_a_session_carrying_nul_bytes_is_ingested_and_stored_without_them():
+    """The production defect: a transcript with a stray NUL died at the store (Postgres
+    text and jsonb both refuse U+0000) and the sync retried the same bytes forever. The
+    ingest boundary strips it, so the source is admitted and what is stored is NUL-free."""
+    lib = library()
+    value = payload()
+    value["session_id"] = "session-\x00001"
+    value["owner_name"] = "Mo\x00mo"
+    value["turns"][0]["text"] = "Keep the\x00 rationale."
+    value["metadata"] = {"capt\x00ure": "one stray\x00 byte"}
+    result = await ingest_source_contract(
+        lib.ctx, USER, parse_source_contract(value)
+    )
+    sid = result.sources[0].source_id
+    stored = await lib.store.get(USER, sid)
+    assert "\\u0000" not in stored.model_dump_json()
+    assert stored.raw.meta["metadata"] == {"capture": "one stray byte"}
+    assert "Momo: Keep the rationale." in await lib.store.fetch(USER, sid, {"blocks": [0, 0]})
+
+
 async def test_structure_exposes_roles_kinds_without_reading_activity_text():
     lib = library()
     result = await ingest_source_contract(

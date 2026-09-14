@@ -114,6 +114,34 @@ def draft(flag=True):
     )
 
 
+def test_nul_is_stripped_from_every_text_field_and_moves_no_anchor():
+    """NUL (U+0000) is not text. Postgres `text` and `jsonb` both refuse it, so a session
+    whose transcript carried one could never reach L0 at all and the sync that produced it
+    retried the same bytes every quarter hour forever. Normalization removes it at the one
+    boundary a source crosses, so L0, L1 and L2 all receive the same bytes."""
+    value = payload()
+    value["session_id"] = "session-\x00001"
+    value["owner_name"] = "Mo\x00mo"
+    value["turns"][0]["text"] = "Keep the\x00 decision rationale."
+    value["turns"][2]["text"] = "edited docs/ration\x00ale.md"
+    value["metadata"] = {"synthetic": True, "capt\x00ure": "one stray\x00 byte"}
+    normalized = normalize(value)
+
+    assert "\\u0000" not in normalized.model_dump_json(), "a NUL reached the stored source"
+    assert normalized.raw.title == normalize().raw.title
+    assert normalized.raw.meta["session_id"] == "session-001"
+    assert normalized.raw.meta["owner_name"] == "Momo"
+    assert normalized.raw.meta["metadata"] == {"synthetic": True, "capture": "one stray byte"}
+    assert normalized.blocks[0].text == "Momo: Keep the decision rationale."
+    assert normalized.blocks[2].text.endswith("edited docs/rationale.md")
+
+    # No anchor moves: blocks are addressed by INDEX and the structure map by inclusive
+    # block interval, so a character removed inside a block leaves every citation standing.
+    clean = normalize()
+    assert [block.index for block in normalized.blocks] == [block.index for block in clean.blocks]
+    assert normalized.structure == clean.structure
+
+
 def test_minimal_payload_and_free_provider():
     value = payload()
     for key in ["project", "ended_at", "metadata"]:

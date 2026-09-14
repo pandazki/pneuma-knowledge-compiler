@@ -123,6 +123,59 @@ def stamp_occurred_on(raw: RawSource, day_keys: list[str]) -> None:
     raw.meta = meta
 
 
+# NUL (U+0000) is the one codepoint that is not text. No medium a source comes from means
+# it, and every store L0 feeds refuses it outright — Postgres `text` and `jsonb` both raise
+# rather than truncate — so a payload carrying one used to be unwritable: the ingest died at
+# the adapter layer's far end and whatever produced the payload retried the same bytes
+# forever. It is removed here instead, deterministically, at the point a source becomes a
+# NormalizedSource, so L0, L1, L2 and the canonical citations all address the same bytes and
+# a rebuild reproduces them.
+NUL = "\x00"
+
+
+def _without_nul(value: Any) -> Any:
+    """Strip NUL from every string inside a JSON-shaped value (metadata, section paths)."""
+    if isinstance(value, str):
+        return value.replace(NUL, "")
+    if isinstance(value, dict):
+        return {_without_nul(key): _without_nul(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_nul(item) for item in value]
+    return value
+
+
+def strip_nul(source: NormalizedSource) -> NormalizedSource:
+    """Remove NUL from every text field of a normalized source, in place.
+
+    Covers what reaches a store: the source title and its metadata envelope, each block's
+    text and section path, the structure map's section paths, and the text derived from a
+    block's images (which is indexed beside the block).
+
+    NO ANCHOR MOVES. A citation addresses blocks by INDEX (`[cite: <sid> ¶a-b]`) and the
+    structure map addresses an inclusive block interval, so removing a character from inside
+    a block changes no address. The one layer that does count characters — L2 chunking's
+    `char_start`/`char_end` (ingest/chunking.py) — computes them from these block texts
+    afterwards and re-derives them on every rebuild from the stored L0, so it addresses the
+    stripped string throughout and never a pre-strip one.
+
+    `raw.checksum` is deliberately NOT recomputed: it digests the payload as it arrived, and
+    it is the dedup identity of that payload, not of the rendered text.
+    """
+    raw = source.raw
+    raw.title = raw.title.replace(NUL, "")
+    raw.meta = _without_nul(raw.meta or {})
+    for block in source.blocks:
+        block.text = block.text.replace(NUL, "")
+        block.section_path = [part.replace(NUL, "") for part in block.section_path]
+        for image in block.images:
+            image.metadata = _without_nul(image.metadata or {})
+            for derived in image.derived:
+                derived.text = derived.text.replace(NUL, "")
+    for span in source.structure.sections:
+        span.path = [part.replace(NUL, "") for part in span.path]
+    return source
+
+
 def _date_spans(day_keys: list[str]) -> list[SectionSpan]:
     """Contiguous runs of the same calendar date → one section span each (turns are
     chronological in practice); timestamp-less turns fall in an 'undated' section."""
@@ -165,10 +218,12 @@ class PlainConversationAdapter:
             for i, turn in enumerate(raw_input.turns)
         ]
         stamp_occurred_on(raw_input.raw, day_keys)
-        return NormalizedSource(
-            raw=raw_input.raw,
-            blocks=blocks,
-            structure=StructureMap(sections=_date_spans(day_keys)),
+        return strip_nul(
+            NormalizedSource(
+                raw=raw_input.raw,
+                blocks=blocks,
+                structure=StructureMap(sections=_date_spans(day_keys)),
+            )
         )
 
 
@@ -236,10 +291,12 @@ class ContextStreamAdapter:
             for i, turn in enumerate(raw_input.turns)
         ]
         stamp_occurred_on(raw_input.raw, day_keys)
-        return NormalizedSource(
-            raw=raw_input.raw,
-            blocks=blocks,
-            structure=StructureMap(sections=_date_spans(day_keys)),
+        return strip_nul(
+            NormalizedSource(
+                raw=raw_input.raw,
+                blocks=blocks,
+                structure=StructureMap(sections=_date_spans(day_keys)),
+            )
         )
 
 
@@ -340,8 +397,10 @@ class MarkdownDocumentAdapter:
                 )
             )
 
-        return NormalizedSource(
-            raw=raw_input.raw,
-            blocks=blocks,
-            structure=StructureMap(sections=spans),
+        return strip_nul(
+            NormalizedSource(
+                raw=raw_input.raw,
+                blocks=blocks,
+                structure=StructureMap(sections=spans),
+            )
         )

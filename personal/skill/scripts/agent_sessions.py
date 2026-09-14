@@ -746,6 +746,27 @@ SYNC_COUNTS = ("scanned", "new", "increments", "held", "unchanged", "rewritten",
                "skipped", "skipped_steward", "project_missing", "split_parts", "oversized_parts")
 
 
+# How much of a failed command's own words the sync report carries. Bounded because a
+# refusal can arrive as a whole traceback and this string is written into actions.log and
+# read back by `pkchome status`.
+STDERR_EXCERPT_CHARS = 300
+
+
+def stderr_excerpt(stderr: str) -> str:
+    """The last non-empty line of a failed command's stderr, bounded.
+
+    A retry every quarter hour that reports only an exit code tells whoever reads the sync
+    report nothing about what to fix — a payload that no version of itself can ever be
+    ingested looks exactly like a store that happens to be down. The last line is where a
+    Python traceback and a CLI's own refusal both put the reason.
+    """
+    lines = [line.strip() for line in (stderr or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+    last = lines[-1]
+    return last if len(last) <= STDERR_EXCERPT_CHARS else last[:STDERR_EXCERPT_CHARS - 1] + "\u2026"
+
+
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -929,7 +950,11 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
         env = {**os.environ, "PKC_HOME": str(state_path.parent.parents[1])}
         result = subprocess.run(command, capture_output=True, text=True, env=env)
         if result.returncode:
-            raise ValueError(f"ingest failed (exit {result.returncode}); exact payload retained for retry")
+            # The payload is retained either way; what the reader also needs is the reason.
+            reason = stderr_excerpt(result.stderr)
+            raise ValueError(f"ingest failed (exit {result.returncode})"
+                             + (f": {reason}" if reason else "")
+                             + "; exact payload retained for retry")
         try:
             body = json.loads(result.stdout)
             source = body["sources"][0]

@@ -17,7 +17,12 @@ from ..domain.ids import SourceId, UserId
 from ..domain.source import BlockImage, NormalizedBlock, NormalizedSource, RawSource
 from ..domain.time_context import TimeContext
 from ..prompts import prompt
-from .adapters import MarkdownDocumentAdapter, PlainDocumentInput, stamp_occurred_on
+from .adapters import (
+    MarkdownDocumentAdapter,
+    PlainDocumentInput,
+    stamp_occurred_on,
+    strip_nul,
+)
 from .source_types import agent_session_owner_label
 from .source_contracts import (
     AgentSessionSource,
@@ -579,15 +584,19 @@ def normalize_source_contract(
     """
 
     if isinstance(source, MeetingSource):
-        return _meeting(source, user_id, time)
-    if isinstance(source, DocumentLibrarySource):
-        return _library(source, user_id, imported_at)
-    if isinstance(source, ImSource):
-        return _im(source, user_id, time, materialized_images)
-    if isinstance(source, EmailSource):
-        return _email(source, user_id, time)
-    if isinstance(source, OwnerDialogueSource):
-        return _owner_dialogue(source, user_id, time)
-    if isinstance(source, AgentSessionSource):
-        return _agent_session(source, user_id, time)
-    raise TypeError(f"unsupported source contract: {type(source)!r}")
+        normalized = _meeting(source, user_id, time)
+    elif isinstance(source, DocumentLibrarySource):
+        normalized = _library(source, user_id, imported_at)
+    elif isinstance(source, ImSource):
+        normalized = _im(source, user_id, time, materialized_images)
+    elif isinstance(source, EmailSource):
+        normalized = _email(source, user_id, time)
+    elif isinstance(source, OwnerDialogueSource):
+        normalized = _owner_dialogue(source, user_id, time)
+    elif isinstance(source, AgentSessionSource):
+        normalized = _agent_session(source, user_id, time)
+    else:
+        raise TypeError(f"unsupported source contract: {type(source)!r}")
+    # One exit for all six contracts, so no future contract has to remember: NUL is removed
+    # from every text field before a source leaves this module (adapters.strip_nul).
+    return [strip_nul(item) for item in normalized]
