@@ -139,6 +139,13 @@ WRITE_TOOLS = frozenset(
 )
 
 
+#: What a LAUNCHED round's executor label begins with (`coding_agent/round_runner.py` mints
+#: `worker:<backend>:<uuid>` and exports it as `PKC_DRAFT_EXECUTOR`; the draft store's
+#: liveness lease reads the same prefix). A `pkc` process whose executor starts with it is
+#: running inside a harness the worker launched, which is the one fact `handed_off` needs.
+WORKER_EXECUTOR_PREFIX = "worker:"
+
+
 def draft_executor() -> str:
     """The session typing commands, separate from its harness/model accounting label."""
     explicit = os.environ.get("PKC_DRAFT_EXECUTOR", "").strip()
@@ -859,6 +866,28 @@ async def _gate(
 BRIEF_MAX_CHARS = 8000
 
 
+def handed_off(rt: DraftRuntime) -> bool:
+    """Is this finish running INSIDE a harness the worker launched?
+
+    Then it must not commit, and the reason is physical rather than stylistic. A launched
+    round runs in an empty sandboxed working directory (the personal edition puts every one
+    there), and the canonical repository is outside it: the process cannot take
+    `.git/pneuma.lock`, so `finalize_compile` dies on `Operation not permitted` AFTER the
+    gate has passed. On one real library that ending happened 106 times against 0 harness
+    commits — every round's Steward finishing on a traceback, and the worker then finishing
+    the round again as if the harness had walked away from it.
+
+    So the cut moves to where the permission is: the harness's finish does everything a
+    finish does EXCEPT the commit — the overview floor, the gate, the brief — marks the
+    session, and says so; the worker, which does hold the lock, commits what was judged.
+    That is the normal ending of a launched round, not a fallback from one.
+
+    `worker_finish` is the worker's own call of this same function, and it is the half that
+    makes the rule terminate: the process that holds the lock is never handed off from.
+    """
+    return not rt.worker_finish and rt.draft_executor.startswith(WORKER_EXECUTOR_PREFIX)
+
+
 def validate_brief(text: str) -> str:
     """The Steward's narration, bounded independently of canonical knowledge."""
     if not text.strip() or len(text) > BRIEF_MAX_CHARS:
@@ -934,6 +963,36 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
             print(feedback, file=rt.err)
             return EXIT_GATE
 
+        if handed_off(rt):
+            # Inside a launched harness: judged here, committed by the worker. Everything a
+            # finish decides has been decided by this point — the overview floor, the gate,
+            # and (below) the account a review round owes — so what the worker inherits is a
+            # round that has already been judged rather than one it has to judge for the
+            # Steward that walked away from it.
+            if violations:
+                # A repair round the gate still refuses. The harness says so and leaves the
+                # draft; the worker's own finish is what ABORTS it, because aborting ends the
+                # job and a process that cannot commit must not end one either.
+                await _store(rt, draft, session)
+                print(render_violations(violations), file=rt.err)
+                return EXIT_GATE
+            if not draft.is_dirty() and _review_owes_an_account(session, brief):
+                # The same refusal the terminal gets, at the same moment: the session is
+                # still typing and one `pkc draft finish --brief …` answers it.
+                await _store(rt, draft, session)
+                print(REVIEW_OWED_LINE, file=rt.err)
+                return EXIT_GATE
+            session.context["finish_requested"] = True
+            await _store(rt, draft, session)
+            print(prompt("steward.finish.handed_off"), file=rt.out)
+            return EXIT_OK
+
+        # The brief BEFORE the commit, always. It is the round's own words and it is already
+        # decided; the commit is the part that can still fail on something outside this
+        # process — a lock it cannot take, a dirty tree, a disk. When that happened, the
+        # brief died with the process and the worker's finish committed the round with none:
+        # the job row's `brief` was null about a round that had written one.
+        await _store(rt, draft, session)
         sources = await rt.load_sources(session.source_ids)
         result = await finalize_compile(
             user_id=rt.user_id,
@@ -952,12 +1011,18 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
             executor_skill=rt.executor_skill,
         )
 
-    if result.status == "noop" and rt.unclean_launch:
+    if result.status == "noop" and rt.unclean_launch and not session.context.get(
+        "finish_requested"
+    ):
         # The round the worker is finishing ended by a timeout or a crash, and nothing in it
         # reached canonical. Recording that as a noop would complete the job ok, stamp its
         # sources digested and tell the Owner the material was compiled — about a round that
         # never got to the end of it. The draft goes (there is nothing in it to keep); the job
         # stays claimed for the worker to end as a failure and queue again.
+        #
+        # `finish_requested` is the exception, and it is not a leniency: that session's OWN
+        # finish passed the gate and handed the commit over. The round reached its end; what
+        # happened to the harness process afterwards says nothing about it.
         await rt.drafts.delete(rt.user_id, session.job_id, executor=rt.draft_executor)
         print(ROUND_INCOMPLETE_DETAIL.format(why=rt.unclean_launch), file=rt.err)
         return EXIT_INCOMPLETE

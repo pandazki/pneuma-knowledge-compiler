@@ -49,6 +49,7 @@ from pneuma_knowledge_core.prompts import prompt
 from ..cli.draft import (
     EXIT_INCOMPLETE,
     EXIT_OK,
+    WORKER_EXECUTOR_PREFIX,
     DraftRuntime,
     cmd_abandon,
     cmd_finish,
@@ -82,6 +83,12 @@ CONFIG_HOME_PREFIX = "pkc-agent-home-"
 Outcome = str
 COMMITTED_BY_HARNESS = "finished by the harness"
 FINISHED_BY_WORKER = "the harness stopped; the worker finished the round"
+#: The harness ran its own `pkc draft finish`, the gate passed, and the commit was HANDED
+#: OVER: a launched round works in an empty sandboxed directory and cannot take the canonical
+#: repository's lock, so the process that can takes it (`cli/draft.handed_off`). The round is
+#: the harness's; only the commit is the worker's. Named apart from `FINISHED_BY_WORKER`
+#: because that sentence says the harness stopped, and this one says it finished.
+HANDED_OFF = "finished by the harness, committed by the worker"
 REPAIRED = "the harness repaired the round"
 ABANDONED = "the round was abandoned"
 #: The launch never became a round. The harness refused before it read anything — the
@@ -200,7 +207,7 @@ class AgentRoundRunner:
     # ── the round ────────────────────────────────────────────────────────────────────────
 
     async def run_job(self, rt: DraftRuntime, job_id: str) -> AgentRoundResult:
-        executor = f"worker:{self.manifest.name}:{uuid.uuid4().hex}"
+        executor = f"{WORKER_EXECUTOR_PREFIX}{self.manifest.name}:{uuid.uuid4().hex}"
         self.executor = executor
         previous = rt.draft_executor, rt.expected_job_id, rt.worker_posture
         rt.draft_executor, rt.expected_job_id, rt.worker_posture = executor, job_id, "unattended"
@@ -299,7 +306,11 @@ class AgentRoundRunner:
                     rate_limited, output=output,
                 )
 
-            outcome = FINISHED_BY_WORKER
+            outcome = (
+                HANDED_OFF
+                if state[1].context.get("finish_requested")
+                else FINISHED_BY_WORKER
+            )
             if state[1].round == "first":
                 # Either the harness stopped mid-round, or its own `pkc draft finish` was
                 # refused and it did not try again. The worker finishes what is there through

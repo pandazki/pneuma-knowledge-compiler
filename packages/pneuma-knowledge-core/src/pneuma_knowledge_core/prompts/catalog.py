@@ -864,8 +864,11 @@ mistaken for a missing subject.
 5. `pkc draft status` when you are unsure what is left of the round or what the mechanical
    checks already find owed.
 6. `pkc draft finish --brief <f>` (or `--brief -`) supplies your own brief for this version,
-   non-blank and at most 8000 characters. The gate judges the whole draft and commits it, or rejects it and
-   prints what it found.
+   non-blank and at most 8000 characters. The gate judges the whole draft and commits it, or
+   rejects it and prints what it found. In a round the worker launched, the gate judges it
+   here and the WORKER commits — the finish says so and there is nothing further to do; that
+   is the ordinary ending there, because a launched round works outside the library's own
+   directory and cannot take its lock.
 7. On a rejection: repair what it named, then `pkc draft finish` again. One repair round. A
    second rejection is a report, not a third attempt — say what stands in the way and stop.
 8. After a successful `pkc draft finish`, run `pkc outline --family <template>` for each
@@ -3549,6 +3552,12 @@ The task follows.
     "steward.skill.postures": _STEWARD_POSTURES,
     "steward.unattended.task": _STEWARD_UNATTENDED_TASK,
     "steward.review.task": _STEWARD_REVIEW_TASK,
+    "steward.finish.handed_off": (
+        "gate clean; this round is judged and its brief is kept. The worker commits it when "
+        "this session exits — a launched round runs outside the library's own directory and "
+        "cannot take its lock, so the commit belongs to the process that can. Nothing is left "
+        "for you to do; do not run finish again."
+    ),
     "steward.review.clean": _STEWARD_REVIEW_CLEAN,
     "steward.skill.owner_speech": _STEWARD_OWNER_SPEECH,
     "steward.skill.cannot": _STEWARD_CANNOT,
@@ -3744,6 +3753,16 @@ The task follows.
     "check.form.unordered_chronology.action": (
         "Run reorder_chronology on `{path}`: whole sections move into ascending order and no "
         "claim is touched. The first pair out of order is {first}."
+    ),
+    "check.form.repeated_dates.impact": (
+        "`{path}` carries more than one dated section under each of {repeats} ({count} date(s) "
+        "in all), so one day's record is split across two places on the page and a reader "
+        "finds half of it."
+    ),
+    "check.form.repeated_dates.action": (
+        "Fold each repeated day of 『{title}』 into ONE section with an ordinary edit, keeping "
+        "every claim and its anchor. reorder_chronology does not repair this: those sections "
+        "already run forward, so sorting them changes nothing."
     ),
     "check.form.overview_restates.impact": (
         "The `{slot}` slot of `{path}` repeats one of its own ledger claims word for word, so "

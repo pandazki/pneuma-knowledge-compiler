@@ -39,6 +39,12 @@ ID_TITLE_SHARED_WITH_HUB = "id.title_shared_with_hub"
 ID_TITLE_CHILD_COLLISION = "id.title_child_collision"
 ID_TITLE_SIBLING_COLLISION = "id.title_sibling_collision"
 FORM_UNORDERED_CHRONOLOGY = "form.unordered_chronology"
+#: Two dated sections carrying ONE date. Reported apart from the inversion above, and the
+#: reason is the repair: `reorder_chronology` SORTS, and a page whose only fault is a repeated
+#: date is already sorted — the verb runs, reports the range it now spans, and changes not one
+#: byte. Under one id the report named a verb that could not repair it, a real round ran it on
+#: three pages, said so, and committed nothing. A finding names the verb that repairs it.
+FORM_REPEATED_DATES = "form.repeated_dates"
 FORM_OVERVIEW_RESTATES = "form.overview_restates"
 FORM_DEFINITION_EMPTY = "form.definition_empty"
 FORM_UNANCHORED_CITATION = "form.unanchored_citation"
@@ -65,6 +71,7 @@ LEGACY_IDS: tuple[str, ...] = (
     ID_TITLE_CHILD_COLLISION,
     ID_TITLE_SIBLING_COLLISION,
     FORM_UNORDERED_CHRONOLOGY,
+    FORM_REPEATED_DATES,
     FORM_OVERVIEW_RESTATES,
     FORM_DEFINITION_EMPTY,
     FORM_UNANCHORED_CITATION,
@@ -144,6 +151,7 @@ __all__ = [
     "FORM_DEFINITION_EMPTY",
     "FORM_LEGACY_SECTIONS",
     "FORM_OVERVIEW_RESTATES",
+    "FORM_REPEATED_DATES",
     "FORM_STRAY_HEADING",
     "FORM_UNANCHORED_CITATION",
     "FORM_UNORDERED_CHRONOLOGY",

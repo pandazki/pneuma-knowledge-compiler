@@ -48,7 +48,7 @@ from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
 from pneuma_knowledge_service.cli import draft as draft_cmd, review as review_cli
 from pneuma_knowledge_service.coding_agent.launcher import LaunchResult
 from pneuma_knowledge_service.coding_agent.round_runner import (
-    COMMITTED_BY_HARNESS,
+    HANDED_OFF,
     FINISHED_BY_WORKER,
     REVIEW_INCOMPLETE,
 )
@@ -540,7 +540,7 @@ async def test_the_worker_path_opens_the_round_and_the_harness_repairs_what_it_f
     assert "already open" in request.task_text  # the unattended preamble rides above it
     assert seen["state"]["kind"] == REVIEW_JOB_KIND, "no draft was open during the round"
 
-    assert result.outcome == COMMITTED_BY_HARNESS
+    assert result.outcome == HANDED_OFF
     assert len(store.commits) == 1
     assert "# 旧页" in store.commits[-1][UNNAMED]
     assert jobs.completed and jobs.completed[0]["ok"] is True
@@ -622,7 +622,7 @@ async def test_a_review_round_that_repaired_nothing_but_said_why_is_a_finished_r
         monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
     )
 
-    assert result.outcome == COMMITTED_BY_HARNESS, "the harness ended its own round"
+    assert result.outcome == HANDED_OFF, "the harness judged its own round"
     assert not store.commits
     row = await job_row(jobs, DRAFT_USER, job_id)
     assert row["ok"] is True
@@ -679,7 +679,7 @@ async def test_the_harnesss_own_finish_meets_the_same_rule_and_can_still_answer_
         monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
     )
 
-    assert result.outcome == COMMITTED_BY_HARNESS
+    assert result.outcome == HANDED_OFF
     row = await job_row(jobs, DRAFT_USER, job_id)
     assert row["ok"] is True and row["detail"] == draft_cmd.REVIEW_NOTHING_DETAIL
 
@@ -743,7 +743,7 @@ async def test_a_review_round_that_repaired_something_stays_ok(monkeypatch, tmp_
         monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
     )
 
-    assert result.outcome == COMMITTED_BY_HARNESS
+    assert result.outcome == HANDED_OFF
     assert len(store.commits) == 1
     row = await job_row(jobs, DRAFT_USER, job_id)
     assert row["ok"] is True
@@ -883,6 +883,104 @@ def test_the_door_and_not_the_kind_is_what_the_guards_compare():
     body = inspect.getsource(draft_cmd)
     for spelling in ("session.kind != rt.kind", "kind != rt.kind"):
         assert spelling not in body, spelling
+
+
+# ─────────────────── a finding names the verb that repairs it, and that verb reaches canonical
+
+
+#: A contract that declares a chronology family, which the reference one this fixture library
+#: runs under does not. The check reads the role off the template (`shape/families.py`), so a
+#: chronology finding cannot be raised against a library whose contract has no chronology.
+CHRONOLOGY_TEMPLATES = ("projects/{slug}/overview.md", "projects/{slug}/evolution.md")
+CHRONOLOGY = "projects/beta/evolution.md"
+
+
+def _chronology(body: str, doc_id: str = "betaevo1"):
+    return CanonicalDocument(
+        doc_id=DocumentId(doc_id),
+        path=CHRONOLOGY,
+        frontmatter={"doc_id": doc_id, "type": "project", "slug": "beta"},
+        body=body,
+    )
+
+
+#: Two sections under ONE date, ascending. `reorder_chronology` sorts, so this page is already
+#: sorted: the verb runs, reports the range it spans, and changes nothing. This is the shape
+#: three real pages were in, and the shape the report used to send a round at with that verb.
+REPEATED = (
+    "# Beta 的演进\n\n"
+    "## 2026-06-12\n\n- 上午的一条。[cite: src-old ¶3] <!-- c:ee55 -->\n\n"
+    "## 2026-06-12\n\n- 下午的一条。[cite: src-old ¶4] <!-- c:ff66 -->"
+)
+
+#: Genuinely out of order: newest first. Sorting is exactly the repair.
+INVERTED = (
+    "# Beta 的演进\n\n"
+    "## 2026-03-01\n\n- 三月的一条。[cite: src-old ¶1] <!-- c:cc33 -->\n\n"
+    "## 2026-01-01\n\n- 一月的一条。[cite: src-old ¶2] <!-- c:dd44 -->"
+)
+
+
+async def test_a_reordered_page_reaches_the_commit_with_its_sections_moved():
+    """The round trip the third real review round did not make: the verb reported a repair on
+    three pages and the commit carried none of them. It carries this one, and the assertion is
+    on the committed BYTES — a commit that said a page changed while its sections stood where
+    they were is the same defect wearing a passing test."""
+    rt, _jobs, _drafts, store, _job_id, _task = await opened_review_round(
+        _legacy_base() + [_unordered_doc()]
+    )
+    assert await draft_cmd.run_tool(
+        rt, "reorder_chronology", {"path": UNORDERED}
+    ) == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert await draft_cmd.cmd_finish(rt, brief="reordered one chronology") == draft_cmd.EXIT_OK, (
+        rt.err.getvalue()
+    )
+
+    assert len(store.commits) == 1
+    committed = store.commits[-1][UNORDERED]
+    assert committed.index("2026-01-01") < committed.index("2026-03-01"), (
+        "the commit carries the page in its original order"
+    )
+    for anchor in ("c:cc33", "c:dd44"):
+        assert anchor in committed, "a permutation lost a claim"
+
+
+async def _chronology_check(body: str):
+    lib = library(docs=[_chronology(body)])
+    report, _documents = await read_check_over(
+        lib.canonical, USER, CHRONOLOGY_TEMPLATES
+    )
+    return {f.id: f for f in report.findings if CHRONOLOGY in f.paths}
+
+
+async def test_a_page_whose_only_fault_is_a_repeated_date_is_not_sent_to_the_sorter():
+    """The cause of that empty commit, as a property of the REPORT. `reorder_chronology`
+    sorts; a page whose sections already ascend and merely share a date is sorted, so naming
+    that verb told a round to run a command that could not do what the report asked. It did,
+    on three pages, and said so in a brief."""
+    found = await _chronology_check(REPEATED)
+    assert "form.repeated_dates" in found
+    assert "form.unordered_chronology" not in found
+
+    repeated = found["form.repeated_dates"]
+    assert "2026-06-12" in repeated.evidence
+    action = prompt(repeated.action.key, **repeated.action.fields)
+    assert "ordinary edit" in action
+    assert "does not repair this" in action, "the action must say why the sorter is not it"
+
+
+async def test_an_inverted_chronology_is_the_one_told_to_reorder():
+    found = await _chronology_check(INVERTED)
+    assert "form.repeated_dates" not in found
+    action = found["form.unordered_chronology"].action
+    assert "reorder_chronology" in prompt(action.key, **action.fields)
+
+
+async def test_a_page_with_both_faults_reports_both_with_their_own_repairs():
+    found = await _chronology_check(
+        INVERTED + "\n\n## 2026-01-01\n\n- 同一天的另一条。[cite: src-old ¶5] <!-- c:aa77 -->"
+    )
+    assert set(found) >= {"form.unordered_chronology", "form.repeated_dates"}
 
 
 def test_the_round_reads_only_fields_the_runtime_has():

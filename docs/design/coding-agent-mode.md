@@ -273,6 +273,23 @@ first version; **v2** are designed here with their shape stated and built next.
   commits, emits events and the brief, deletes the draft, completes the job. Violations: it
   prints them with the repair budget and keeps the draft open for one repair round; a second
   failure aborts the job and canonical is untouched.
+
+  **Inside a LAUNCHED round the commit belongs to the worker.** A launched harness works in
+  an empty sandboxed directory and the canonical repository is outside it: the process cannot
+  take `.git/pneuma.lock`, so a finish that tried to commit died on *Operation not permitted*
+  AFTER the gate had passed — on one real library, 106 rounds ending "the harness stopped; the
+  worker finished the round" against zero harness commits, every Steward finishing on a
+  traceback and its brief dying with the process. So the cut is where the permission is. A
+  finish whose executor is a launched one (`PKC_DRAFT_EXECUTOR` begins `worker:`) does
+  everything a finish does except the commit — overview floor, gate, the review round's
+  account, the brief persisted to the draft — marks the session `finish_requested`, says so in
+  one sentence (`steward.finish.handed_off`) and exits 0 without touching git. The worker's own
+  finish then commits that session as the normal path, with the brief it was handed, and the
+  round is recorded as **"finished by the harness, committed by the worker"** — not as a round
+  the harness walked away from. A gate refusal inside the harness is still a refusal: the
+  violations are printed, the draft is left, and only the worker's finish aborts, because
+  aborting ends the job and a process that cannot commit must not end one either. A Steward at
+  a terminal holds the repository and commits directly, exactly as before.
 - **2.21 Read anything (v1).** `pkc source fetch`, `pkc search`, `pkc canonical read`,
   `pkc glance`, `pkc history`, `pkc consultations`, `pkc jobs` — the read half of the HTTP API
   as commands, every one taking the tenant from the project.
@@ -603,6 +620,7 @@ pkc draft search-knowledge <q> | search-source <q>
 pkc draft <component-tool> …                 whatever the enabled components contribute
 pkc draft check                              the whole gate over the open draft, without finishing
 pkc draft finish [--brief <f>|-]              overview floor → gate → commit | violations; Steward brief
+                                             (in a launched round: judged here, committed by the worker)
 pkc draft abandon [--take-over]              release the job; delete the draft; explicit recovery of another owner
 ```
 

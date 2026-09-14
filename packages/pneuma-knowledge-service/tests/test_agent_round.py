@@ -28,6 +28,7 @@ from pneuma_knowledge_core.compile.runner import build_compile_tool_face
 from pneuma_knowledge_core.compile.session import DraftSession
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.domain.snapshot import SnapshotRef
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_service.adapters.draft_mock import InMemoryJobQueue
 from pneuma_knowledge_service.cli import draft as draft_cmd
 from pneuma_knowledge_service.coding_agent.backends import CODEX
@@ -35,6 +36,7 @@ from pneuma_knowledge_service.coding_agent.launcher import LaunchRequest, Launch
 from pneuma_knowledge_service.coding_agent.round_runner import (
     COMMITTED_BY_HARNESS,
     FINISHED_BY_WORKER,
+    HANDED_OFF,
     HARNESS_UNAVAILABLE,
     REPAIRED,
     UNAVAILABLE_AT_CAPACITY,
@@ -191,19 +193,20 @@ async def job_row(jobs, user_id, job_id: str) -> dict:  # noqa: ANN001
 # ─────────────────────────────────────────────────────── the harness finished the round
 
 
-async def test_a_harness_that_finishes_the_round_leaves_nothing_for_the_worker_to_do(tmp_path):
+async def test_a_harness_that_finishes_the_round_hands_the_commit_to_the_worker(tmp_path):
     """The normal case, and the one the finish/finalize cut is about.
 
-    `pkc draft finish` inside the harness's session committed the round, completed the job and
-    deleted the draft. The worker must recognise that and add nothing: one commit, one job
-    completion, no second finalize.
+    `pkc draft finish` inside the harness's session judged the round — overview floor, gate,
+    brief — and handed the COMMIT over: a launched round works in an empty sandboxed
+    directory and cannot take the canonical repository's lock. The worker, which can, takes
+    it. One commit, one job completion, no second judgement.
     """
     h = await harness([source()])
     assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS, "finish"]])
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
 
-    assert result.outcome == COMMITTED_BY_HARNESS
+    assert result.outcome == HANDED_OFF
     assert result.launches == 1
     assert len(h.store.commits) == 1, "the round was finalized more than once"
     assert len(h.jobs.completed) == 1
@@ -345,15 +348,16 @@ async def test_a_turn_the_harness_declared_failed_at_exit_zero_is_the_same_thing
 async def test_a_harness_that_finished_the_round_stays_finished_whatever_it_exited_with(
     tmp_path,
 ):
-    """The branch this must not swallow: `pkc draft finish` committed, the draft is gone, and
-    the process then exited non-zero for reasons of its own. The round HAPPENED."""
+    """The branch this must not swallow: `pkc draft finish` passed the gate and handed the
+    commit over, and the process then exited non-zero for reasons of its own. The round
+    HAPPENED — what the harness did on its way out says nothing about the round it judged."""
     h = await harness([source()])
     assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
     fake = FakeHarness(h.rt, [[*CALLS, "finish"]], result=lambda: LaunchResult(
         exit_code=1, stdout="", stderr="the harness fell over on its way out",
     ))
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
-    assert result.outcome == COMMITTED_BY_HARNESS
+    assert result.outcome == HANDED_OFF
     assert len(h.store.commits) == 1 and h.jobs.completed[0]["ok"] is True
 
 
@@ -1284,7 +1288,7 @@ async def test_what_the_steward_said_is_kept_on_a_round_that_succeeded(monkeypat
     ctx = WorkerCtx(worker_settings(), h.jobs)
     result = await drive_agent_job(monkeypatch, ctx, h.rt, h.job_id, fake, tmp_path)
 
-    assert result.outcome == COMMITTED_BY_HARNESS
+    assert result.outcome == HANDED_OFF
     row = await job_row(h.jobs, h.rt.user_id, h.job_id)
     assert row["ok"] is True
     assert row["harness_output"] and said in row["harness_output"]
@@ -1417,7 +1421,7 @@ SKILL_DIGEST = "5c4e" * 16
 
 @pytest.mark.parametrize(
     "script, outcome",
-    [([*CALLS, "finish"], COMMITTED_BY_HARNESS), ([*CALLS], FINISHED_BY_WORKER)],
+    [([*CALLS, "finish"], HANDED_OFF), ([*CALLS], FINISHED_BY_WORKER)],
 )
 async def test_an_agent_round_stamps_the_executor_skill_whoever_closed_it(
     tmp_path, monkeypatch, script, outcome
@@ -1598,3 +1602,145 @@ async def test_an_unbounded_runtime_renders_every_block_as_it_always_did():
     _code, _system, task = await draft_cmd.open_round(h.rt, h.job_id)
     assert "are not shown here" not in task
     assert "b299" in task
+
+
+# ─────────────────────── the finish inside a harness: judged here, committed by the worker
+
+
+LAUNCHED = "worker:codex:synthetic-launch"
+
+
+async def launched(**kw):
+    """A round whose `pkc draft finish` runs INSIDE a launched harness session.
+
+    That is what `PKC_DRAFT_EXECUTOR` says in every process the launcher starts, and it is the
+    one fact the hand-off turns on: such a process works in an empty sandboxed directory and
+    cannot take the canonical repository's lock.
+    """
+    h = await harness([source()], **kw)
+    h.rt.draft_executor = LAUNCHED
+    h.rt.worker_posture = "unattended"
+    assert await draft_cmd.cmd_open(h.rt, h.job_id) == 0
+    for name, args in CALLS:
+        assert await draft_cmd.run_tool(h.rt, name, args) == 0
+    h.clear()
+    return h
+
+
+async def test_a_finish_inside_a_harness_judges_the_round_and_commits_nothing():
+    """The defect this answers, from a real library: 106 rounds ended "the harness stopped;
+    the worker finished the round" against 0 harness commits, every one of them a Steward
+    finishing on `PermissionError: .git/pneuma.lock` after the gate had already passed. The
+    gate still runs here; only the commit moves."""
+    h = await launched()
+    assert await draft_cmd.cmd_finish(h.rt, brief="three claims, one question left") == 0, h.err()
+
+    assert h.store.commits == [], "a sandboxed process must not reach the repository"
+    assert h.jobs.completed == [], "a process that cannot commit must not end the job"
+    state = await h.drafts.get(h.rt.user_id, h.job_id)
+    assert state is not None, "the draft is what the worker inherits"
+    assert state["session"]["context"]["finish_requested"] is True
+    assert state["session"]["context"]["brief"] == "three claims, one question left"
+    assert prompt("steward.finish.handed_off") in h.out()
+
+
+async def test_the_worker_then_commits_the_handed_off_round_with_its_brief():
+    """The other half. The worker's own finish is not a fallback for a round that walked
+    away — it is the second half of a round that was judged and said so."""
+    briefs: list[tuple[str, str]] = []
+
+    async def record(job_id: str, text: str) -> None:
+        briefs.append((job_id, text))
+
+    h = await launched()
+    h.rt.record_brief = record
+    assert await draft_cmd.cmd_finish(h.rt, brief="left the pricing question to the Owner") == 0
+
+    h.rt.worker_finish = True
+    assert await draft_cmd.cmd_finish(h.rt) == 0, h.err()
+    h.rt.worker_finish = False
+
+    assert len(h.store.commits) == 1
+    assert h.jobs.completed and h.jobs.completed[0]["ok"] is True
+    assert briefs == [(h.job_id, "left the pricing question to the Owner")], (
+        "the worker committed with a brief it never typed, or with none"
+    )
+    assert await h.drafts.get(h.rt.user_id, h.job_id) is None
+
+
+async def test_a_handed_off_round_is_committed_even_if_its_harness_then_died():
+    """`unclean_launch` says "this round never reached its end". A round whose own finish
+    passed the gate and handed the commit over reached it — what the process did afterwards
+    is about the process."""
+    h = await launched()
+    assert await draft_cmd.cmd_finish(h.rt, brief="judged") == 0
+
+    h.rt.worker_finish, h.rt.unclean_launch = True, "timed out"
+    assert await draft_cmd.cmd_finish(h.rt) == 0, h.err()
+    assert len(h.store.commits) == 1
+
+
+async def test_a_gate_refusal_inside_a_harness_is_still_a_refusal():
+    """The hand-off is not a way past the gate. A first round the gate rejects gets its one
+    repair round; a repair round it still rejects is reported with the violations and the
+    draft is LEFT — aborting ends the job, and a process that cannot commit must not end
+    one either."""
+    h = await launched()
+    await uncited_claim(h.rt)
+
+    assert await draft_cmd.cmd_finish(h.rt) == draft_cmd.EXIT_GATE
+    assert "gate rejected" in h.err()
+    h.clear()
+
+    assert await draft_cmd.cmd_finish(h.rt) == draft_cmd.EXIT_GATE, h.out()
+    assert "provenance" in h.err() or "cite" in h.err(), h.err()
+    assert h.store.commits == []
+    state = await h.drafts.get(h.rt.user_id, h.job_id)
+    assert state is not None
+    assert "finish_requested" not in (state["session"]["context"] or {})
+
+
+async def test_a_terminal_steward_still_commits_its_own_round():
+    """The Owner at a terminal holds the repository and the lock. Nothing about this round
+    changed: one command, one commit."""
+    h = await harness([source()])
+    assert not h.rt.draft_executor.startswith("worker:"), "the fixture is a terminal session"
+    assert await draft_cmd.cmd_open(h.rt, h.job_id) == 0
+    for name, args in CALLS:
+        assert await draft_cmd.run_tool(h.rt, name, args) == 0
+    assert await draft_cmd.cmd_finish(h.rt, brief="committed here") == 0, h.err()
+    assert len(h.store.commits) == 1
+    assert await h.drafts.get(h.rt.user_id, h.job_id) is None
+
+
+async def test_the_brief_survives_a_commit_that_could_not_be_made():
+    """Finding 2, from the same transcript: the Steward typed a real brief, the commit died on
+    the lock, and the job row's `brief` was null about a round that had written one. The brief
+    is the round's own words and is decided before the commit, so it is kept before it."""
+    h = await harness([source()])
+    assert await draft_cmd.cmd_open(h.rt, h.job_id) == 0
+    for name, args in CALLS:
+        assert await draft_cmd.run_tool(h.rt, name, args) == 0
+
+    async def refuse(*_args, **_kw):
+        raise PermissionError("[Errno 1] Operation not permitted: '.git/pneuma.lock'")
+
+    held = h.store.commit_patch
+    h.store.commit_patch = refuse
+    with pytest.raises(PermissionError):
+        await draft_cmd.cmd_finish(h.rt, brief="what this round did and what it left")
+    h.store.commit_patch = held
+
+    state = await h.drafts.get(h.rt.user_id, h.job_id)
+    assert state["session"]["context"]["brief"] == "what this round did and what it left", (
+        "the brief died with the process that typed it"
+    )
+
+    briefs: list[str] = []
+
+    async def record(job_id: str, text: str) -> None:
+        briefs.append(text)
+
+    h.rt.record_brief = record
+    assert await draft_cmd.cmd_finish(h.rt) == 0, h.err()
+    assert briefs == ["what this round did and what it left"]

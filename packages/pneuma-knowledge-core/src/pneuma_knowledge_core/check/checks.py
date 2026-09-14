@@ -59,6 +59,7 @@ from .model import (
     FORM_OVERVIEW_RESTATES,
     FORM_STRAY_HEADING,
     FORM_UNANCHORED_CITATION,
+    FORM_REPEATED_DATES,
     FORM_UNORDERED_CHRONOLOGY,
     ID_TITLE_CHILD_COLLISION,
     ID_TITLE_DEGENERATE,
@@ -703,23 +704,42 @@ def check_unordered_chronology(view: LibraryView) -> list[Finding]:
         )
         inversion = " → ".join(inverted_pair)
         repeats = sorted({date for date in dates if dates.count(date) > 1})
-        if not inversion and not repeats:
-            continue
-        findings.append(
-            make_finding(
-                FORM_UNORDERED_CHRONOLOGY,
-                scope=subject,
-                paths=(subject,),
-                evidence=tuple(item for item in (*inverted_pair, *repeats) if item),
-                fields={
-                    "path": subject,
-                    "title": view.titles.get(subject, ""),
-                    "first": inversion,
-                    "repeats": ", ".join(repeats),
-                    "count": len(sections),
-                },
+        # TWO findings and not one, because they have two different repairs. An inversion is
+        # what `reorder_chronology` exists for: whole sections move into ascending order and
+        # no claim is touched. A repeated date is not — a page whose sections all run forward
+        # and merely share a date is ALREADY sorted, so that verb changes nothing, and a
+        # report that named it was telling a round to run a command that could not do what
+        # the report asked. It did: three pages, three reported repairs, an empty commit.
+        if inversion:
+            findings.append(
+                make_finding(
+                    FORM_UNORDERED_CHRONOLOGY,
+                    scope=subject,
+                    paths=(subject,),
+                    evidence=tuple(inverted_pair),
+                    fields={
+                        "path": subject,
+                        "title": view.titles.get(subject, ""),
+                        "first": inversion,
+                        "count": len(sections),
+                    },
+                )
             )
-        )
+        if repeats:
+            findings.append(
+                make_finding(
+                    FORM_REPEATED_DATES,
+                    scope=subject,
+                    paths=(subject,),
+                    evidence=tuple(repeats),
+                    fields={
+                        "path": subject,
+                        "title": view.titles.get(subject, ""),
+                        "repeats": ", ".join(repeats),
+                        "count": len(repeats),
+                    },
+                )
+            )
     return findings
 
 

@@ -455,39 +455,155 @@ def _page_with_overview(definition: str, claim_text: str) -> CanonicalDocument:
 
 
 def test_the_gate_refuses_an_overview_block_that_repeats_a_ledger_claim():
+    from pneuma_knowledge_core.compile.documents import Overview
     from pneuma_knowledge_core.compile.gate import check_overview_restates
 
-    page = _page_with_overview("A chart of the currents.", "A chart of the currents.")
+    page = _page_with_overview("What the currents do to a harbour.", "A chart of the currents.")
     draft = draft_with(page)
-    # Untouched, the page is nobody's to repair this round.
     assert check_overview_restates(draft.documents(), draft.base_bodies()) == []
-    doc = draft.read("memory/topics/atlas.md")
-    doc.body += "\n\nAnd of the winds. [cite: s01 ¶1-2] <!-- c:a3333333 -->"
+    draft.mark_read("memory/topics/atlas.md")
+    draft.rewrite_overview(
+        "memory/topics/atlas.md", Overview(definition="A chart of the currents. c:a1111111")
+    )
     violations = check_overview_restates(draft.documents(), draft.base_bodies())
     assert [v.kind for v in violations] == ["overview_restates"]
     assert "definition" in violations[0].detail
 
 
 def test_an_overview_block_that_reads_the_ledger_rather_than_repeating_it_passes():
+    from pneuma_knowledge_core.compile.documents import Overview
     from pneuma_knowledge_core.compile.gate import check_overview_restates
 
-    page = _page_with_overview(
-        "What the currents do to a harbour. c:a1111111", "A chart of the currents."
-    )
+    page = _page_with_overview("An older reading.", "A chart of the currents.")
     draft = draft_with(page)
-    draft.read("memory/topics/atlas.md").body += "\n\nMore. [cite: s01 ¶1-2] <!-- c:a3333333 -->"
+    draft.mark_read("memory/topics/atlas.md")
+    draft.rewrite_overview(
+        "memory/topics/atlas.md",
+        Overview(definition="What the currents do to a harbour. c:a1111111"),
+    )
     assert check_overview_restates(draft.documents(), draft.base_bodies()) == []
 
 
 def test_the_gate_refuses_a_definition_made_of_references_alone():
+    from pneuma_knowledge_core.compile.documents import Overview
     from pneuma_knowledge_core.compile.gate import check_definition_empty
 
-    page = _page_with_overview("c:a1111111", "A chart of the currents.")
+    page = _page_with_overview("A real sentence.", "A chart of the currents.")
     draft = draft_with(page)
     assert check_definition_empty(draft.documents(), draft.base_bodies()) == []
-    draft.read("memory/topics/atlas.md").body += "\n\nMore. [cite: s01 ¶1-2] <!-- c:a3333333 -->"
+    draft.mark_read("memory/topics/atlas.md")
+    draft.rewrite_overview("memory/topics/atlas.md", Overview(definition="c:a1111111"))
     violations = check_definition_empty(draft.documents(), draft.base_bodies())
     assert [v.kind for v in violations] == ["definition_empty"]
+
+
+# ───────────────────── a hook judges what the round CHANGED, never what it inherited
+
+
+def test_a_legacy_overview_fault_does_not_refuse_a_retitle_on_the_same_page():
+    """The failure a real review round hit: three pages carried an overview block repeating
+    one of their own claims, and the Steward's `retitle` — which does not touch the head —
+    came back refused for it. A page with one legacy fault would then be unrepairable, one
+    write at a time, including by the write that repairs it."""
+    from pneuma_knowledge_core.compile.gate import post_write_violations, run_gate
+
+    page = _page_with_overview("A chart of the currents.", "A chart of the currents.")
+    draft = draft_with(page)
+    before = run_gate(draft, [])
+    draft.retitle("memory/topics/atlas.md", "Atlas of currents")
+    assert (
+        post_write_violations(draft, [], "memory/topics/atlas.md", baseline=before) == []
+    )
+
+
+def test_a_legacy_overview_fault_does_not_refuse_a_reorder_of_the_same_pages_sections():
+    from pneuma_knowledge_core.compile.gate import post_write_violations, run_gate
+
+    page = canonical(
+        "projects/aurora/evolution.md",
+        "# Aurora timeline\n\n"
+        "<!-- overview -->\n\n"
+        "<!-- overview:definition -->\n### Definition\n\n"
+        "It began. <!-- c:a9999999 -->\n\n"
+        "<!-- /overview -->\n\n"
+        "## 2026-03-04\n\nIt shipped. [cite: s01 ¶1-2] <!-- c:a2222222 -->\n\n"
+        "## 2026-01-04\n\nIt began. [cite: s01 ¶0-1] <!-- c:a1111111 -->",
+        title="Aurora timeline",
+    )
+    draft = project_draft(page)
+    before = run_gate(draft, [])
+    assert any(v.kind == "overview_restates" for v in before) is False
+    draft.reorder_chronology("projects/aurora/evolution.md")
+    assert (
+        post_write_violations(draft, [], "projects/aurora/evolution.md", baseline=before)
+        == []
+    )
+
+
+def test_a_new_page_answers_for_the_overview_it_is_created_with():
+    """A page this round created inherited nothing, so every byte of it is this round's."""
+    from pneuma_knowledge_core.compile.documents import Overview
+    from pneuma_knowledge_core.compile.gate import check_overview_restates
+
+    draft = draft_with()
+    draft.create_document(
+        "memory/topics/rift.md",
+        {"type": "topic", "slug": "rift"},
+        "# Rift\n\n## Facts\n\nA tear in the shelf. [cite: s01 ¶0-1]",
+    )
+    anchor = next(
+        line.split("c:")[1].split(" ")[0].rstrip("->").strip()
+        for line in draft.read("memory/topics/rift.md").body.split("\n")
+        if "c:" in line and "A tear" in line
+    )
+    draft.rewrite_overview(
+        "memory/topics/rift.md", Overview(definition=f"A tear in the shelf. c:{anchor}")
+    )
+    violations = check_overview_restates(draft.documents(), draft.base_bodies())
+    assert [v.kind for v in violations] == ["overview_restates"]
+
+
+def test_an_inherited_degenerate_title_does_not_refuse_an_append_to_the_same_page():
+    """The same rule over the title hooks: a page that arrived under a family role word keeps
+    it until somebody retitles it, and a round that appends one claim is not the round that
+    named it. The CHECK lists those pages; the review round repairs them with retitle."""
+    from pneuma_knowledge_core.compile.gate import (
+        check_title_degenerate,
+        check_title_shared_with_hub,
+        check_title_siblings,
+    )
+
+    hub, _chronology = a_project()
+    chronology = canonical(
+        "projects/aurora/evolution.md",
+        "# Evolution\n\n## 2026-01-04\n\nIt began. <!-- c:a2222222 -->",
+        title="Evolution",
+    )
+    twin = canonical(
+        "projects/aurora/features/screen.md",
+        "# Aurora\n\n## What\n\nIt exists. <!-- c:a3333333 -->",
+        title="Aurora",
+    )
+    draft = project_draft(hub, chronology, twin)
+    draft.append_block("projects/aurora/evolution.md", "2026-02-04", "It grew. [cite: s01 ¶1-2]")
+    documents, base = draft.documents(), draft.base_documents()
+    assert (
+        check_title_degenerate(documents, base, path_templates=PROJECT_TEMPLATES) == []
+    )
+    assert (
+        check_title_shared_with_hub(documents, base, path_templates=PROJECT_TEMPLATES)
+        == []
+    )
+    assert check_title_siblings(documents, base) == []
+    # …and the moment the round DOES name the page, the hook has its say. (A retitle to the
+    # name the page already had changes nothing, so it is nothing the round wrote.)
+    draft.retitle("projects/aurora/evolution.md", "项目演进")
+    assert [
+        v.kind
+        for v in check_title_degenerate(
+            draft.documents(), base, path_templates=PROJECT_TEMPLATES
+        )
+    ] == ["title_degenerate"]
 
 
 def test_the_four_new_kinds_are_in_the_enumerable_violation_catalog():

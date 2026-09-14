@@ -31,15 +31,23 @@ repair round by the runner):
    a heading further down used to rename the page silently (docs/design/structure-lens.md
    §6). Judged for the pages this round changed, volumes exempt, like 4e.
 4g. two LIVE pages in one directory may not answer to one name (`retitle` is what can now
-   produce that). Judged for the pages this round touched.
+   produce that). Judged for the pages whose NAME this round wrote.
 4h. …and a page's name judged on its own: a title that is empty, that is its family's ROLE
    word (`overview`, `演进`), or that is the project slug on a page that is not the hub
    (`title_degenerate`); and a chronology carrying its hub's name (`title_shared_with_hub`).
-   Roles come from the contract's path templates through `shape/families.py`. Judged for the
-   pages this round touched, volumes excluded.
+   Roles come from the contract's path templates through `shape/families.py`. Judged — like
+   4g — only for the pages whose NAME this round wrote, volumes excluded.
 4i. the overview head against the ledger below it: a slot whose words ARE one of the page's
    claims (`overview_restates`), and a `definition` made of references with no prose
-   (`definition_empty`). Judged for the pages this round changed.
+   (`definition_empty`). Judged only for the pages whose overview REGION this round wrote.
+
+   4g–4i all take one rule: A HOOK JUDGES WHAT THE ROUND CHANGED, NEVER WHAT IT INHERITED,
+   and "changed" is the narrowest true statement of it — the title for a title rule, the
+   region for a region rule. Judged per PAGE instead, a page carrying one legacy fault
+   becomes unrepairable: every write on it, the very `retitle` that would fix it included,
+   comes back refused for a line the round never wrote (a real review round hit exactly
+   that). What those pages are for is the CHECK (docs/design/structure-lens.md §3.1), which
+   lists each of them with the verb that repairs it.
 4c. the OVERVIEW region — bounded in size, grounded in the ledger, four slots and no others
    (compile/overview.py). Every declared reference must resolve to a ledger anchor.
    Rewritten regions are fully checked; unchanged regions must retain every reference
@@ -94,7 +102,13 @@ from .anchor_ops import (
     text_machinery_problems,
     unanchored_blocks,
 )
-from .documents import DOC_ID_KEY, LEGACY_DOC_ID_KEYS, OVERVIEW_SLOTS, parse_overview
+from .documents import (
+    DOC_ID_KEY,
+    LEGACY_DOC_ID_KEYS,
+    OVERVIEW_SLOTS,
+    overview_region,
+    parse_overview,
+)
 # Re-exported: the link grammar and its two coordinate functions now live in
 # `compile.links` — three write paths need them (the gate, rollover's re-rendering, and
 # the overview's connection links) and they cannot all import the gate. Every existing
@@ -442,6 +456,24 @@ def check_heading_in_block(
     return violations
 
 
+def title_changed(doc: object, base: object | None) -> bool:
+    """Did THIS round give the page the name it now carries?
+
+    A hook judges what the round CHANGED, never what it inherited — the discipline the three
+    title checks below and the region checks further down all take. A page whose name is the
+    name it arrived with is not this round's business even when that name is wrong: the CHECK
+    lists it (docs/design/structure-lens.md §3.1) and `retitle` repairs it in a round of its
+    own. Refusing the page instead would mean a page with one legacy fault could not be
+    repaired at all — every write on it, including the retitle that would fix it, would come
+    back refused for a line the round never wrote. A real review round hit exactly that.
+
+    A page this round CREATED has no inherited anything, so its name is always its own.
+    """
+    if base is None:
+        return True
+    return document_title(doc) != document_title(base)
+
+
 def check_title_siblings(
     docs: Mapping[str, object], base_docs: Mapping[str, object]
 ) -> list[Violation]:
@@ -454,8 +486,10 @@ def check_title_siblings(
 
     "Sibling" is the immediate directory and nothing cleverer: it is the one grouping every
     path has, it needs no contract to state it, and it is the grouping a person reading a
-    file tree sees. Judged for the pages this round TOUCHED, so a collision two legacy pages
-    have carried for months does not abort a compile that never looked at either.
+    file tree sees. Judged for the pages whose NAME this round wrote (`title_changed`), so a
+    collision two legacy pages have carried for months does not abort a compile that appends
+    one claim to either — that pair is the check's `id.title_sibling_collision`, and the
+    repair is a retitle this rule must not stand in the way of.
     """
     violations: list[Violation] = []
     live = {
@@ -467,7 +501,7 @@ def check_title_siblings(
     for path in live:
         by_directory.setdefault(path.rsplit("/", 1)[0] if "/" in path else "", []).append(path)
     for path, doc in sorted(live.items()):
-        if not touched_this_round(doc, base_docs.get(path)):
+        if not title_changed(doc, base_docs.get(path)):
             continue
         title = document_title(doc)
         key = normalize_title(title)
@@ -505,18 +539,15 @@ def _judged_titles(
     base_docs: Mapping[str, object],
     path_templates: Sequence[str],
 ) -> list[tuple[str, str]]:
-    """`(path, title)` for every live page this round TOUCHED, volumes excluded.
+    """`(path, title)` for every live page whose NAME this round wrote, volumes excluded.
 
-    The same limit checks 4e–4g take, for the same reason: a name two legacy pages have
-    carried for months is the CHECK's finding (docs/design/structure-lens.md §3.1), not a
-    reason to abort a compile that never looked at either. A closed volume is excluded
-    because it has no name of its own — it is labelled from the page it was cut out of — and
-    no write verb reaches one anyway.
+    A closed volume is excluded because it has no name of its own — it is labelled from the
+    page it was cut out of — and no write verb reaches one anyway.
     """
     return [
         (path, title)
         for path, title in sorted(_live_titles(docs).items())
-        if touched_this_round(docs[path], base_docs.get(path))
+        if title_changed(docs[path], base_docs.get(path))
         and history_volume_owner(path, list(path_templates)) is None
     ]
 
@@ -533,7 +564,9 @@ def check_title_degenerate(
     hub — name a place in the layout, so every page of that family would answer to them and
     none of them tells a reader or a retrieval which page this is. The predicate is
     `shape.titles.is_degenerate_title`, shared with the check, so a title the gate accepts is
-    never one the check then reports.
+    never one the check then reports. Judged only for the pages whose NAME this round wrote
+    (`title_changed`): a page that arrived carrying a role word keeps it until somebody
+    retitles it, and that retitle must not be refused by the fault it is repairing.
 
     An EMPTY name is the same fault at its limit, and the gate does NOT refuse it here. A
     page whose body opens with no `# ` line has no name at all — `is_degenerate_title` says so,
@@ -570,7 +603,8 @@ def check_title_shared_with_hub(
     The hub says what the project IS; the chronology says what happened to it. One name over
     the two leaves a reader — and a citation, and a retrieval card — with no way to tell which
     page it is holding, and it is the collision a real library produced over and over, because
-    the project's name is the obvious thing to call the page about the project.
+    the project's name is the obvious thing to call the page about the project. Judged, like
+    every title rule here, only for the pages whose name this round wrote.
     """
     violations: list[Violation] = []
     titles = _live_titles(docs)
@@ -586,6 +620,22 @@ def check_title_shared_with_hub(
             )
         )
     return violations
+
+
+def _overview_region_changed(body: str, base_body: str | None) -> bool:
+    """Did this round write the page's overview REGION?
+
+    The narrowest true statement of "what the round changed" for a head-level rule: a byte
+    compare of the region itself, not of the page. A retitle rewrites one heading line, an
+    append adds a claim to the ledger, `reorder_chronology` moves whole sections — none of
+    them touches the head, so none of them answers for a head written before the rule existed.
+    That distinction is not a nicety: judged per PAGE, these two checks turned a legacy
+    overview into a page nothing could repair, because the retitle that would have fixed its
+    name came back refused for the head it had not touched.
+    """
+    if base_body is None:
+        return True
+    return overview_region(body) != overview_region(base_body)
 
 
 def check_overview_restates(
@@ -605,8 +655,7 @@ def check_overview_restates(
     """
     violations: list[Violation] = []
     for path, doc in sorted(docs.items()):
-        base = base_bodies.get(path)
-        if base is not None and doc.body == base:
+        if not _overview_region_changed(doc.body, base_bodies.get(path)):
             continue
         overview, _ = parse_overview(doc.body)
         if overview is None:
@@ -640,8 +689,7 @@ def check_definition_empty(
     """
     violations: list[Violation] = []
     for path, doc in sorted(docs.items()):
-        base = base_bodies.get(path)
-        if base is not None and doc.body == base:
+        if not _overview_region_changed(doc.body, base_bodies.get(path)):
             continue
         overview, _ = parse_overview(doc.body)
         if overview is None:
