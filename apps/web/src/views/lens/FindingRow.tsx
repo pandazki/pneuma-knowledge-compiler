@@ -2,28 +2,36 @@ import { useState } from "react";
 import { ArrowUpRight } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { fmtDay } from "@/lib/format";
-import { useT, useTOr, type TOrFunction } from "@/lib/useT";
+import { useLocale, useT, useTOr } from "@/lib/useT";
+import type { Locale } from "@/lib/i18n";
 import type { LensFinding, LensText } from "@/lib/lensReport";
 import { Badge } from "@/ui/Badge";
 import { Mono } from "@/ui/Mono";
 import { cn } from "@/ui/cn";
 
 /**
- * A catalogue reference, as a sentence.
+ * A catalog sentence, in the reader's language.
  *
- * The service sends a KEY and its fields, never a sentence (docs/design/structure-lens.md
- * §3.2), and this console holds the same keys in its own bilingual table — so the Chinese
- * reader gets Chinese, and nothing about the wording travels over the wire. `useTOr` is the
- * right lookup because the key is data at runtime: a lens id this build has never heard of
- * falls back to the key with its fields spelled out, which is readable and honest, where a
- * blank line would be neither.
+ * The report carries each sentence already rendered in both packs (`text.en` / `text.zh`,
+ * docs/design/structure-lens.md §3.2), and the console keeps NO copy of them. That is the
+ * point rather than an economy: one catalog, one wording, every face — the sentence the
+ * Owner reads here is byte for byte the sentence `pkc lens` prints, and an application that
+ * rewords a key through the overlay seam changes both without touching this build.
+ *
+ * Two fallbacks, in order, so a report from an older or degraded service never renders a
+ * blank line: the other language, then the key with its fields spelled out.
  */
-export function catalogText(tOr: TOrFunction, text: LensText): string {
-  if (!text.key) return "";
-  const fields = Object.entries(text.fields)
+export function catalogText(locale: Locale, sentence: LensText): string {
+  const { en, zh } = sentence.text;
+  const mine = locale === "zh" ? zh : en;
+  const other = locale === "zh" ? en : zh;
+  if (mine) return mine;
+  if (other) return other;
+  if (!sentence.key) return "";
+  const fields = Object.entries(sentence.fields)
     .map(([name, value]) => `${name}=${value}`)
     .join(" · ");
-  return tOr(text.key, fields ? `${text.key} · ${fields}` : text.key, text.fields);
+  return fields ? `${sentence.key} · ${fields}` : sentence.key;
 }
 
 export interface FindingRowProps {
@@ -46,10 +54,11 @@ export interface FindingRowProps {
 export function FindingRow({ finding, rank, emphasis = false }: FindingRowProps) {
   const t = useT();
   const tOr = useTOr();
+  const locale = useLocale();
   const jump = useApp((s) => s.jump);
 
-  const impact = catalogText(tOr, finding.impact);
-  const action = catalogText(tOr, finding.action);
+  const impact = catalogText(locale, finding.impact);
+  const action = catalogText(locale, finding.action);
   const actor = tOr(`lens.actor.${finding.actor}`, finding.actor);
 
   return (

@@ -92,8 +92,9 @@ Finding
   evidence[]   verbatim strings from the library only — a path, a title, a heading, a
                date, an href, a source id — ≤ 5, each ≤ 200 chars; counts and shares are
                fields of `impact`/`action` and are spoken there, never listed bare
-  impact       prompt-catalog key + fields   (what it costs)
-  action       prompt-catalog key + fields   (what to do, addressed to `actor`)
+  impact       {key, fields, text: {en, zh}}   what it costs — the catalog key, its
+               fields, and the sentence rendered from the catalog in both packs
+  action       {key, fields, text: {en, zh}}   what to do, addressed to `actor`
   weight       0–1, the share of the base it touches (for ordering)
   decision     null in this version — reserved for the Steward's kept decline (§9)
 ```
@@ -114,9 +115,11 @@ Finding
 ### 3.2 Text through the catalog
 
 `impact` and `action` are prompt-catalog keys (`lens.<lens>.impact`, `lens.<lens>.action`)
-with named fields, rendered by `prompt()` — so the Chinese overlay translates them, an
-application can reword them, and the bytes are stable for a fixed ref. The console
-renders the same keys through its own i18n table, keyed identically.
+with named fields. The report carries each sentence already rendered, in English from the
+catalog and in Chinese from the language pack (`text.en`, `text.zh`), so the console shows
+the sentence for its locale and keeps no copy of it; `pkc lens` prints the active pack's.
+One catalog, one wording, every face — an application that rewords a key through the
+overlay seam changes what every reader sees.
 
 ### 3.3 Score
 
@@ -131,7 +134,9 @@ tab shows its delta with the finding counts that moved it.
 ### 3.4 Order
 
 Principle before drift before shape; within a level by `weight` descending; then by lens
-id; then by path. The console's headline is the first three.
+id; then by path. The console's headline — the three things to do first — takes the first
+finding of each of the three highest-ranked **lenses**, one per lens, so three islands
+never crowd out a duplicate subject and a malformed page.
 
 ## 4. The lenses (v1)
 

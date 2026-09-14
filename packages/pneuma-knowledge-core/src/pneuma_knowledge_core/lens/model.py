@@ -14,6 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from ..prompts import substitute
+from ..prompts.catalog import DEFAULTS
+from ..prompts.lang_zh import chinese_overlay
+
 #: A finding's level — what kind of wrongness it is, and therefore who answers for it.
 #: `shape` is a malformed page the write mechanism now refuses; `drift` is a page falling
 #: short of what its family expects, repairable in one ordinary round; `principle` is a
@@ -57,20 +61,62 @@ class Decision:
         return {"reason": self.reason, "decided_at": self.decided_at, "ref": self.ref}
 
 
+#: The Chinese pack, resolved once. `chinese_overlay()` hands out a fresh copy of ~800
+#: entries per call by design (an overlay is registered into process state and a caller must
+#: not be able to mutate the pack for everyone else); a report over a real library renders a
+#: thousand phrases, and paying for that copy a thousand times is a copy per sentence.
+_ZH_PACK: dict[str, str] | None = None
+
+
+def _zh_template(key: str) -> str | None:
+    global _ZH_PACK
+    if _ZH_PACK is None:
+        _ZH_PACK = dict(chinese_overlay())
+    return _ZH_PACK.get(key)
+
+
 @dataclass(frozen=True)
 class Phrase:
-    """One sentence the lens has to say, as a catalog key plus the fields it substitutes.
+    """One sentence the lens has to say: a catalog key, the fields it substitutes, and the
+    sentence itself in both shipped languages.
 
-    Unrendered on purpose (§3.2): the bytes a Steward reads in a terminal, the bytes the
-    console shows and the bytes a Chinese deployment shows are three renderings of ONE key,
-    so the report carries the key and everybody resolves it through `prompts.prompt()`.
+    The key and the fields are the authority (§3.2) — a deployment that rewords a surface
+    reworded it, and a face that resolves the key through `prompts.prompt()` gets its words.
+    The rendered pair travels beside them because the alternative, measured on a real
+    console, is that every face keeps its OWN copy of these forty-eight sentences: the copy
+    drifts from the catalog, and the copy that drifted had no placeholders at all, so an
+    island finding read "This project is an island" and never said WHICH project or how many
+    pages. A number with no consequence is not a finding (§1), and neither is a consequence
+    with no subject.
+
+    Both texts are rendered from the SHIPPED templates — English from the catalog defaults,
+    Chinese from the language pack — deliberately NOT through `prompt()`: whichever overlay a
+    process happens to have registered is that process's answer for its own surfaces, and it
+    must not decide what the OTHER language in this payload says. Substitution is the
+    catalog's own narrow rule (`prompts.substitute`), so a template's literal braces survive
+    exactly as they do everywhere else.
     """
 
     key: str
     fields: dict = field(default_factory=dict)
 
+    def text(self) -> dict[str, str]:
+        """`{"en": …, "zh": …}` — this sentence, rendered, in both shipped packs.
+
+        A key the Chinese pack does not carry falls back to the English template rather than
+        to an empty string: a missing translation is a sentence in the wrong language, which
+        a reader can still act on, and the pack's totality is pinned by its own test.
+        """
+        english = DEFAULTS.get(self.key, "")
+        chinese = _zh_template(self.key) or english
+        fields = dict(self.fields)
+        return {
+            "en": substitute(english, fields) if english else "",
+            "zh": substitute(chinese, fields) if chinese else "",
+        }
+
     def to_dict(self) -> dict:
-        return {"key": self.key, "fields": dict(self.fields)}
+        return {"key": self.key, "fields": dict(self.fields), "text": self.text()}
 
 
 @dataclass(frozen=True)

@@ -4,19 +4,16 @@ import { defineMessages } from "./define";
  * The structure lens (route `#/lens`): the report the service derives over the whole
  * canonical library, read, and the same report at two refs, subtracted.
  *
- * Two families of key live here and they are read differently.
+ * VIEW CHROME ONLY. The sentences a finding is made of — what it costs, what to do — are
+ * NOT here and must never be added: the report carries each of them already rendered in
+ * both packs (`impact.text.en` / `.zh`, docs/design/structure-lens.md §3.2), and the console
+ * shows its locale's. One catalog, one wording, every face; a second copy in this file would
+ * be the one that drifts, and it would silently override an application that reworded a key
+ * through the overlay seam.
  *
- * The `lens.<surface>.*` keys are ordinary view copy. The `lens.<lens id>.impact` /
- * `.action` keys are the PROMPT CATALOGUE's, keyed identically (docs/design/structure-lens.md
- * §3.2): a finding arrives carrying `{key, fields}`, and the console renders that key through
- * this table so the Chinese reader gets Chinese and the wording stays the console's. They are
- * looked up through `useTOr`, because the key is data at runtime — a lens id this console has
- * never heard of renders as the key and its fields rather than as a blank line.
- *
- * The impact and action sentences deliberately carry NO placeholders. Every concrete number,
- * path and quotation a finding has is already on the row beneath the sentence — its pages, its
- * targets, its evidence — and a sentence that interpolated a field this client guessed wrong
- * would read as a broken template. Interpolation still works if a future wording wants it.
+ * The keys that ARE looked up by a runtime string — `lens.level.<level>`, its `.note`, and
+ * `lens.actor.<actor>` — go through `useTOr`, so a level or actor this build has never heard
+ * of renders as itself rather than as a blank.
  *
  * Document titles, paths, family templates and evidence strings are canonical data and render
  * as they come.
@@ -111,69 +108,6 @@ export const lens = defineMessages({
     "lens.metric.files": "文件",
     "lens.metric.claims": "断言",
     "lens.metric.edges": "内链",
-
-    /* ------------------------------------------------- the catalogue · navigability */
-
-    "lens.nav.dead_end.impact": "线索走到这页就停了：读完它的人没有下一处可去。",
-    "lens.nav.dead_end.action": "把这页已经在谈的那一两个主体写成链接。",
-    "lens.nav.arrival_blind.impact": "没有任何页链向它：只有已经知道它叫什么的人才找得到。",
-    "lens.nav.arrival_blind.action": "在提到它的那几页里，把它的名字改成链接。",
-    "lens.nav.dead_link.impact": "这条链接指向一篇不存在的文档，跟过去落在空处。",
-    "lens.nav.dead_link.action": "改指到真实存在的路径，或删掉它；引用门禁从此拒收新的死链。",
-    "lens.nav.hub_incomplete.impact": "族首页漏掉了自己名下的页：从入口进来的人看不见它们。",
-    "lens.nav.hub_incomplete.action": "在族首页补上漏掉的那几页的链接。",
-    "lens.nav.chronology_unlinked.impact":
-      "编年页记着事情如何变化，却不通向它讲的那些特性与决策页。",
-    "lens.nav.chronology_unlinked.action": "在相应的日期段落里，把它谈到的特性或决策写成链接。",
-    "lens.nav.decision_unlinked.impact": "一条决策不指向它决定的任何东西，读者无从确认它落在了哪里。",
-    "lens.nav.decision_unlinked.action": "链接这条决策影响的特性、编年或族首页。",
-    "lens.nav.mention_unlinked.impact": "反复写着另一个主体的名字，却一次也没链过去。",
-    "lens.nav.mention_unlinked.action": "把第一次提到的地方改成链接，其余保持原样。",
-    "lens.nav.island.impact": "这个项目自成孤岛：与库里其他任何页都不相往来，只有直接打开才读得到。",
-    "lens.nav.island.action": "裁定它该挂在哪里——并进某个族，或从一个现有入口页接上它。",
-
-    /* ------------------------------------------------------ the catalogue · identity */
-
-    "lens.id.title_duplicate.impact": "同一个标题落在两篇在世文档上：检索与链接有一半会指错。",
-    "lens.id.title_duplicate.action": "裁定哪一篇是这个主体，另一篇改名或并入。",
-    "lens.id.title_child_collision.impact": "这页和它名下的一页同名，父子在任何列表里都分不开。",
-    "lens.id.title_child_collision.action": "用 retitle 给其中一页一个属于它自己的名字。",
-    "lens.id.title_degenerate.impact": "标题只是一个角色词或路径名，没有说这页讲的是什么。",
-    "lens.id.title_degenerate.action": "改成这页真正的主体名。",
-    "lens.id.title_shared_with_hub.impact": "编年页与族首页同名，读者分不出哪一篇是入口。",
-    "lens.id.title_shared_with_hub.action": "给编年页一个说明它是编年的名字。",
-
-    /* ---------------------------------------------------------- the catalogue · form */
-
-    "lens.form.collapsed_body.impact": "正文压成了一整行——换行被写成了字面的两个字符 \\n——读起来是一堵墙。",
-    "lens.form.collapsed_body.action": "用真正的换行重写这一块；工具面从此拒收新的。",
-    "lens.form.stray_heading.impact": "正文中间有一个一级标题，取标题的那一读会把它当成这页的名字。",
-    "lens.form.stray_heading.action": "把它降级或删掉；页名用 retitle 改。",
-    "lens.form.unanchored_citation.impact": "这条引用不挂在任何锚点上：从它回不到具体哪一条断言。",
-    "lens.form.unanchored_citation.action": "把它并进它所属的断言块，或删掉。",
-    "lens.form.overview_restates.impact": "概览原样抄了台账里的一条断言，这一格没有比下面多说任何东西。",
-    "lens.form.overview_restates.action": "把这一格改写成它自己的话，或让它引用那条断言。",
-    "lens.form.legacy_sections.impact": "概览头之下还留着旧版分节，同一件事写了两遍。",
-    "lens.form.legacy_sections.action": "把还有用的内容并进概览四格，删掉剩下的分节。",
-    "lens.form.definition_empty.impact": "定义格里只有引用和锚点，没有一句说明这是什么。",
-    "lens.form.definition_empty.action": "补上那一句定义，或清空这一格。",
-    "lens.form.unordered_chronology.impact": "编年页的日期不按时间排：它记下的是导入顺序，不是发生顺序。",
-    "lens.form.unordered_chronology.action": "按日期重排这些段落，重复的日期并成一段。",
-
-    /* ------------------------------------------- the catalogue · balance, corroboration */
-
-    "lens.conc.catch_all.impact": "一个主体吞下了全库很大一块断言：命中它，跟命中整座库差不了多少。",
-    "lens.conc.catch_all.action": "裁定它该拆成哪几个主体，交由一次 evolve 落实。",
-    "lens.bal.family_heavy.impact": "一个族用很少的页扛着全库大部分断言：结构没跟上内容。",
-    "lens.bal.family_heavy.action": "考虑给这个族增设路径模板，让它的页分得开。",
-    "lens.bal.family_empty.impact": "一个申报的族一页都没有：要么还没到时候，要么它本来就不该在契约里。",
-    "lens.bal.family_empty.action": "决定是给它写第一页，还是把这个模板从契约里去掉。",
-    "lens.bal.session_shaped.impact":
-      "这页大半的断言都是一条来源加一个日期：它更像会话流水，而不是一个主体的知识。",
-    "lens.bal.session_shaped.action":
-      "先回答它是主体还是日志；若是主体，把耐久的结论提上来，流水留给编年页。",
-    "lens.corr.single_source.impact": "这页知道的一切都出自同一条来源，没有第二处印证它。",
-    "lens.corr.single_source.action": "编译另一条谈同一主体的来源，或在页上写明目前只有这一条。",
   },
   en: {
     "lens.description":
@@ -271,90 +205,5 @@ export const lens = defineMessages({
     "lens.metric.files": "Files",
     "lens.metric.claims": "Claims",
     "lens.metric.edges": "Internal links",
-
-    /* ------------------------------------------------- the catalogue · navigability */
-
-    "lens.nav.dead_end.impact": "The thread stops here: a reader who finishes this page has nowhere to go next.",
-    "lens.nav.dead_end.action": "Link the one or two subjects this page already talks about.",
-    "lens.nav.arrival_blind.impact":
-      "Nothing links here: it is findable only by someone who already knows its name.",
-    "lens.nav.arrival_blind.action": "On the pages that already mention it, turn the name into a link.",
-    "lens.nav.dead_link.impact": "This link points at a document that does not exist; following it lands nowhere.",
-    "lens.nav.dead_link.action":
-      "Repoint it at a path that exists, or remove it; the gate refuses new dead links from now on.",
-    "lens.nav.hub_incomplete.impact":
-      "The family's hub leaves out pages of its own subtree, so arriving at the entrance does not show them.",
-    "lens.nav.hub_incomplete.action": "Add the missing pages to the hub.",
-    "lens.nav.chronology_unlinked.impact":
-      "The chronology records how things changed but never links the feature and decision pages it is about.",
-    "lens.nav.chronology_unlinked.action":
-      "Link the feature or decision page from the dated section that discusses it.",
-    "lens.nav.decision_unlinked.impact":
-      "A decision points at nothing it decided, so a reader cannot see where it landed.",
-    "lens.nav.decision_unlinked.action": "Link the feature, chronology or hub this decision affects.",
-    "lens.nav.mention_unlinked.impact": "It writes another subject's name again and again and never links to it.",
-    "lens.nav.mention_unlinked.action": "Make the first mention a link and leave the rest as prose.",
-    "lens.nav.island.impact":
-      "This project is an island: nothing outside it links in or out, so it is reachable only by opening it directly.",
-    "lens.nav.island.action":
-      "Decide where it belongs: fold it into a family, or give it a way in from an existing page.",
-
-    /* ------------------------------------------------------ the catalogue · identity */
-
-    "lens.id.title_duplicate.impact":
-      "One title on two live documents: retrieval and links reach the wrong one half the time.",
-    "lens.id.title_duplicate.action": "Decide which page is the subject, and rename or merge the other.",
-    "lens.id.title_child_collision.impact":
-      "This page shares its title with a page beneath it, so parent and child are indistinguishable in any listing.",
-    "lens.id.title_child_collision.action": "Give one of them a name of its own with retitle.",
-    "lens.id.title_degenerate.impact": "The title is a role word or a path, and says nothing about what the page holds.",
-    "lens.id.title_degenerate.action": "Rename it after the subject it actually holds.",
-    "lens.id.title_shared_with_hub.impact":
-      "The chronology carries the hub's title, so neither of them reads as the way in.",
-    "lens.id.title_shared_with_hub.action": "Rename the chronology so that it says what it is.",
-
-    /* ---------------------------------------------------------- the catalogue · form */
-
-    "lens.form.collapsed_body.impact":
-      "The body collapsed into one line — its breaks were written as the two characters \\n — and reads as a wall.",
-    "lens.form.collapsed_body.action": "Rewrite the block with real line breaks; the tool face refuses new ones.",
-    "lens.form.stray_heading.impact":
-      "A top-level heading sits inside the body, where a title read takes it for the page's name.",
-    "lens.form.stray_heading.action": "Demote or drop the heading; a page is renamed with retitle.",
-    "lens.form.unanchored_citation.impact":
-      "The citation hangs off no anchor, so there is no way back from it to a claim.",
-    "lens.form.unanchored_citation.action": "Fold it into the claim block it belongs to, or remove it.",
-    "lens.form.overview_restates.impact":
-      "The overview repeats a ledger claim word for word, so the slot adds nothing to what is below it.",
-    "lens.form.overview_restates.action": "Rewrite the slot in its own words, or have it cite the claim instead.",
-    "lens.form.legacy_sections.impact":
-      "Old-format sections still sit below the overview head, saying the same things twice.",
-    "lens.form.legacy_sections.action":
-      "Fold what is still useful into the four overview slots and drop the leftover sections.",
-    "lens.form.definition_empty.impact":
-      "The definition slot holds references and anchors but not one sentence saying what this is.",
-    "lens.form.definition_empty.action": "Write the defining sentence, or clear the slot.",
-    "lens.form.unordered_chronology.impact":
-      "The dated sections are not in time order: they record the order things were ingested, not the order they happened.",
-    "lens.form.unordered_chronology.action": "Reorder the sections by date and merge the repeated ones.",
-
-    /* ------------------------------------------- the catalogue · balance, corroboration */
-
-    "lens.conc.catch_all.impact":
-      "One subject has swallowed a large part of the base: retrieving it is barely narrower than retrieving everything.",
-    "lens.conc.catch_all.action": "Decide which subjects it should split into, and let an evolve carry it out.",
-    "lens.bal.family_heavy.impact":
-      "A family carries most of the base's claims on very few pages: the structure has not kept up with the content.",
-    "lens.bal.family_heavy.action": "Consider new path templates for the family, so its pages can separate.",
-    "lens.bal.family_empty.impact":
-      "A declared family has never taken a page: either its time has not come, or it does not belong in the contract.",
-    "lens.bal.family_empty.action": "Decide whether to write its first page or to drop the template from the contract.",
-    "lens.bal.session_shaped.impact":
-      "Most of its claims are one source and one date each: this reads as a log of sessions rather than as knowledge about a subject.",
-    "lens.bal.session_shaped.action":
-      "Answer first whether this is a subject or a log; if it is a subject, lift the durable conclusions out and leave the narration to the chronology.",
-    "lens.corr.single_source.impact": "Everything this page knows comes from one source, and nothing corroborates it.",
-    "lens.corr.single_source.action":
-      "Compile another source that speaks to the same subject, or say on the page that one is all there is.",
   },
 });

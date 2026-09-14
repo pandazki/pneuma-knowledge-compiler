@@ -30,7 +30,11 @@ from pneuma_knowledge_core.lens.lenses import (
     SESSION_SHAPED_MIN_CLAIMS,
     SINGLE_SOURCE_MIN_CLAIMS,
 )
-from pneuma_knowledge_core.prompts import chinese_overlay, default_catalog
+from pneuma_knowledge_core.prompts import (
+    chinese_overlay,
+    default_catalog,
+    template_fields,
+)
 
 TEMPLATES = [
     "projects/{slug}/overview.md",
@@ -813,7 +817,8 @@ def test_to_dict_is_the_wire_shape_the_faces_code_against():
         "weight",
         "decision",
     }
-    assert set(finding["impact"]) == {"key", "fields"}
+    assert set(finding["impact"]) == {"key", "fields", "text"}
+    assert set(finding["impact"]["text"]) == {"en", "zh"}
     assert finding["impact"]["key"] == "lens.nav.dead_link.impact"
     assert finding["decision"] is None
     assert set(payload["families"][0]) == {"name", "pages", "claims", "share"}
@@ -842,3 +847,144 @@ def test_every_lens_carries_an_impact_and_an_action_in_both_packs(lens):
         assert key in english and english[key].strip()
         assert key in chinese and chinese[key].strip()
     assert LENS_LEVEL[lens] in {"principle", "drift", "shape"}
+
+
+#: What a finding has to be ABOUT for its sentence to be worth reading: the page, the project
+#: or the family it names, or — for the two library-wide reachability lenses — how many.
+IDENTIFYING_FIELDS = {"path", "project", "family", "count"}
+
+
+@pytest.mark.parametrize("lens", LENS_IDS)
+def test_both_sentences_of_every_lens_name_what_the_finding_is_about(lens):
+    """A console showed "This project is an island" with no project and no counts, because a
+    face had kept its own copy of these sentences and the copy had no placeholders. The rule
+    that makes that unwriteable: each pair of sentences must interpolate the thing the finding
+    is about, in BOTH packs."""
+    english, chinese = default_catalog(), chinese_overlay()
+    for pack in (english, chinese):
+        declared = template_fields(pack[f"lens.{lens}.impact"]) | template_fields(
+            pack[f"lens.{lens}.action"]
+        )
+        assert declared & IDENTIFYING_FIELDS, (
+            f"{lens}: neither sentence names the page, project, family or count it is about"
+        )
+
+
+def a_library_with_many_faults() -> list[CanonicalDocument]:
+    """One library carrying a fault of most kinds at once — the fixture the rendering tests
+    want, where the per-lens tests deliberately break one thing at a time."""
+    docs = replace(
+        healthy(),
+        "memory/topics/flow.md",
+        "# Mei Lark\n\n## What\n\n"
+        + claim("2026-01-01，did a thing.", "a000000c")
+        + "\n\n"
+        + claim("See [the ghost](../../projects/aurora/features/ghost.md).", "a000000d")
+        + "\n\n# A second name\n",
+    )
+    docs = replace(
+        docs,
+        "projects/aurora/evolution.md",
+        "# Evolution\n\n"
+        "## 2026-03-04\n\n" + claim("Live.", "a0000005") + "\n\n"
+        "## 2026-01-04\n\n" + claim("First.", "a0000003") + "\n\n"
+        "## 2026-02-04\n\n" + claim("Rebuilt.", "a0000004"),
+    )
+    return replace(
+        docs,
+        "projects/aurora/decisions/tank.md",
+        "# Tank sizing\n\n## The choice\n\n"
+        + claim("Two small vessels beat one large one.", "a0000008"),
+    )
+
+
+def test_to_dict_carries_each_sentence_rendered_in_both_packs_with_nothing_left_to_fill():
+    """§3.2: the key and the fields stay the authority, and the rendered pair rides beside
+    them so no face has to keep — and drift from — its own copy of these sentences."""
+    payload = report(a_library_with_many_faults()).to_dict()
+    assert len(payload["findings"]) >= 6
+    catalog = default_catalog()
+    for finding in payload["findings"]:
+        for half in ("impact", "action"):
+            phrase = finding[half]
+            assert set(phrase) == {"key", "fields", "text"}
+            assert set(phrase["text"]) == {"en", "zh"}
+            for language, rendered in phrase["text"].items():
+                assert rendered.strip(), (finding["lens"], half, language)
+                for name in template_fields(catalog[phrase["key"]]):
+                    assert "{" + name + "}" not in rendered, (
+                        f"{finding['lens']}.{half} ({language}) left {{{name}}} unfilled"
+                    )
+                assert any(
+                    str(value) in rendered for value in phrase["fields"].values()
+                ), f"{finding['lens']}.{half} ({language}) names none of its own fields"
+            # The Chinese sentence is a translation, not the English one repeated.
+            assert phrase["text"]["zh"] != phrase["text"]["en"]
+
+
+def test_the_island_sentence_names_the_project_directory_in_both_languages():
+    docs = [
+        d
+        for d in healthy()
+        if d.path not in {"memory/people/mei.md", "memory/topics/flow.md"}
+    ]
+    docs = replace(
+        docs,
+        "projects/aurora/overview.md",
+        "# Aurora\n\n## What it is\n\n"
+        + claim("A water plant control stack.", "a0000001")
+        + "\n\n"
+        + claim(
+            "Its history is in [the timeline](evolution.md), its parts in "
+            "[the pump](features/pump.md) and [the tank choice](decisions/tank.md).",
+            "a0000002",
+        ),
+    ) + [
+        doc(
+            "memory/topics/flow.md",
+            "# Flow shaping\n\n## What\n\n" + claim("An idea about demand.", "a000000c"),
+        )
+    ]
+    island = next(f for f in report(docs).findings if f.lens == "nav.island")
+    for language in ("en", "zh"):
+        assert "projects/aurora" in island.impact.text()[language]
+        assert "projects/aurora" in island.action.text()[language]
+    assert "4" in island.impact.text()["en"] and "4" in island.impact.text()["zh"]
+
+
+def test_the_rendered_pair_ignores_whatever_overlay_this_process_registered():
+    """The English half is the CATALOG's sentence and the Chinese half is the PACK's. A
+    deployment that rewords a surface reworded its own surface, in its own language; it does
+    not get to decide what the other language in this payload says."""
+    from pneuma_knowledge_core.prompts import override_prompt, reset_prompt_overrides
+
+    docs = a_library_with_many_faults()
+    before = report(docs).findings[0].impact.text()
+    try:
+        override_prompt("lens.nav.dead_end.impact", "OVERRIDDEN {count} {share}")
+        override_prompt("lens.nav.island.impact", "OVERRIDDEN {project} {count} {claims}")
+        after = report(docs).findings[0].impact.text()
+    finally:
+        reset_prompt_overrides()
+    assert after == before
+    assert "OVERRIDDEN" not in after["en"] and "OVERRIDDEN" not in after["zh"]
+
+
+def test_render_impact_and_render_action_still_answer_in_the_active_pack():
+    """The CLI reads one language — the one this process is running in — so the two
+    renderers keep going through `prompt()` and keep seeing an override."""
+    from pneuma_knowledge_core.prompts import (
+        override_prompts,
+        reset_prompt_overrides,
+    )
+
+    finding = next(
+        f for f in report(a_library_with_many_faults()).findings if f.lens == "nav.dead_end"
+    )
+    assert render_impact(finding) == finding.impact.text()["en"]
+    try:
+        override_prompts(chinese_overlay())
+        assert render_impact(finding) == finding.impact.text()["zh"]
+        assert render_action(finding) == finding.action.text()["zh"]
+    finally:
+        reset_prompt_overrides()

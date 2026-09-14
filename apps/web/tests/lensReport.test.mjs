@@ -33,8 +33,16 @@ function finding(key, lens, level, extra = {}) {
     paths: [`memory/topics/${lens.replace(/\W/g, "-")}.md`],
     targets: [],
     evidence: ["1 occurrence"],
-    impact: { key: `lens.${lens}.impact`, fields: {} },
-    action: { key: `lens.${lens}.action`, fields: {} },
+    impact: {
+      key: `lens.${lens}.impact`,
+      fields: {},
+      text: { en: `what ${lens} costs`, zh: `${lens} 的代价` },
+    },
+    action: {
+      key: `lens.${lens}.action`,
+      fields: {},
+      text: { en: `what to do about ${lens}`, zh: `${lens} 该怎么办` },
+    },
     weight: 0.1,
     decision: null,
     ...extra,
@@ -70,22 +78,40 @@ test("a report that arrived half-written still renders: every absent field reads
   assert.deepEqual(parseLensReport(null).findings, []);
 });
 
-test("a catalogue field that is not a scalar is spelled out rather than dropped", () => {
+test("a sentence arrives rendered in both packs, beside the key it came from", () => {
   const [parsed] = parseLensReport({
     findings: [
       {
         key: "k",
         lens: "nav.hub_incomplete",
         level: "drift",
-        impact: { key: "lens.nav.hub_incomplete.impact", fields: { targets: ["a.md", "b.md"], count: 2 } },
+        impact: {
+          key: "lens.nav.hub_incomplete.impact",
+          fields: { targets: ["a.md", "b.md"], count: 2 },
+          text: { en: "The hub leaves out two of its own pages.", zh: "族首页漏掉了自己的两页。" },
+        },
       },
     ],
   }).findings;
+  // The rendering is what a reader sees; the key and fields are what a DEGRADED report has
+  // left to say something with, so both survive parsing.
+  assert.equal(parsed.impact.text.en, "The hub leaves out two of its own pages.");
+  assert.equal(parsed.impact.text.zh, "族首页漏掉了自己的两页。");
   assert.equal(parsed.impact.fields.targets, "a.md, b.md");
   assert.equal(parsed.impact.fields.count, 2);
   // A finding with no action still has an action object, so the row never reads `undefined`.
-  assert.deepEqual(parsed.action, { key: "", fields: {} });
+  assert.deepEqual(parsed.action, { key: "", fields: {}, text: { en: "", zh: "" } });
   assert.equal(parsed.decision, null);
+});
+
+test("a report from a service that sends no rendered text still parses to empty strings", () => {
+  // The view's own fallback ladder (other language, then key · fields) needs these present
+  // rather than undefined; a missing `text` must not make the row throw.
+  const [parsed] = parseLensReport({
+    findings: [{ key: "k", lens: "nav.island", level: "principle", impact: { key: "lens.nav.island.impact" } }],
+  }).findings;
+  assert.deepEqual(parsed.impact.text, { en: "", zh: "" });
+  assert.deepEqual(parsed.impact.fields, {});
 });
 
 test("a level or actor this build never heard of survives as itself", () => {
@@ -123,6 +149,36 @@ test("the order within a level is the report's own — the console re-sorts noth
   assert.deepEqual(groupByLevel(given)[1].findings.map((f) => f.key), ["a", "b"]);
   assert.deepEqual(headline(given, 3).map((f) => f.key), ["a", "b"]);
   assert.equal(headline(given, 1).length, 1);
+});
+
+/* ----------------------------------------------------------------------- headline */
+
+test("the headline is one finding per lens: three things, not one thing three times", () => {
+  // A real library with three islands led with three identical island sentences and pushed
+  // the duplicated subject and the malformed page off the list entirely (§3.4).
+  const given = [
+    finding("i1", "nav.island", "principle"),
+    finding("i2", "nav.island", "principle"),
+    finding("i3", "nav.island", "principle"),
+    finding("d1", "id.title_duplicate", "principle"),
+    finding("s1", "form.stray_heading", "shape"),
+    finding("s2", "form.stray_heading", "shape"),
+    finding("c1", "conc.catch_all", "principle"),
+  ];
+  assert.deepEqual(headline(given).map((f) => f.key), ["i1", "d1", "s1"]);
+  // Report order decides which of a lens's findings leads, and which lenses make the cut.
+  assert.deepEqual(headline(given, 4).map((f) => f.lens), [
+    "nav.island",
+    "id.title_duplicate",
+    "form.stray_heading",
+    "conc.catch_all",
+  ]);
+});
+
+test("a report with fewer lenses than the headline wants gives what it has", () => {
+  const given = [finding("a", "nav.island", "principle"), finding("b", "nav.island", "principle")];
+  assert.deepEqual(headline(given).map((f) => f.key), ["a"]);
+  assert.deepEqual(headline([]), []);
 });
 
 /* --------------------------------------------------------------------- comparing */

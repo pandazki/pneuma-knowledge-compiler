@@ -11,10 +11,11 @@
  * 1. EVERY FIELD DEGRADES. A report missing `families`, a finding missing `evidence`, a level
  *    or actor the client has never heard of — none of those may blank the page. Unknown level
  *    and actor strings survive as themselves and are rendered as themselves.
- * 2. IMPACT AND ACTION ARE CATALOGUE KEYS, not sentences. The service sends
- *    `{key, fields}` (`lens.<lens id>.impact`), and the console renders the SAME keys through
- *    its own bilingual table — §3.2's "keyed identically". So the fields arrive as data and
- *    the wording stays the console's.
+ * 2. THE SENTENCES ARE THE CATALOG'S, not the console's. The service sends each `impact` and
+ *    `action` already rendered in both packs (`text.en`, `text.zh`) beside the key and fields
+ *    it came from (§3.2). The console picks its locale's and keeps NO copy: one catalog, one
+ *    wording, every face — so an application that rewords a key through the overlay seam
+ *    changes what the console shows too, without a release.
  * 3. `decision` IS RESERVED. This version's lens is a pure reading face: nothing in the
  *    console pushes a finding at the Steward and no decline exists to record, so the field is
  *    typed and always null (§9). The one defensive branch that renders it costs a line.
@@ -32,10 +33,15 @@ export type LensActor = "steward" | "owner" | "mechanism" | string;
 /** The order the levels are read in: §3.4, principle before drift before shape. */
 export const LENS_LEVELS: readonly LensLevel[] = ["principle", "drift", "shape"];
 
-/** One rendered sentence: a prompt-catalogue key plus the fields it interpolates. */
+/**
+ * One sentence from the prompt catalog: the key and fields it was rendered from, and the
+ * rendering itself in both packs. `text` is what a reader sees; `key` and `fields` are what
+ * a degraded report still has to say something with.
+ */
 export interface LensText {
   key: string;
   fields: Record<string, string | number>;
+  text: { en: string; zh: string };
 }
 
 /** A kept decline, when the mechanism that records one exists (§9). Always null in v1. */
@@ -102,12 +108,12 @@ function strings(value: unknown): string[] {
 }
 
 /**
- * A catalogue reference. A field that is neither a string nor a finite number (an array of
- * paths, say) is flattened rather than dropped — the console interpolates it into a sentence,
- * and `[object Object]` in the middle of one is worse than the list spelled out.
+ * A catalog sentence. A field that is neither a string nor a finite number (an array of
+ * paths, say) is flattened rather than dropped: the fields are what the last-resort rendering
+ * has to work with, and `[object Object]` in it is worse than the list spelled out.
  */
 function text(value: unknown): LensText {
-  const raw = (value ?? {}) as { key?: unknown; fields?: unknown };
+  const raw = (value ?? {}) as { key?: unknown; fields?: unknown; text?: unknown };
   const fields: Record<string, string | number> = {};
   const given = (raw.fields ?? {}) as Record<string, unknown>;
   for (const [name, field] of Object.entries(given)) {
@@ -119,7 +125,12 @@ function text(value: unknown): LensText {
       fields[name] = String(field);
     }
   }
-  return { key: str(raw.key), fields };
+  const rendered = (raw.text ?? {}) as Record<string, unknown>;
+  return {
+    key: str(raw.key),
+    fields,
+    text: { en: str(rendered.en), zh: str(rendered.zh) },
+  };
 }
 
 function decision(value: unknown): LensDecision | null {
@@ -198,9 +209,24 @@ export function groupByLevel(findings: readonly LensFinding[]): LensGroup[] {
   return [...groups].map(([level, list]) => ({ level, findings: list }));
 }
 
-/** The headline: the first `count` findings as the report ordered them (§3.4). */
+/**
+ * The headline: the first finding of each of the `count` highest-ranked LENSES (§3.4).
+ *
+ * One per lens id, in report order. The first three findings outright would be the wrong
+ * three whenever one lens fires repeatedly — a library with three islands led with three
+ * identical island sentences and pushed the duplicated subject and the malformed page off
+ * the list entirely. "Three things to do first" has to mean three different things.
+ */
 export function headline(findings: readonly LensFinding[], count = 3): LensFinding[] {
-  return findings.slice(0, count);
+  const seen = new Set<string>();
+  const out: LensFinding[] = [];
+  for (const finding of findings) {
+    if (seen.has(finding.lens)) continue;
+    seen.add(finding.lens);
+    out.push(finding);
+    if (out.length === count) break;
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ two snapshots */
