@@ -1777,6 +1777,7 @@
             "steward.reference.gate_components_header",
             "steward.reference.gate_header",
             "steward.reference.instructions_header",
+            "steward.review.clean",
             "steward.review.task",
             "steward.router.block",
             "steward.skill.archive",

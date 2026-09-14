@@ -5128,6 +5128,7 @@ SURFACES: tuple[Surface, ...] = (
             f("steward.unattended.episodes_task", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
             f('steward.unattended.evolve_task', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
             f("steward.review.task", "Heads the review round's task, under the check report the round is about.", "置于自查轮任务的报告之下，说明这一轮要做什么。"),
+            f("steward.review.clean", "Replaces it when the check found nothing: the round is told there is nothing to repair.", "自查没有发现时取而代之：告诉这一轮没有要修的东西。"),
             f('steward.evolve.packs', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
             f('steward.evolve.unnamed_drop', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
             f('steward.evolve.proposal_required', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),

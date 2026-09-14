@@ -144,7 +144,15 @@ async def open_round(
         overview_required_after_claims=rt.overview_required_after_claims,
         max_tool_calls=rt.max_tool_calls,
         commit_message="review: repair what the check found",
-        context={"system_text": system_text, "task_text": task_text},
+        # HOW MANY findings this round was given, beside the two surfaces. Read at the finish
+        # and nowhere else: a round given findings owes either a repair or a sentence about
+        # why it made none, and a round given none owes neither (`draft._review_owes_an_account`).
+        # The number rather than the report, because that is the whole of what the finish asks.
+        context={
+            "system_text": system_text,
+            "task_text": task_text,
+            "findings": len(report.findings),
+        },
     )
     await shared._store(rt, draft, session)
     return shared.EXIT_OK, system_text, task_text

@@ -214,9 +214,12 @@ class Settings(BaseSettings):
     # system text, the skill and the handover fit beside it. 0 = one window, no bound.
     agent_episodes_window_chars: int = 400_000
 
-    # Keep the launcher's per-round working directory (the system text, the task, the
-    # harness's last message) instead of deleting it. Debugging only: those files hold the
-    # library's material, and leaving them in /tmp is a decision an operator makes on purpose.
+    # Keep both of a round's temporary directories instead of deleting them: the launcher's
+    # per-round working directory (the system text, the task, the harness's last message) and
+    # the per-job config home the harness's own session transcript lives in. One setting,
+    # because keeping either half alone keeps the half a round cannot be diagnosed from.
+    # Debugging only: those files hold the library's material, and leaving them in /tmp is a
+    # decision an operator makes on purpose.
     agent_keep_workdir: bool = False
 
     # Whether the WORKER runs compile jobs through a coding agent itself. A worker is by

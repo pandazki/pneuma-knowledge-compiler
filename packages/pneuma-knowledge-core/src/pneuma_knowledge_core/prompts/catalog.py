@@ -938,6 +938,17 @@ a finding repaired by guessing is a claim nobody can trace.
 """
 
 
+_STEWARD_REVIEW_CLEAN = """\
+## What this round is for
+
+The report above is this library read against its own contract, computed without a model,
+and it found nothing to repair. There is nothing for this round to write: no finding asked
+for a link, a name or an order, and no source is open to record anything new from. Finish
+the round as it stands — a round that invented work here would be adding claims this library
+has no evidence for.
+"""
+
+
 _STEWARD_POSTURES = """\
 ## Two postures
 
@@ -3538,6 +3549,7 @@ The task follows.
     "steward.skill.postures": _STEWARD_POSTURES,
     "steward.unattended.task": _STEWARD_UNATTENDED_TASK,
     "steward.review.task": _STEWARD_REVIEW_TASK,
+    "steward.review.clean": _STEWARD_REVIEW_CLEAN,
     "steward.skill.owner_speech": _STEWARD_OWNER_SPEECH,
     "steward.skill.cannot": _STEWARD_CANNOT,
     "steward.skill.archive": _STEWARD_ARCHIVE,

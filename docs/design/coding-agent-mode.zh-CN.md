@@ -1121,10 +1121,12 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   不等待任何东西，最多按 `AGENT_RETRIES` 重新入队；最后一次会说出来
   （`… exit 1 after 3 attempts — …`），并把这行留给人读。三种情况下来源都不盖消化戳。
 
-  **harness 说了什么**与 worker 判了什么并排保存：`compile_jobs.harness_output` 存下进程自身输出的
-  最后约 2 KB，入库之前先由启动器（`scrub`）洗掉一切形如凭据的内容，并由 `GET /jobs` 与
-  `pkc jobs --json` 呈现。`exit 1` 说不出原因；能说出原因的那些字，从前只活在一个早已走远的
-  worker 进程里。
+  **harness 说了什么**与 worker 判了什么并排保存，而且是**每一轮**都保存，不只是被拒的那些：
+  `compile_jobs.harness_output` 存下进程自身输出的约 2 KB——Codex 的事件流里带有 agent 最后一条
+  消息时，那条消息排在最前，进程输出跟在它下面——入库之前先由启动器（`scrub`）洗掉一切形如凭据
+  的内容，并由 `GET /jobs` 与 `pkc jobs --json` 呈现。`exit 1` 说不出原因，`rounds:1` 同样说不出；
+  能说出原因的那些字，从前只活在一个随即被删掉的 per-job config home 和一个早已走远的 worker
+  进程里。（`AGENT_KEEP_WORKDIR` 现在连同启动器的工作目录一起把那个 home 也留下，供人排查。）
 
   对提供方的那两种答案，worker 把作业以 `ok=false` 结束（`rate_limited: Codex usage limit;
   retry after <时刻>`），**不**给它的来源盖消化戳，丢掉这次启动打开

@@ -712,6 +712,15 @@ _STEWARD_REVIEW_TASK_ZH = """\
 """
 
 
+_STEWARD_REVIEW_CLEAN_ZH = """\
+## 这一轮要做什么
+
+上面的报告是不经模型、按本知识库自己的契约读出的自查结果，它没有发现要修的地方。这一轮
+没有要写的东西：没有哪条发现要求补链接、改名字或调顺序，也没有打开任何来源可供记录新的
+内容。就这样把这一轮结束——在这里凭空找活干，等于给本知识库添上没有证据支撑的断言。
+"""
+
+
 _STEWARD_POSTURES_ZH = """\
 ## 两种姿态
 
@@ -2731,6 +2740,7 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
     "steward.skill.postures": _STEWARD_POSTURES_ZH,
     "steward.unattended.task": _STEWARD_UNATTENDED_TASK_ZH,
     "steward.review.task": _STEWARD_REVIEW_TASK_ZH,
+    "steward.review.clean": _STEWARD_REVIEW_CLEAN_ZH,
     "steward.skill.owner_speech": _STEWARD_OWNER_SPEECH_ZH,
     "steward.skill.cannot": _STEWARD_CANNOT_ZH,
     "steward.skill.archive": _STEWARD_ARCHIVE_ZH,

@@ -106,6 +106,13 @@ the ordinary draft verbs, under the ordinary gate, and to say in the brief what 
 and why. It is enqueued by the Owner (`pkc jobs enqueue review`, or the console) and by
 nothing else in this version; scheduling it is a later decision.
 
+A round that neither repairs a finding nor says why is **incomplete, not ok**: the finish
+refuses it (`review_incomplete`), the job is recorded `ok=false` with the harness's own words
+on the row, and it comes back under the same bound a harness that died comes back under —
+because the one thing a library must never be told is that it was reviewed by a round that
+accounted for nothing. Repairing nothing and saying why is a finished round; so is a round
+over a library the check found nothing to repair in, which is told exactly that in its task.
+
 This is the insider's reflection: the Steward reading its own library against the
 contract and correcting it. It puts nothing into any other job's context.
 

@@ -57,6 +57,7 @@ from ..cli.draft import (
     require_owner,
     validate_brief,
 )
+from ..review_service import REVIEW_JOB_KIND
 from .backends import BackendManifest, unavailable_reason
 from .install import SKILL_HASH_ENV, installed_hash
 from .launcher import (
@@ -72,7 +73,9 @@ log = logging.getLogger(__name__)
 
 #: What one job's harness sessions live under. Per JOB, not per launch: the repair round
 #: resumes the first round's session, so the directory has to outlive the process that made
-#: it — and it is deleted when the job ends, because a session is not a kept record.
+#: it — and it is deleted when the job ends, because a session is not a kept record. Kept
+#: instead, with the launcher's working directory and by the same setting, when
+#: `keep_workdir` is on: what an operator diagnoses a round from is the transcript inside it.
 CONFIG_HOME_PREFIX = "pkc-agent-home-"
 
 #: How a finished unattended round is summarized on the job row and in the log.
@@ -94,6 +97,13 @@ HARNESS_UNAVAILABLE = "the harness did not run the round"
 #: again under the same bound as a harness that died (`compile_worker._round_incomplete`).
 #: A round that exited cleanly and committed nothing stays what it always was: an empty round.
 ROUND_INCOMPLETE = "the round did not run to its end and nothing was committed"
+#: A REVIEW round that ended — cleanly, by its own finish or the worker's — having neither
+#: repaired one of the findings it was given nor said in its brief why it repaired none. The
+#: round ran; it simply accounts for nothing, and a job completed ok about it would tell the
+#: Owner their library was read and repaired when nothing was read back. Judged where a round
+#: ends (`cli/draft.cmd_finish`), so the harness's own `pkc draft finish` is refused by the
+#: same rule the worker's finish is. Retried under the same bound as a harness that died.
+REVIEW_INCOMPLETE = "the review round neither repaired a finding nor said why"
 
 #: WHY it did not — the three answers, because the worker does two different things about
 #: them and telling them apart is the difference between waiting for a subscription and
@@ -241,6 +251,12 @@ class AgentRoundRunner:
         timed_out = False
         rate_limited = False
         last_message = ""
+        #: What the harness said, kept for EVERY ending and not only for the refusals: the
+        #: session it said it in is deleted when the job ends, so a round nobody watched is
+        #: unreadable afterwards unless this travels to the job row.
+        output = ""
+        last: LaunchResult | None = None
+        workdir = ""
         try:
             first = await self._launch(
                 system_text=system_text,
@@ -249,6 +265,8 @@ class AgentRoundRunner:
                 executor=rt.draft_executor,
             )
             last_message = first.last_message
+            last, output = first, _round_output(first)
+            workdir = first.workdir or workdir
             launches += 1
             usage, cost = _sum_usage(usage, first.usage), _add(cost, first.cost_usd)
             timed_out = timed_out or first.timed_out
@@ -277,7 +295,8 @@ class AgentRoundRunner:
                 )
             if state is None:
                 return self._result(
-                    job_id, COMMITTED_BY_HARNESS, usage, cost, launches, timed_out, rate_limited
+                    job_id, COMMITTED_BY_HARNESS, usage, cost, launches, timed_out,
+                    rate_limited, output=output,
                 )
 
             outcome = FINISHED_BY_WORKER
@@ -289,12 +308,14 @@ class AgentRoundRunner:
                 if await self._worker_finish(rt, finish, first) == EXIT_INCOMPLETE:
                     last_message = ""
                     return self._incomplete(
-                        job_id, first, usage, cost, launches, timed_out, rate_limited
+                        job_id, first, usage, cost, launches, timed_out, rate_limited,
+                        kind=rt.kind,
                     )
                 state = await self._open_state(rt, job_id)
                 if state is None:
                     return self._result(
-                        job_id, outcome, usage, cost, launches, timed_out, rate_limited
+                        job_id, outcome, usage, cost, launches, timed_out, rate_limited,
+                        output=output,
                     )
 
             # A draft still open here is a draft the gate refused: one repair round, with what
@@ -308,6 +329,8 @@ class AgentRoundRunner:
                 resume_session=first.session_id if await self.can_resume(self.manifest) else "",
             )
             last_message = repair.last_message or last_message
+            last, output = repair, (_round_output(repair) or output)
+            workdir = repair.workdir or workdir
             launches += 1
             usage, cost = _sum_usage(usage, repair.usage), _add(cost, repair.cost_usd)
             timed_out = timed_out or repair.timed_out
@@ -316,7 +339,8 @@ class AgentRoundRunner:
 
             if await self._open_state(rt, job_id) is None:
                 return self._result(
-                    job_id, outcome, usage, cost, launches, timed_out, rate_limited
+                    job_id, outcome, usage, cost, launches, timed_out, rate_limited,
+                    output=output,
                 )
             # The repair round did not finish either. The worker finishes it: on a repair
             # round `cmd_finish` either commits or aborts, so this ends the draft whatever
@@ -324,14 +348,24 @@ class AgentRoundRunner:
             if await self._worker_finish(rt, finish, repair) == EXIT_INCOMPLETE:
                 last_message = ""
                 return self._incomplete(
-                    job_id, repair, usage, cost, launches, timed_out, rate_limited
+                    job_id, repair, usage, cost, launches, timed_out, rate_limited,
+                    kind=rt.kind,
                 )
             if await self._open_state(rt, job_id) is not None:
                 # Nothing left to try. Release the job rather than hold it claimed forever.
                 await cmd_abandon(rt)
                 outcome = ABANDONED
             return self._result(
-                job_id, outcome, usage, cost, launches, timed_out, rate_limited
+                job_id, outcome, usage, cost, launches, timed_out, rate_limited, output=output,
+            )
+        except RoundLeftIncomplete:
+            # The HARNESS ran `pkc draft finish` itself and that finish REFUSED the round:
+            # the draft is gone and the job was deliberately left claimed, for the worker to
+            # end as a failure. The same ending as the worker's own refused finish, reached
+            # from the other process.
+            last_message = ""
+            return self._incomplete(
+                job_id, last, usage, cost, launches, timed_out, rate_limited, kind=rt.kind,
             )
         except DraftOwnershipError:
             # An explicit takeover/TTL recovery ended this launch's authority. Its late
@@ -341,7 +375,16 @@ class AgentRoundRunner:
                 job_id, "draft ownership lost", usage, cost, launches, timed_out, rate_limited
             )
         finally:
-            shutil.rmtree(home, ignore_errors=True)
+            if self.keep_workdir:
+                # ONE setting, both directories. The home is where the harness's own rollout
+                # transcript of the round lives, and keeping the working directory without it
+                # keeps the half an operator cannot diagnose a round from.
+                log.info(
+                    "kept this round's harness home at %s (working directory: %s)",
+                    home, workdir or "deleted",
+                )
+            else:
+                shutil.rmtree(home, ignore_errors=True)
             if rt.kind == "compile" and last_message and rt.record_brief is not None:
                 try:
                     job = await rt.jobs.get_job(rt.user_id, job_id)
@@ -449,29 +492,50 @@ class AgentRoundRunner:
     async def _worker_finish(rt: DraftRuntime, finish, launch: LaunchResult) -> int:  # noqa: ANN001
         """The worker's finish of a round its harness left open, told how that launch ended.
 
-        Compile only: `cmd_finish` is the finish that can record a noop as success and stamp
-        digestion, and the one that reads `unclean_launch`. Evolve and episodes rounds finish
-        through their own functions, which neither digest nor read the flag."""
+        Compile only for `unclean_launch`: `cmd_finish` is the finish that can record a noop
+        as success and stamp digestion, and the one that reads it. Evolve and episodes rounds
+        finish through their own functions, which neither digest nor read the flag.
+
+        `worker_finish` is set for every kind, because it says something about the CALLER and
+        not about the material: this finish is the last thing that will happen to the round,
+        so a refusal here has nobody left to answer it.
+        """
         rt.unclean_launch = _unclean(launch) if rt.kind == "compile" else ""
+        rt.worker_finish = True
         try:
             return await finish(rt)
         finally:
             rt.unclean_launch = ""
+            rt.worker_finish = False
 
     def _incomplete(
         self,
         job_id: str,
-        launch: LaunchResult,
+        launch: LaunchResult | None,
         usage: dict[str, int] | None,
         cost: float | None,
         launches: int,
         timed_out: bool,
         rate_limited: bool,
+        *,
+        kind: str = "compile",
     ) -> AgentRoundResult:
+        """A round the finish would not accept, as the two answers to WHY it would not.
+
+        A review round's finish refuses one thing only — a round that repaired nothing and
+        said nothing about it — and a compile round's refuses another: a launch that timed out
+        or crashed with nothing committed. The worker does the same thing about both (fail,
+        queue again, bounded), and a person reading the row needs to be told which it was.
+        """
+        outcome = REVIEW_INCOMPLETE if kind == REVIEW_JOB_KIND else ROUND_INCOMPLETE
+        if launch is None:
+            return self._result(
+                job_id, outcome, usage, cost, launches, timed_out, rate_limited
+            )
         return self._result(
-            job_id, ROUND_INCOMPLETE, usage, cost, launches, timed_out, rate_limited,
+            job_id, outcome, usage, cost, launches, timed_out, rate_limited,
             exit_code=launch.exit_code,
-            output=_tail(launch.stderr, launch.stdout),
+            output=_round_output(launch),
             incomplete=_unclean(launch),
         )
 
@@ -492,6 +556,12 @@ class AgentRoundRunner:
                     await rt.drafts.delete(rt.user_id, job_id, executor=rt.draft_executor)
                 return None
             if not state:
+                if job is not None and getattr(job, "claimed_by", None) == rt.draft_executor:
+                    # The draft is gone and the job is still ours and still unfinished: the
+                    # only body that does that is a `cmd_finish` which REFUSED the round and
+                    # left the job for the worker to fail (`EXIT_INCOMPLETE`). Not a lost
+                    # draft — nobody took anything.
+                    raise RoundLeftIncomplete(job_id)
                 raise DraftOwnershipError(f"job {job_id} no longer belongs to this launch")
             await require_owner(rt, job_id)
             return (
@@ -527,6 +597,14 @@ class AgentRoundRunner:
             harness_reason=harness_reason,
             incomplete=incomplete,
         )
+
+
+class RoundLeftIncomplete(RuntimeError):
+    """The round's own finish refused it and left the job claimed for the worker to end."""
+
+    def __init__(self, job_id: str) -> None:
+        super().__init__(f"the round for job {job_id} was not accepted by its own finish")
+        self.job_id = job_id
 
 
 class AgentRoundOpenRefused(RuntimeError):
@@ -574,6 +652,27 @@ def _tail(*parts: str) -> str:
     """
     text = "\n".join(part for part in parts if part)
     return scrub(text[-OUTPUT_TAIL_CHARS:])
+
+
+#: How much of the agent's own final message heads what travels to the job row. A message is
+#: a paragraph or two; anything past this is a transcript by another name.
+MESSAGE_HEAD_CHARS = 2000
+
+
+def _round_output(launch: LaunchResult) -> str:
+    """What the harness said about this round — its own last message, then its output tail.
+
+    The message FIRST, and deliberately. Under `--json` the stream is machine events nobody
+    reads, and the one thing a person wants from a round nobody watched is what the Steward
+    said it did. Putting it at the head is what makes the bound cut the stream rather than the
+    sentence, here and again where the job row's own bound cuts (`compile_worker`).
+    """
+    said = scrub((launch.last_message or "").strip())[:MESSAGE_HEAD_CHARS]
+    rest = _tail(launch.stderr, launch.stdout)
+    if not said:
+        return rest
+    room = OUTPUT_TAIL_CHARS - len(said) - 1
+    return said if room <= 0 or not rest else f"{said}\n{rest[-room:]}"
 
 
 def classify_refusal(manifest: BackendManifest, launch: LaunchResult) -> str:
@@ -629,7 +728,9 @@ __all__ = [
     "FINISHED_BY_WORKER",
     "HARNESS_UNAVAILABLE",
     "REPAIRED",
+    "REVIEW_INCOMPLETE",
     "ROUND_INCOMPLETE",
+    "RoundLeftIncomplete",
     "UNAVAILABLE_AT_CAPACITY",
     "UNAVAILABLE_FAILED",
     "UNAVAILABLE_RATE_LIMITED",

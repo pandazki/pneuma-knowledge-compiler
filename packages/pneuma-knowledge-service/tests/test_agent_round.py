@@ -17,6 +17,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -135,6 +136,56 @@ async def uncited_claim(rt: draft_cmd.DraftRuntime) -> None:
 
 #: The anchor `uncited_claim` minted, so the repair action can address it.
 UNCITED_ANCHOR: dict[str, str] = {}
+
+
+async def drive_agent_job(monkeypatch, ctx, rt, job_id, fake, tmp_path, **kwargs):
+    """`process_agent_job` over a REAL runner and a fake harness. Returns the round's result.
+
+    The claims that need this rather than `runner(...).run_job(...)` are the ones about the
+    worker's own TAIL — which outcome ends the job, what lands on the row afterwards — and
+    that tail is reached only through the dispatch that builds the runner. So exactly two
+    things a keyless test cannot have are replaced (the skill package on disk, and the
+    runtime's real adapters, which the caller supplies as `rt`), and everything between them
+    is the shipped code.
+    """
+    from pneuma_knowledge_service.cli import episodes as episodes_cli
+    from pneuma_knowledge_service.cli import evolve as evolve_cli
+    from pneuma_knowledge_service.cli import review as review_cli
+    from pneuma_knowledge_service.cli import runtime as runtime_cli
+    from pneuma_knowledge_service.coding_agent import round_runner as round_runner_module
+
+    made = runner(fake, tmp_path, **kwargs)
+
+    async def build(_ctx, _user_id, *, executor=None, **_kw):  # noqa: ANN001
+        return rt
+
+    async def no_skill_package(*_a, **_kw):
+        return None
+
+    monkeypatch.setattr(compile_worker, "ensure_skill_package", no_skill_package)
+    for module in (runtime_cli, review_cli, evolve_cli, episodes_cli):
+        monkeypatch.setattr(module, "build_runtime", build)
+    monkeypatch.setattr(round_runner_module, "AgentRoundRunner", lambda **_kw: made)
+
+    ran = made.run_job
+
+    async def run_job(runtime, jid):  # noqa: ANN001
+        result = await ran(runtime, jid)
+        results.append(result)
+        return result
+
+    results: list[AgentRoundResult] = []
+    made.run_job = run_job
+    job = await ctx.store.claim(rt.user_id, job_id)
+    assert job is not None, "the drain claims the job before it hands it to a harness"
+    await compile_worker.process_agent_job(ctx, rt.user_id, job)
+    return results[0]
+
+
+async def job_row(jobs, user_id, job_id: str) -> dict:  # noqa: ANN001
+    """The finished job's row, as `pkc jobs` and `GET /jobs` read it."""
+    rows = await jobs.list_jobs(user_id)
+    return next(row for row in rows if row["job_id"] == job_id)
 
 
 # ─────────────────────────────────────────────────────── the harness finished the round
@@ -1211,6 +1262,73 @@ async def test_the_harnesss_own_words_are_kept_on_the_job_and_read_back_through_
     (item,) = [i for i in response.json()["items"] if i["status"] == "done"]
     assert item["harness_output"] == "Error: input is too long for the selected model"
     assert item["detail"].startswith("harness_failed: exit 1 — ")
+
+
+async def test_what_the_steward_said_is_kept_on_a_round_that_succeeded(monkeypatch, tmp_path):
+    """The round that WORKED is the one nobody could read afterwards.
+
+    The per-job config home is deleted when the job ends, and the harness's own words were
+    stored only when it refused — so a committed round left `rounds:1` on the row and nothing
+    about what the Steward did. Here the same bounded column carries its final message, with
+    the process output under it, on an ordinary successful compile.
+    """
+    h = await harness([source()])
+    said = "I recorded three claims about 程野 and left the pricing question to the Owner."
+    fake = FakeHarness(h.rt, [[*CALLS, "finish"]], result=lambda: LaunchResult(
+        exit_code=0,
+        stdout='{"type":"item.completed"}\n',
+        stderr="",
+        usage=dict(USAGE),
+        last_message=said,
+    ))
+    ctx = WorkerCtx(worker_settings(), h.jobs)
+    result = await drive_agent_job(monkeypatch, ctx, h.rt, h.job_id, fake, tmp_path)
+
+    assert result.outcome == COMMITTED_BY_HARNESS
+    row = await job_row(h.jobs, h.rt.user_id, h.job_id)
+    assert row["ok"] is True
+    assert row["harness_output"] and said in row["harness_output"]
+    assert row["detail"] == "committed", "the detail a test pins must not have moved"
+
+
+async def test_the_steward_s_own_message_heads_the_tail_rather_than_the_event_stream(tmp_path):
+    """What a person reads first is the sentence, so the bound cuts the stream, not it."""
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    said = "nothing in this source was new; I recorded none of it."
+    fake = FakeHarness(h.rt, [[*CALLS, "finish"]], result=lambda: LaunchResult(
+        exit_code=0, stdout="x" * 20000, stderr="", last_message=said,
+    ))
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+    assert result.output.startswith(said)
+    assert len(result.output) <= 4000
+
+
+async def test_the_kept_workdir_setting_keeps_the_rounds_harness_home_too(tmp_path):
+    """One setting, both directories. The working directory without the config home keeps
+    the half a round cannot be diagnosed from: the transcript lives in the home."""
+    import shutil
+
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [[*CALLS, "finish"]])
+    await runner(fake, tmp_path, keep_workdir=True).run_job(h.rt, h.job_id)
+
+    (request,) = fake.requests
+    home = Path(request.config_home)
+    assert home.is_dir(), "the round's harness home was deleted although it was to be kept"
+    shutil.rmtree(home, ignore_errors=True)
+
+
+async def test_by_default_the_rounds_harness_home_goes_with_the_round(tmp_path):
+    """A session is not a kept record: the default leaves nothing behind on the machine."""
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [[*CALLS, "finish"]])
+    await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+
+    (request,) = fake.requests
+    assert not Path(request.config_home).exists()
 
 
 async def test_a_key_in_the_harnesss_output_never_reaches_the_job_row(tmp_path):

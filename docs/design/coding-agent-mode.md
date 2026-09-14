@@ -1447,11 +1447,15 @@ went around the gate is stopped before the next round builds on it, rather than 
   attempt says so (`… exit 1 after 3 attempts — …`) and the row is left for a person to read.
   Sources stay undigested in all three cases.
 
-  **What the harness said** is kept beside what the worker decided: `compile_jobs.harness_output`
-  holds the last ~2 KB of the process's own output, scrubbed of anything credential-shaped by
-  the launcher (`scrub`) before it is ever stored, and surfaced by `GET /jobs` and
-  `pkc jobs --json`. `exit 1` names no cause; the words that do used to live only in a worker
-  process that had already moved on.
+  **What the harness said** is kept beside what the worker decided, on EVERY round and not
+  only on the ones it refused: `compile_jobs.harness_output` holds ~2 KB of the process's own
+  output — the agent's own final message at the head, where the Codex event stream carries one,
+  and the process output under it — scrubbed of anything credential-shaped by the launcher
+  (`scrub`) before it is ever stored, and surfaced by `GET /jobs` and `pkc jobs --json`.
+  `exit 1` names no cause, and neither does `rounds:1`; the words that do used to live only in
+  a per-job config home that was deleted and a worker process that had already moved on.
+  (`AGENT_KEEP_WORKDIR` keeps that home as well as the launcher's working directory, for a
+  round somebody is diagnosing.)
 
   For the two provider answers the worker completes the job `ok=false` (`rate_limited: Codex
   usage limit; retry after <instant>`), leaves its sources

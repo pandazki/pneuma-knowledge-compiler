@@ -71,6 +71,7 @@ from pneuma_knowledge_core.skill.version import SkillVersion
 
 from ..job_lanes import lane_of
 from ..persona_profile import PLACEHOLDER_NOTICE
+from ..review_service import REVIEW_JOB_KIND
 from .check import SKILL_TRAILER
 
 EXIT_OK = 0
@@ -78,14 +79,42 @@ EXIT_NOTHING = 1
 EXIT_REFUSED = 2
 EXIT_BUDGET = 3
 EXIT_GATE = 4
-#: The worker finished a round whose launch did not end cleanly, and nothing was committed.
-#: Only reachable through `DraftRuntime.unclean_launch`, which only the runner sets.
+#: The round ended without accounting for itself, so the finish did not accept it and the
+#: job is left claimed for the worker to fail and queue again. Two ways in, and both are
+#: statements about a round nobody watched: a launch that did not end cleanly and committed
+#: nothing (`DraftRuntime.unclean_launch`, which only the runner sets), and a review round
+#: that neither repaired a finding nor said why (`REVIEW_INCOMPLETE_DETAIL`).
 EXIT_INCOMPLETE = 5
 
 #: The detail a round that did not really run is recorded with — `round_incomplete: <why>;
 #: nothing was committed` — spelled once, for the finish that detects it and the worker that
 #: writes it onto the job row.
 ROUND_INCOMPLETE_DETAIL = "round_incomplete: {why}; nothing was committed"
+
+#: The detail a REVIEW round that accounts for nothing is recorded with. A review round is
+#: given findings and asked for one of two things about each: a repair, or a sentence saying
+#: why not. A round that ends with neither did not do the work, however cleanly its process
+#: exited — and the one defect class this project refuses is a job reporting success about
+#: work nobody did. Spelled once, for the finish that refuses the round and the worker that
+#: writes the refusal onto the job row.
+REVIEW_INCOMPLETE_DETAIL = (
+    "review_incomplete: the round neither repaired a finding nor said why; "
+    "nothing was committed"
+)
+
+#: The two ok endings of a review round that wrote nothing, and they are different facts. A
+#: round that was given findings and repaired none of them is finished only because its brief
+#: accounts for that; a round over a library the check found nothing wrong with had nothing
+#: to repair in the first place.
+REVIEW_NOTHING_DETAIL = "review: repaired nothing; the brief says why"
+REVIEW_CLEAN_DETAIL = "review: the check found nothing to repair"
+
+#: What a session still able to answer is told instead — the refusal as something to DO, in
+#: the shape the overview floor's refusal has: one more command ends the round either way.
+REVIEW_OWED_LINE = (
+    "this review round repaired none of the findings it was given. Repair one, or finish "
+    "with a brief that says why you repaired none: `pkc draft finish --brief FILE`."
+)
 
 #: The write verbs, i.e. the calls whose result is post-checked on the page they touched.
 #: A read verb changes nothing a gate predicate can judge (`read_document` only records that
@@ -198,6 +227,12 @@ class DraftRuntime:
     #: (`EXIT_INCOMPLETE`). Empty everywhere else: the harness's own `pkc draft finish`, and
     #: an Owner's terminal, never set it.
     unclean_launch: str = ""
+    #: Set by the unattended runner around the finish IT runs, whatever the kind. It is the
+    #: difference between a refusal somebody can answer and a round that is over: a Steward
+    #: at a terminal — or one still typing inside its own session — is told what the finish
+    #: wants and keeps its draft to supply it, while the worker's finish is the last thing
+    #: that will happen to this round, so a round it cannot accept ends there.
+    worker_finish: bool = False
     record_brief: Callable[[str, str], Awaitable[None]] | None = None
     #: Does the owner profile still name nobody? A NOTICE, never a refusal: the round opens,
     #: the surfaces are byte-identical, and the langchain executor is untouched. What it buys
@@ -889,6 +924,30 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
         print(ROUND_INCOMPLETE_DETAIL.format(why=rt.unclean_launch), file=rt.err)
         return EXIT_INCOMPLETE
 
+    if result.status == "noop" and _review_owes_an_account(session, brief):
+        # A review round that repaired none of the findings it was given AND said nothing
+        # about why. Recording that as a finished job is the shape this project treats as its
+        # worst defect: the row would say the library was reviewed, the report would still
+        # hold every finding, and nothing anywhere would say the round accounted for none of
+        # them. Judged HERE because this is the one function that ends a draft, whoever calls
+        # it — so the harness's own `pkc draft finish` meets the same rule the worker's does.
+        #
+        # What differs is only what a refusal can still lead to. A session that is still
+        # typing keeps its draft and is told what is owed, exactly as the overview floor tells
+        # it: one `pkc draft finish --brief …` answers this. The WORKER's finish is the last
+        # thing that will happen to the round, so there the round ends the way a round that
+        # never reached its end ends — the draft goes, the job stays claimed, and the worker
+        # fails it and queues it again.
+        if not rt.worker_finish:
+            # The finish's own call is already spent (the gate ran); the round keeps its
+            # draft and its remaining budget, and one more command ends it either way.
+            await _store(rt, draft, session)
+            print(REVIEW_OWED_LINE, file=rt.err)
+            return EXIT_GATE
+        await rt.drafts.delete(rt.user_id, session.job_id, executor=rt.draft_executor)
+        print(REVIEW_INCOMPLETE_DETAIL, file=rt.err)
+        return EXIT_INCOMPLETE
+
     await _persist(rt, session, result)
     if brief is not None and result.snapshot is not None and result.status != "aborted":
         if rt.record_brief is not None:
@@ -908,6 +967,23 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
     return EXIT_OK
 
 
+def _review_owes_an_account(session: DraftSession, brief: str | None) -> bool:
+    """Is this a review round that repaired nothing and said nothing about repairing nothing?
+
+    Three mechanical facts, all required. It is a REVIEW round (a compile round that found
+    nothing to record is an ordinary empty round and always was). It was given findings — a
+    library the check reads clean asks this round for nothing, and demanding a brief for
+    having repaired nothing there would be demanding an account of a fact the task itself
+    states. And it holds no brief: the round's one other legitimate product, which is a
+    sentence saying why a finding was left (`pkc draft finish --brief`).
+    """
+    return (
+        session.kind == REVIEW_JOB_KIND
+        and int(session.context.get("findings") or 0) > 0
+        and not (brief or "").strip()
+    )
+
+
 async def _persist(
     rt: DraftRuntime, session: DraftSession, result: CompileResult
 ) -> None:
@@ -917,6 +993,23 @@ async def _persist(
     code the langchain worker runs — so an agent-compiled job leaves the same events, the same
     projection delta, the same digestion and the same job row behind. Without one (the unit
     tests) the job is simply completed with the same outcome and detail."""
+    if session.kind == REVIEW_JOB_KIND and result.status == "noop":
+        # A review round that wrote nothing has no delta for the derived layers to follow and
+        # no source to stamp digested — it read the library and answered for it. The job is
+        # ended here, saying which of the two legitimate nothings it was, rather than through
+        # a compile tail whose `projection:{…unchanged…}` says nothing about either.
+        await rt.jobs.complete(
+            rt.user_id,
+            session.job_id,
+            ok=True,
+            detail=(
+                REVIEW_CLEAN_DETAIL
+                if int(session.context.get("findings") or 0) == 0
+                else REVIEW_NOTHING_DETAIL
+            ),
+            executor=rt.executor,
+        )
+        return
     if rt.persist is not None:
         job = await rt.jobs.get_job(rt.user_id, session.job_id)
         await rt.persist(job, result)

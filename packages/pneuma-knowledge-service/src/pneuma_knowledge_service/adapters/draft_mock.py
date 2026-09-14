@@ -458,14 +458,20 @@ class InMemoryJobQueue:
         *,
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
+        harness_output: str | None = None,
     ) -> None:
-        """What the unattended launcher measured, added to an already-finished job row."""
+        """What the unattended launcher measured and what its harness said, added to an
+        already-finished job row."""
         for record in self.completed:
             if record["job_id"] == job_id and record["user_id"] == str(user_id):
                 if token_usage is not None:
                     record["token_usage"] = dict(token_usage)
                 if executor is not None:
                     record["executor"] = executor
+                # COALESCE, like the SQL: a later caller that knows only the output must not
+                # erase what the completion that ended the job already recorded.
+                if harness_output is not None and not record.get("harness_output"):
+                    record["harness_output"] = harness_output
 
 
 class InMemoryRecallHandoffStore:

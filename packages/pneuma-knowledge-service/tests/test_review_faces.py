@@ -32,6 +32,7 @@ from pneuma_knowledge_service.cli import build_parser, dispatch
 from pneuma_knowledge_service.job_lanes import CANONICAL_LANE, JOB_LANES, lane_of
 from pneuma_knowledge_service.lens import read_check
 from pneuma_knowledge_service.review_service import (
+    REVIEW_CLEAN_KEY,
     REVIEW_JOB_KIND,
     REVIEW_TASK_KEY,
     enqueue_review,
@@ -43,12 +44,22 @@ from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId
 from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
 from pneuma_knowledge_service.cli import draft as draft_cmd, review as review_cli
-from pneuma_knowledge_service.coding_agent.round_runner import COMMITTED_BY_HARNESS
+from pneuma_knowledge_service.coding_agent.launcher import LaunchResult
+from pneuma_knowledge_service.coding_agent.round_runner import (
+    COMMITTED_BY_HARNESS,
+    FINISHED_BY_WORKER,
+    REVIEW_INCOMPLETE,
+)
 from pneuma_knowledge_service.lens import read_check_over
 from pneuma_knowledge_service.workers import compile_worker
 
 from _cli_library import USER, document, library  # noqa: E402
-from test_agent_round import FakeHarness, runner  # noqa: E402
+from test_agent_round import (  # noqa: E402
+    FakeHarness,
+    drive_agent_job,
+    job_row,
+    runner,
+)
 from test_draft_cli import SKILL, FakeCanonicalStore  # noqa: E402
 from test_draft_cli import USER as DRAFT_USER  # noqa: E402
 
@@ -531,6 +542,192 @@ async def test_the_repaired_page_no_longer_answers_for_the_finding(tmp_path):
     assert not any(
         f.id == "id.title_degenerate" and UNNAMED in f.paths for f in after.findings
     )
+
+
+# ───────────────────────────── the round that accounted for nothing (the Owner's first run)
+
+
+def _review_ctx(jobs):
+    """The worker context `process_agent_job` reads: a coding-agent compile executor."""
+    return _Ctx(_settings(llm_model_compile="agent:codex"), jobs)
+
+
+def _silent(said: str = "") -> LaunchResult:
+    """A harness that exited 0 — cleanly, reporting nothing wrong — and typed nothing."""
+    return LaunchResult(exit_code=0, stdout='{"type":"item.completed"}\n', stderr="",
+                        last_message=said)
+
+
+async def test_a_review_round_that_repaired_nothing_and_said_nothing_is_not_ok(
+    monkeypatch, tmp_path
+):
+    """The defect this closes, as it happened: 248 open findings, a harness that ran three
+    and a half minutes, exited 0 without finishing, a worker that finished the empty draft —
+    and a job row reading `ok=True, projection:{…unchanged…}; rounds:1`. Nothing was repaired,
+    nothing was said about repairing nothing, and the row claimed the work was done."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+    said = "I read the report and stopped."
+    fake = FakeHarness(rt, [["nothing"]], result=lambda: _silent(said))
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == REVIEW_INCOMPLETE
+    assert not store.commits, "a round that repaired nothing must not have committed"
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is False
+    assert row["detail"].startswith("review_incomplete:"), row["detail"]
+    assert "neither repaired a finding nor said why" in row["detail"]
+    # What the Steward said, on the row — the per-job home the round ran in is already gone.
+    assert row["harness_output"] and said in row["harness_output"]
+    # And bounded like a harness that died: it comes back, it does not come back forever.
+    (queued,) = [r for r in await jobs.list_jobs(DRAFT_USER) if r["status"] == "queued"]
+    assert queued["payload"]["harness_failures"] == 1
+
+
+async def test_a_review_round_that_repaired_nothing_but_said_why_is_a_finished_round(
+    monkeypatch, tmp_path
+):
+    """The other legitimate ending, and the reason the rule is about the ACCOUNT and not
+    about the writes: a finding that needs the Owner's judgement is left on purpose, and the
+    round that leaves it and says so has done exactly what it was asked to do."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+
+    async def finish_with_a_brief(inside):  # noqa: ANN001
+        await draft_cmd.cmd_finish(
+            inside, brief="The one finding needs the Owner: only they can name this page."
+        )
+
+    fake = FakeHarness(rt, [[finish_with_a_brief]], result=lambda: _silent())
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == COMMITTED_BY_HARNESS, "the harness ended its own round"
+    assert not store.commits
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is True
+    assert row["detail"] == draft_cmd.REVIEW_NOTHING_DETAIL
+    assert not [r for r in await jobs.list_jobs(DRAFT_USER) if r["status"] == "queued"]
+
+
+async def test_a_review_over_a_library_with_nothing_to_repair_finishes_ok(
+    monkeypatch, tmp_path
+):
+    """A round is owed an account of the findings it was GIVEN. A library the check reads
+    clean gives it none, so writing nothing and saying nothing is the whole of the work —
+    and the task says so in words rather than asking for repairs over an empty list."""
+    rt, jobs, _drafts, store, job_id = await review_runtime(base=[])
+    report, _documents = await read_check_over(store, DRAFT_USER, SKILL.path_templates)
+    assert not report.findings, "this fixture is only a test while the library reads clean"
+
+    fake = FakeHarness(rt, [["nothing"]], result=lambda: _silent())
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    (request,) = fake.requests
+    assert prompt(REVIEW_CLEAN_KEY).strip("\n") in request.task_text
+    assert prompt(REVIEW_TASK_KEY).strip("\n") not in request.task_text
+    assert result.outcome == FINISHED_BY_WORKER
+    assert not store.commits
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is True and row["detail"] == draft_cmd.REVIEW_CLEAN_DETAIL
+    assert not [r for r in await jobs.list_jobs(DRAFT_USER) if r["status"] == "queued"]
+
+
+async def test_the_harnesss_own_finish_meets_the_same_rule_and_can_still_answer_it(
+    monkeypatch, tmp_path
+):
+    """The rule lives in `cmd_finish`, the one function that ends a draft whoever calls it —
+    so a Steward running `pkc draft finish` itself over a round it did nothing in is refused
+    in its own process. A rule only the worker enforced is one the harness walks around.
+
+    And the refusal is answerable while somebody can answer it: the draft stays open and one
+    `finish --brief` ends the round. Deleting it there would refuse a Steward for having no
+    brief and then take away the only round it could write one in."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+
+    async def finish_then_say_why(inside):  # noqa: ANN001
+        assert await draft_cmd.cmd_finish(inside) == draft_cmd.EXIT_GATE
+        assert "--brief" in inside.err.getvalue(), "the refusal did not say what ends the round"
+        await draft_cmd.cmd_finish(
+            inside, brief="Every finding here needs the Owner's judgement; I repaired none."
+        )
+
+    fake = FakeHarness(rt, [[finish_then_say_why]], result=lambda: _silent())
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == COMMITTED_BY_HARNESS
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is True and row["detail"] == draft_cmd.REVIEW_NOTHING_DETAIL
+
+
+async def test_a_harness_that_walks_away_from_that_refusal_still_fails_the_job(
+    monkeypatch, tmp_path
+):
+    """The other half: a round refused inside the harness's own session, whose Steward then
+    stops rather than answering. The worker finishes what is there, meets the same rule, and
+    this time there is nobody left to answer it — so the job fails and comes back."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+
+    async def finish_and_stop(inside):  # noqa: ANN001
+        assert await draft_cmd.cmd_finish(inside) == draft_cmd.EXIT_GATE
+
+    fake = FakeHarness(
+        rt, [[finish_and_stop]], result=lambda: _silent("I found nothing to do.")
+    )
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == REVIEW_INCOMPLETE
+    assert not store.commits
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is False and row["detail"].startswith("review_incomplete:")
+    assert "I found nothing to do." in (row["harness_output"] or "")
+
+
+async def test_a_round_whose_own_finish_left_the_job_claimed_is_not_a_lost_draft(tmp_path):
+    """The runner's safety net, stated as a test because the alternative is a stuck job.
+
+    A draft that is gone while the job is still claimed by THIS launch can only be a finish
+    that refused the round and left it for the worker. Reading that as a lost draft — which
+    is what a missing draft used to mean — ends the job nowhere: it stays claimed, and the
+    tenant's canonical lane stays held by a round that is over."""
+    rt, jobs, drafts, _store, job_id = await review_runtime()
+
+    async def drop_the_draft(inside):  # noqa: ANN001
+        await inside.drafts.delete(
+            inside.user_id, job_id, executor=inside.draft_executor
+        )
+
+    fake = FakeHarness(rt, [[drop_the_draft]], result=lambda: _silent())
+    assert await jobs.claim(DRAFT_USER, job_id) is not None
+    result = await runner(fake, tmp_path).run_job(rt, job_id)
+
+    assert result.outcome == REVIEW_INCOMPLETE
+    assert (await jobs.get_job(DRAFT_USER, job_id)).status == "claimed"
+
+
+async def test_a_review_round_that_repaired_something_stays_ok(monkeypatch, tmp_path):
+    """The round that did the work is unchanged by any of this: no brief is owed, because
+    the repair itself is the account."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+    fake = FakeHarness(
+        rt, [[("retitle", {"path": UNNAMED, "title": "旧页"}), "finish"]],
+        result=lambda: _silent(),
+    )
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == COMMITTED_BY_HARNESS
+    assert len(store.commits) == 1
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is True
 
 
 async def test_a_review_draft_reopens_as_a_review_draft_and_not_as_a_compile_one():

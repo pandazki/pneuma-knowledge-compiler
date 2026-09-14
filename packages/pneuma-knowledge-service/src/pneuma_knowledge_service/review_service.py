@@ -37,6 +37,13 @@ REVIEW_JOB_KIND = "review"
 #: reword through the overlay seam, like every other sentence a round reads.
 REVIEW_TASK_KEY = "steward.review.task"
 
+#: And the key carrying the other thing this round can be asked, which is nothing. A library
+#: the check reads clean must be told so in words rather than handed "repair what a round can
+#: repair" over an empty list: the instruction alone, under a report with no findings in it,
+#: is an invitation to find something — and the one write this round must never make is a
+#: claim nobody asked for.
+REVIEW_CLEAN_KEY = "steward.review.clean"
+
 
 def render_check_task(report, *, bound: int = 0) -> str:
     """The check's report as the round's task text, bounded, with the instruction under it.
@@ -60,8 +67,13 @@ def render_check_task(report, *, bound: int = 0) -> str:
     from .cli.lens import check_head, finding_blocks
 
     findings = list(report.findings)
-    blocks = finding_blocks(findings)
     head = check_head(report)
+    if not findings:
+        # The empty case, stated. The head already says `0 finding(s)`; what it does not say
+        # is what to do about it, and the round's ordinary instruction — repair what a round
+        # can repair — says the opposite of the truth over an empty list.
+        return "\n".join(head).strip("\n") + "\n\n" + prompt(REVIEW_CLEAN_KEY).strip("\n")
+    blocks = finding_blocks(findings)
     kept: list[list[str]] = []
     spent = len("\n".join(head))
     for block in blocks:
@@ -89,6 +101,7 @@ async def enqueue_review(ctx, user_id: UserId) -> str:
 
 
 __all__ = [
+    "REVIEW_CLEAN_KEY",
     "REVIEW_JOB_KIND",
     "REVIEW_TASK_KEY",
     "enqueue_review",
