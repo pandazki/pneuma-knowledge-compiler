@@ -27,6 +27,19 @@ repair round by the runner):
    anchor placeholder, anywhere before a block's trailing system markers. Judged for the
    pages this round CHANGED: a legacy page nobody touched keeps its bytes (the only channel
    that could repair it is a compile that is writing it anyway).
+4f. a `# ` heading NAMES the page and therefore stands at the top of its body or nowhere;
+   a heading further down used to rename the page silently (docs/design/structure-lens.md
+   §6). Judged for the pages this round changed, volumes exempt, like 4e.
+4g. two LIVE pages in one directory may not answer to one name (`retitle` is what can now
+   produce that). Judged for the pages this round touched.
+4h. …and a page's name judged on its own: a title that is empty, that is its family's ROLE
+   word (`overview`, `演进`), or that is the project slug on a page that is not the hub
+   (`title_degenerate`); and a chronology carrying its hub's name (`title_shared_with_hub`).
+   Roles come from the contract's path templates through `shape/families.py`. Judged for the
+   pages this round touched, volumes excluded.
+4i. the overview head against the ledger below it: a slot whose words ARE one of the page's
+   claims (`overview_restates`), and a `definition` made of references with no prose
+   (`definition_empty`). Judged for the pages this round changed.
 4c. the OVERVIEW region — bounded in size, grounded in the ledger, four slots and no others
    (compile/overview.py). Every declared reference must resolve to a ledger anchor.
    Rewritten regions are fully checked; unchanged regions must retain every reference
@@ -71,13 +84,17 @@ from ..domain.source import NormalizedSource
 from ..domain.authorship import owner_authored_blocks
 from ..prompts import prompt
 from ..components import registered_components
+from ..shape.families import ROLE_CHRONOLOGY, role_of
+from ..shape.text import bare_prose, claim_blocks, claim_words
+from ..shape.titles import is_degenerate_title, shares_hub_title
 from .anchor_ops import (
     anchored_blocks,
+    heading_lines,
     missing_anchors,
     text_machinery_problems,
     unanchored_blocks,
 )
-from .documents import DOC_ID_KEY, LEGACY_DOC_ID_KEYS
+from .documents import DOC_ID_KEY, LEGACY_DOC_ID_KEYS, OVERVIEW_SLOTS, parse_overview
 # Re-exported: the link grammar and its two coordinate functions now live in
 # `compile.links` — three write paths need them (the gate, rollover's re-rendering, and
 # the overview's connection links) and they cannot all import the gate. Every existing
@@ -160,6 +177,23 @@ VIOLATION_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("owner_voice", ("gate.owner_voice", "gate.owner_voice_unresolved")),
     ("anchor_coverage", ("gate.anchor_coverage",)),
     ("claim_text", ("gate.claim_text_machinery",)),
+    # A page is named by the heading at the TOP of its body. A `# ` line anywhere else used
+    # to rename it silently, in every outline, glance and card
+    # (docs/design/structure-lens.md §2).
+    ("heading_in_block", ("gate.heading_in_block",)),
+    # …and the other half of the same concern: two live pages in one directory answering to
+    # one name, which `retitle` can now produce and nothing else could.
+    ("title_sibling_collision", ("gate.title_sibling_collision",)),
+    # …and the two ways a name can be wrong on its own page rather than against a neighbour:
+    # a name that says where the page SITS instead of what it is about, and a chronology
+    # wearing the name of the hub it runs beside (docs/design/structure-lens.md §2).
+    ("title_degenerate", ("gate.title_degenerate",)),
+    ("title_shared_with_hub", ("gate.title_shared_with_hub",)),
+    # The overview head, judged against the ledger under it: a slot that repeats a claim word
+    # for word says nothing the ledger had not, and a definition made of references says
+    # nothing at all.
+    ("overview_restates", ("gate.overview_restates",)),
+    ("definition_empty", ("gate.definition_empty",)),
     (
         "overview",
         (
@@ -357,6 +391,267 @@ def check_claim_text_machinery(
                     prompt("gate.claim_text_machinery", found=found, preview=preview),
                 )
             )
+    return violations
+
+
+def check_heading_in_block(
+    docs: Mapping[str, object],
+    base_bodies: Mapping[str, str],
+    *,
+    path_templates: Sequence[str] = (),
+) -> list[Violation]:
+    """A `# ` heading stands at the TOP of a body or nowhere — the final arbiter behind the
+    write faces' `refuse_heading_in_block`.
+
+    A page's name is derived from its leading heading (`compile.documents.derived_title`), so
+    a `# ` line further down is a second name written into the middle of the page. Before the
+    derivation was narrowed, that line WAS the name: an append could rename a subject with
+    nothing in the diff saying so.
+
+    Judged for the pages this round CHANGED, and only for the headings this round
+    INTRODUCED — a heading the base body already carried is grandfathered, exactly as a
+    citation carried over verbatim is. That limit is not leniency, it is the absence of a
+    corrective action: a `# ` line is a HEADING to the block walker, so it belongs to no
+    claim, no `edit_claim` can reach it and no write verb can delete it. Refusing a page for
+    a line nothing can remove would be a deadlock, and what the existing instances are for is
+    the lens's `form.stray_heading`, which lists them for a repair the Owner decides on.
+
+    Closed volumes are exempt for the reason they are exempt from 4e: no write verb reaches
+    one at all.
+    """
+    violations: list[Violation] = []
+    for path, doc in docs.items():
+        base = base_bodies.get(path)
+        if base is not None and doc.body == base:
+            continue
+        if history_volume_owner(path, list(path_templates)) is not None:
+            continue
+        carried = {heading for _, heading in heading_lines(base or "")}
+        lines = doc.body.split("\n")
+        first = next((n for n, line in enumerate(lines, start=1) if line.strip()), 0)
+        for line_number, heading in heading_lines(doc.body):
+            if line_number == first or heading in carried:
+                continue
+            violations.append(
+                Violation(
+                    "heading_in_block",
+                    path,
+                    prompt("gate.heading_in_block", heading=heading),
+                )
+            )
+    return violations
+
+
+def check_title_siblings(
+    docs: Mapping[str, object], base_docs: Mapping[str, object]
+) -> list[Violation]:
+    """No two LIVE pages in one directory answer to one name.
+
+    The companion rule to the archive's title shadowing, over the live tree: `retitle` can
+    give a page any name, and the name that would be worst is the one its neighbour already
+    has — a reader and a citation then have no way to tell the two apart, which is exactly
+    the `id.title_duplicate` finding the lens reports about libraries that already did it.
+
+    "Sibling" is the immediate directory and nothing cleverer: it is the one grouping every
+    path has, it needs no contract to state it, and it is the grouping a person reading a
+    file tree sees. Judged for the pages this round TOUCHED, so a collision two legacy pages
+    have carried for months does not abort a compile that never looked at either.
+    """
+    violations: list[Violation] = []
+    live = {
+        path: doc
+        for path, doc in docs.items()
+        if not is_archived_path(path) and not is_archive_record(doc)
+    }
+    by_directory: dict[str, list[str]] = {}
+    for path in live:
+        by_directory.setdefault(path.rsplit("/", 1)[0] if "/" in path else "", []).append(path)
+    for path, doc in sorted(live.items()):
+        if not touched_this_round(doc, base_docs.get(path)):
+            continue
+        title = document_title(doc)
+        key = normalize_title(title)
+        if not key:
+            continue
+        directory = path.rsplit("/", 1)[0] if "/" in path else ""
+        for other in sorted(by_directory.get(directory, [])):
+            if other == path:
+                continue
+            if normalize_title(document_title(live[other])) != key:
+                continue
+            violations.append(
+                Violation(
+                    "title_sibling_collision",
+                    path,
+                    prompt("gate.title_sibling_collision", title=title, other=other),
+                )
+            )
+            break
+    return violations
+
+
+def _live_titles(docs: Mapping[str, object]) -> dict[str, str]:
+    """path → name, over the LIVE pages only. Archived documents and archive records are not
+    pages a round may name, and a name is judged against the pages a reader can reach."""
+    return {
+        path: document_title(doc)
+        for path, doc in docs.items()
+        if not is_archived_path(path) and not is_archive_record(doc)
+    }
+
+
+def _judged_titles(
+    docs: Mapping[str, object],
+    base_docs: Mapping[str, object],
+    path_templates: Sequence[str],
+) -> list[tuple[str, str]]:
+    """`(path, title)` for every live page this round TOUCHED, volumes excluded.
+
+    The same limit checks 4e–4g take, for the same reason: a name two legacy pages have
+    carried for months is the CHECK's finding (docs/design/structure-lens.md §3.1), not a
+    reason to abort a compile that never looked at either. A closed volume is excluded
+    because it has no name of its own — it is labelled from the page it was cut out of — and
+    no write verb reaches one anyway.
+    """
+    return [
+        (path, title)
+        for path, title in sorted(_live_titles(docs).items())
+        if touched_this_round(docs[path], base_docs.get(path))
+        and history_volume_owner(path, list(path_templates)) is None
+    ]
+
+
+def check_title_degenerate(
+    docs: Mapping[str, object],
+    base_docs: Mapping[str, object],
+    *,
+    path_templates: Sequence[str] = (),
+) -> list[Violation]:
+    """A page's name says what it is ABOUT, never where it sits.
+
+    `Overview`, `演进`, `Decisions` — and the project's own slug on a page that is not its
+    hub — name a place in the layout, so every page of that family would answer to them and
+    none of them tells a reader or a retrieval which page this is. The predicate is
+    `shape.titles.is_degenerate_title`, shared with the check, so a title the gate accepts is
+    never one the check then reports.
+
+    An EMPTY name is the same fault at its limit, and the gate does NOT refuse it here. A
+    page whose body opens with no `# ` line has no name at all — `is_degenerate_title` says so,
+    and the check lists every one of them with `retitle` as the repair — but refusing the write
+    would abort every round whose model creates a page opening on a `## ` section, which is how
+    pages have been created for as long as the tool face has existed. Turning that into a hard
+    refusal is a contract change with an announcement and a migration in front of it, not a
+    line in a gate; until then it is the check's `id.title_degenerate`.
+    """
+    violations: list[Violation] = []
+    for path, title in _judged_titles(docs, base_docs, path_templates):
+        if not is_degenerate_title(path, title, path_templates):
+            continue
+        if not normalize_title(title):
+            continue
+        violations.append(
+            Violation(
+                "title_degenerate",
+                path,
+                prompt("gate.title_degenerate", title=title, path=path),
+            )
+        )
+    return violations
+
+
+def check_title_shared_with_hub(
+    docs: Mapping[str, object],
+    base_docs: Mapping[str, object],
+    *,
+    path_templates: Sequence[str] = (),
+) -> list[Violation]:
+    """A project's chronology may not wear its hub's name.
+
+    The hub says what the project IS; the chronology says what happened to it. One name over
+    the two leaves a reader — and a citation, and a retrieval card — with no way to tell which
+    page it is holding, and it is the collision a real library produced over and over, because
+    the project's name is the obvious thing to call the page about the project.
+    """
+    violations: list[Violation] = []
+    titles = _live_titles(docs)
+    for path, title in _judged_titles(docs, base_docs, path_templates):
+        hub = shares_hub_title(path, titles, path_templates)
+        if not hub:
+            continue
+        violations.append(
+            Violation(
+                "title_shared_with_hub",
+                path,
+                prompt("gate.title_shared_with_hub", title=title, other=hub),
+            )
+        )
+    return violations
+
+
+def check_overview_restates(
+    docs: Mapping[str, object], base_bodies: Mapping[str, str]
+) -> list[Violation]:
+    """An overview block may not be a ledger claim said again.
+
+    The head is a READING of the ledger — what this subject is, what it comes to, how it
+    connects — and the gate already requires every block of it to rest on a claim or a span.
+    A block whose words ARE one of those claims passes that rule and says nothing: the head
+    has spent its budget repeating the page below it. Cite the claim instead.
+
+    Compared with citations, anchor references and whitespace runs removed, so the same
+    sentence carrying a reference is still the same sentence. `connections` is exempt: a
+    connection line is a link plus the relation it stands for, and repeating a claim's words
+    there is how a relation is named.
+    """
+    violations: list[Violation] = []
+    for path, doc in sorted(docs.items()):
+        base = base_bodies.get(path)
+        if base is not None and doc.body == base:
+            continue
+        overview, _ = parse_overview(doc.body)
+        if overview is None:
+            continue
+        ledger = {bare_prose(claim_words(block)) for block in claim_blocks(doc.body)}
+        ledger.discard("")
+        for slot in OVERVIEW_SLOTS:
+            if slot == "connections":
+                continue
+            text = bare_prose(str(getattr(overview, slot, "") or ""))
+            if not text or text not in ledger:
+                continue
+            violations.append(
+                Violation(
+                    "overview_restates",
+                    path,
+                    prompt("gate.overview_restates", slot=slot),
+                )
+            )
+    return violations
+
+
+def check_definition_empty(
+    docs: Mapping[str, object], base_bodies: Mapping[str, str]
+) -> list[Violation]:
+    """The one line that says what a subject IS has to be made of words.
+
+    A `definition` holding only anchor references and citations is a slot that was filled to
+    satisfy the rule that a developed page owes an overview, and it answers no question: a
+    reader asking what this subject is receives a list of pointers to claims.
+    """
+    violations: list[Violation] = []
+    for path, doc in sorted(docs.items()):
+        base = base_bodies.get(path)
+        if base is not None and doc.body == base:
+            continue
+        overview, _ = parse_overview(doc.body)
+        if overview is None:
+            continue
+        raw = str(overview.definition or "").strip()
+        if not raw or bare_prose(raw):
+            continue
+        violations.append(
+            Violation("definition_empty", path, prompt("gate.definition_empty"))
+        )
     return violations
 
 
@@ -865,6 +1160,37 @@ def run_gate(
             docs, base_bodies, path_templates=draft.path_templates
         )
     )
+
+    # 4f. a `# ` heading names the page and stands at the top of it, or it is a second name
+    # written into the middle of one. The write faces refuse a new one; this is the arbiter
+    # over the produced draft, on the same changed-pages terms as 4e.
+    violations.extend(
+        check_heading_in_block(docs, base_bodies, path_templates=draft.path_templates)
+    )
+
+    # 4g. …and the same concern between pages: two live siblings under one name.
+    violations.extend(check_title_siblings(docs, draft.base_documents()))
+
+    # 4h. …and the two ways one page's own name is wrong: a name that is its family's role
+    # rather than its subject, and a chronology wearing its hub's name. Both read the role
+    # table in `shape/families.py` off this draft's path templates, so a contract that
+    # declares none of those names is judged by neither.
+    violations.extend(
+        check_title_degenerate(
+            docs, draft.base_documents(), path_templates=draft.path_templates
+        )
+    )
+    violations.extend(
+        check_title_shared_with_hub(
+            docs, draft.base_documents(), path_templates=draft.path_templates
+        )
+    )
+
+    # 4i. the overview head judged against the ledger under it: a slot that repeats a claim,
+    # and a definition made of references alone. 4c bounds the head and grounds it; these two
+    # are what "grounded" does not catch — a block that rests on a claim by BEING it.
+    violations.extend(check_overview_restates(docs, base_bodies))
+    violations.extend(check_definition_empty(docs, base_bodies))
 
     # 4c. the OVERVIEW region: bounded, grounded in the ledger, four slots. The pure judgement
     # lives in compile/overview.py; the gate owns the Violation type, so it wraps the findings

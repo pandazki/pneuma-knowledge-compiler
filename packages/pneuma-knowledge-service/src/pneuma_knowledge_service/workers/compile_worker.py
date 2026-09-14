@@ -59,6 +59,7 @@ from ..access_stats import (
 from ..archive_service import ARCHIVE_JOB_KIND
 from .archive_job import run_archive_job
 from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
+from ..review_service import REVIEW_JOB_KIND
 from ..infra_faults import InfraFault, InfrastructureInterrupted, infrastructure_fault
 from ..ingest_document import _summary_chunks
 from ..job_lanes import CANONICAL_LANE, LANES, lane_of
@@ -190,11 +191,12 @@ def agent_path_kinds(ctx: AppContext) -> tuple[str, ...]:
     """The job kinds that need a launched harness in THIS deployment.
 
     What a cooling worker must not claim, and nothing else: index, projection, groom and
-    archive jobs run no harness at all, so a spent subscription never stops them.
+    archive jobs run no harness at all, so a spent subscription never stops them. The review
+    round does launch one, so it is here for the same reason a compile is.
     """
     kinds: list[str] = []
     if executor_for(ctx.settings, "compile").is_agent:
-        kinds += [COMPILE_JOB_KIND, "episodes"]
+        kinds += [COMPILE_JOB_KIND, "episodes", REVIEW_JOB_KIND]
     if executor_for(ctx.settings, "evolve").is_agent:
         kinds.append("evolve")
     return tuple(kinds)
@@ -948,6 +950,8 @@ async def _run_agent_job(
         from ..cli.evolve import build_runtime
     elif kind == "episodes":
         from ..cli.episodes import build_runtime
+    elif kind == REVIEW_JOB_KIND:
+        from ..cli.review import build_runtime
     # Before anything is launched: the package the harness is about to be taught by must be
     # what this deployment renders today, or the round reads words nobody wrote for it.
     await ensure_skill_package(
@@ -1684,6 +1688,22 @@ async def drain_user(
                 await run_recall_projection_job(ctx, user_id, job)
             elif kind == RECALL_REBUILD_JOB_KIND:
                 await run_recall_rebuild_job(ctx, user_id, job)
+            elif kind == REVIEW_JOB_KIND:
+                # The review round is a coding-agent round: its body is a Steward typing
+                # `pkc draft` commands against the check's report. A langchain executor has
+                # no such body — `run_compile` composes its round out of SOURCES, and this
+                # round has none — so under a model executor the job is completed as skipped
+                # rather than handed to a compile that would have nothing to compile. The
+                # mirror of the challenge job's own skip, in the other polarity.
+                if not executor_for(ctx.settings, "compile").is_agent:
+                    await ctx.store.complete(
+                        user_id, job.job_id, ok=True,
+                        detail="review skipped: the compile executor is not a coding agent",
+                    )
+                    _IN_FLIGHT.pop(_lane_key(lane), None)
+                    processed += 1
+                    continue
+                await process_agent_job(ctx, user_id, job)
             elif kind == CHALLENGE_JOB_KIND:
                 if executor_for(ctx.settings, "compile").is_agent:
                     await ctx.store.complete(user_id, job.job_id, ok=True, detail="challenge skipped under an agent executor")

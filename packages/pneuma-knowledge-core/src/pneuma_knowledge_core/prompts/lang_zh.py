@@ -698,6 +698,20 @@ worker 与这个 harness 共享通过 PKC_DRAFT_EXECUTOR 导出的启动身份�
 """
 
 
+_STEWARD_REVIEW_TASK_ZH = """\
+## 这一轮要做什么
+
+上面的报告是不经模型、按本知识库自己的契约读出的自查结果。凡是一轮能修的，就用普通的
+草稿动词、在普通的闸门下修：缺失或失效的链接用 `edit-claim`，名字取错或与同级重名用
+`retitle`，编年页上日期分节顺序颠倒用 `reorder-chronology`，遗留标题或塌陷正文就编辑
+承载它的块。不要新增报告没有要求的断言：这里没有新知识，也没有打开任何来源。
+
+一轮修不了的就留着——需要 Owner 判断的、本知识库没有证据支撑的、或者会改变断言原意的——
+并在简报里逐条写明留下了什么、为什么。留下并写明的发现别人还能接手；靠猜修好的发现，
+没有人能追溯。
+"""
+
+
 _STEWARD_POSTURES_ZH = """\
 ## 两种姿态
 
@@ -2333,6 +2347,8 @@ _ZH: dict[str, str] = {
     "steward.cli.episodes_propose": "带有证据支撑的标题和描述的闭区间；允许空缺及 []",
     "steward.cli.canonical_history": "页面中的替代链，展示断言过去的内容",
     "steward.cli.jobs": "作业队列，最新在前",
+    "steward.cli.jobs_enqueue": "排入一轮由 Owner 主动要求的作业，走正本车道",
+    "steward.cli.jobs_enqueue_kind": "哪一种：`review` 以自查报告为任务，对整个文库开一份草稿",
     "steward.cli.jobs_requeue": "把已结束的作业放回队列",
     "steward.cli.jobs_requeue_description": "把「记录为已完成、实际什么也没做」的作业重新排队，并把它声称已消化的材料重新打开。每个被选中的作业的载荷会作为新行重新入队；编译作业的来源会失去 digested 标记，因为一轮什么也没写就什么也没消化。规范层不受触碰，这里也不作任何判断——重新入队的作业和其他作业一样要走编译与闸门。只有**已结束**的作业可被选中，所以仍在队列或在途的工作绝不会被重复。至少要给一个筛选条件。退出码：0 成功，1 没有匹配，2 拒绝。",
     "steward.cli.jobs_requeue_status": "只要以这种方式结束的作业",
@@ -2348,6 +2364,7 @@ _ZH: dict[str, str] = {
     "steward.cli.evolve_ls": "所有提案及其状态",
     "steward.cli.evolve_show": "完整显示一份提案",
     "steward.cli.library_check": "对已提交知识库运行闸门检查；仅报告，不修复；发现问题时退出码为 4",
+    "steward.cli.library_review": "自查：按本知识库自己的契约读出的页级发现，每条都带证据、代价和用来修复的动词。仅报告，不修复；要让一轮去处理它，用 `pkc jobs enqueue review`。",
     "steward.cli.owner_say": "记录一条 owner-dialogue/v1 声明并排队编译；每次纠正从这里开始，没有作业就不能改动断言。仅在控制台 Steward 会话中，桥接持有对话记录，因此文本须逐字摘自 Owner 在该会话输入的内容（忽略空白差异）；改述会以退出码 2 拒绝。终端会话没有可用于核对的对话记录，行为不变。",
     "steward.cli.config_set": "开启或关闭语义检索",
     "steward.cli.profile_show": "本知识库编译所用的个人资料，以及是否仍为占位资料",
@@ -2449,6 +2466,19 @@ _ZH: dict[str, str] = {
     "steward.cli.glance": (
         "回答通道开头的有预算地图：在字符预算内展示每个族的头部页面——可能省略页面，并说明数量。"
         "outline 太长时，用它挑选主题；要看完整知识库，用 `outline`。"
+    ),
+    "steward.cli.lens": (
+        "结构透镜：不经模型地读出文库的形状而非内容——六个维度，每个都说明它看到什么、"
+        "这意味着什么，以及相对上一次审读如何变化。它不列页面；页级发现在 "
+        "`pkc library review`。它是一次审读而非裁决：它说的话不会在任何地方被强制执行，"
+        "也没有任何流程替你调用它。"
+    ),
+    "steward.cli.review_path": "只报告这一页要负责的发现（分卷由它的在用页面负责）",
+    "steward.cli.review_at": "读取指定正本 ref 下的文库——某个提交、标签或冻结快照——而不是 HEAD",
+    "steward.cli.lens_at": "读取指定正本 ref 下的文库——某个提交、标签或冻结快照——而不是 HEAD",
+    "steward.cli.lens_previous": (
+        "以该 ref 作为比较变化的上一次审读；默认是 `--at` 之前的那个提交，"
+        "写 `none` 表示不比较变化"
     ),
     "steward.skill.consume": """## 阅读知识库
 
@@ -2700,6 +2730,7 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
     "steward.skill.door": _STEWARD_DOOR_ZH,
     "steward.skill.postures": _STEWARD_POSTURES_ZH,
     "steward.unattended.task": _STEWARD_UNATTENDED_TASK_ZH,
+    "steward.review.task": _STEWARD_REVIEW_TASK_ZH,
     "steward.skill.owner_speech": _STEWARD_OWNER_SPEECH_ZH,
     "steward.skill.cannot": _STEWARD_CANNOT_ZH,
     "steward.skill.archive": _STEWARD_ARCHIVE_ZH,
@@ -2732,6 +2763,359 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
     "steward.reference.gate_components_header": (
         "## 这里启用的组件\n\n"
         "它们各自按自己的标准审判所绑定族的文档，发现落在同一份清单里。"
+    ),
+    # ════════════════════════════════════════ 写入面从此拒绝的三种机械毛病（结构透镜 §6）
+    "compile.anchor.heading_in_block": (
+        "{op} 被拒：`# ` 开头的行是这一页的名字，而你提交的正文里有一行是（『{heading}』）。"
+        "一页的名字只由正文最顶上的那一行标题给出，别处都不算，所以这一行会从页面中间悄悄改掉"
+        "页名。把它写成普通正文或 `## ` 小节标题；要改页名，用 retitle。"
+    ),
+    "compile.anchor.escaped_newlines": (
+        "{op} 被拒：这段文字里有 {count} 处字面的 `\\n`，却没有一个真正的换行，存进去会变成一"
+        "长串字符而不是若干行。请用真正的换行；如果那本来是几条断言（claim），就分成几次调用，"
+        "一次一条。"
+    ),
+    "compile.anchor.long_line": (
+        "{op} 被拒：这段文字里有一行长达 {chars} 字符，上限是 {limit}。这么长的一行是丢了换行"
+        "的整篇正文，不是一条断言（claim）：把它拆成行，并且一条断言一个块。"
+    ),
+    "gate.heading_in_block": (
+        "有一个 `# ` 标题（『{heading}』）落在正文中间而不是最顶上，等于从页面内部给这一页改"
+        "名。删掉它——写成普通正文或 `## ` 小节——页名用 retitle 来定。"
+    ),
+    "gate.title_sibling_collision": (
+        "『{title}』已经是同一目录下活跃页面 `{other}` 的名字。一个名字压在两页上，读者和引用都"
+        "分不出指的是哪一页；给这一页起一个自己的名字。"
+    ),
+    "compile.patch.retitle_empty": (
+        "retitle 被拒：标题不能为空。一页的名字就是它最顶上的那一行标题，请给 `{path}` 一个说"
+        "得出它是关于什么的名字。"
+    ),
+    "compile.tool.retitle": (
+        "给一页改名：重写它最顶上的 `# ` 标题（没有就插入一行），让一页取错的名字可以被纠正，"
+        "而不必动任何断言（claim）。frontmatter 的 `title` 会自动跟着走。闭卷、archive/ 下的路"
+        "径和归档记录一律拒绝；已归档主题占用的名字、同一目录下活跃页面已有的名字也一样。"
+    ),
+    "compile.tool.retitle_result": "retitle：`{path}` 现在的标题是『{title}』。",
+    "canonical.volume_label": "{title} · 卷 {volume}",
+    "gate.title_degenerate": (
+        "『{title}』说的是它在布局里的位置而不是一个主题，同族的任何一页都应得上这个名字，"
+        "读者无从分辨手里拿的是哪一页。给 `{path}` 换一个说得出它讲什么的名字——名字就是最"
+        "顶上那行 `# ` 标题，retitle 改它不动任何断言（claim）。"
+    ),
+    "gate.title_shared_with_hub": (
+        "『{title}』已经是本项目总览 `{other}` 的名字。总览说的是这个项目是什么，这一页说的是"
+        "它经历了什么；一个名字压在两页上，读者分不出手里拿的是哪一页。给这一页起一个自己的"
+        "名字。"
+    ),
+    "gate.overview_restates": (
+        "总览的 `{slot}` 块一字不差地重复了本页账本里的一条断言（claim），头部把额度花在了账"
+        "本已经说过的话上。改成引用那条断言，并把头部写成它本该是的东西——对账本的一次解读。"
+    ),
+    "gate.definition_empty": (
+        "`definition` 块里只有指代和引用，本该一句话说清这个主题是什么的那一行什么也没说。用"
+        "文字把它写出来；引用跟在这句话后面，而不是顶替它。"
+    ),
+    "compile.patch.reorder_not_dated": (
+        "reorder_chronology 被拒：`{path}` 只有 {count} 个带日期的 `## YYYY-MM-DD` 小节，排序"
+        "至少需要两个。小节不是日期的页面，没有先后可排。"
+    ),
+    "compile.tool.reorder_chronology": (
+        "把一页的日期小节排成升序。移动的是整个 `## YYYY-MM-DD` 小节：小节内部一个字节不变，"
+        "每个锚点仍留在它的断言（claim）上，页面其余各行都不动。它是为落位规则出现之前写下的"
+        "历程页准备的——新的追加本来就会落到自己的日期上。闭卷、archive/ 下的路径、归档记录，"
+        "以及日期小节不足两个的页面，一律拒绝。"
+    ),
+    "compile.tool.reorder_chronology_result": (
+        "reorder_chronology：`{path}` 的 {count} 个日期小节现在从 {first} 排到 {last}。"
+    ),
+    # ═══════════════════════════════════════════════════ 体检的一页页发现（结构透镜 §3）
+    #
+    # 每条两句：这条发现让读者或检索付出什么代价，以及什么动作能修好它——后一句在有动词时点
+    # 名那个动词（retitle、reorder_chronology，或一次普通编辑）。
+    "check.form.stray_heading.impact": (
+        "`{path}` 第 {line} 行有一个 `# ` 标题（『{heading}』），从前正是这样从正文中间把一页"
+        "改了名。"
+    ),
+    "check.form.stray_heading.action": (
+        "写入面现在会拒绝块内出现 `# ` 行；把 `{path}` 里的这一行删掉，页名用 retitle 来定。"
+    ),
+    "check.form.collapsed_body.impact": (
+        "`{path}` 有一行长达 {chars} 字符，还有 {count} 处被转义的换行，它的断言（claim）是当"
+        "作一整串文字写下去的，读者和分块器都拆不开。"
+    ),
+    "check.form.collapsed_body.action": (
+        "写入面现在会拒绝这样的文字；这一处请把 `{path}` 那一长串拆开，一条断言（claim）一个"
+        "块，用真正的换行。"
+    ),
+    "check.id.title_degenerate.impact": (
+        "`{path}` 叫『{title}』，这是它在布局里的位置而不是它的主题，于是它和同族的任何一页都"
+        "没有分别。"
+    ),
+    "check.id.title_degenerate.action": (
+        "用 retitle 给 `{path}` 换一个说得出它讲什么的名字；名字就是最顶上那行标题，改它不动"
+        "任何断言（claim）。"
+    ),
+    "check.id.title_shared_with_hub.impact": (
+        "`{path}` 顶着它所属项目总览的名字『{title}』，一个名字压在两个不同的页面上。"
+    ),
+    "check.id.title_shared_with_hub.action": (
+        "用 retitle 把 `{path}` 改成它实际承载的东西——这个项目的历程——把『{title}』留给 "
+        "`{target}`。"
+    ),
+    "check.id.title_child_collision.impact": (
+        "`{path}` 和它下面的 `{target}` 同名，一页和它自己的子页应着同一个名字。"
+    ),
+    "check.id.title_child_collision.action": (
+        "两者改一个——用 retitle 改 `{path}`，让『{title}』只落在一页上；闸门现在会拒绝与同级"
+        "页面撞名的新标题。"
+    ),
+    "check.id.title_sibling_collision.impact": (
+        "同一个目录下有 {count} 页都叫『{title}』（{paths}），无论是看着这两个文件的读者还是"
+        "一条引用，都分不出这个名字指的是哪一页。"
+    ),
+    "check.id.title_sibling_collision.action": (
+        "用 retitle 给其中除一页之外的每一页改名，让『{title}』只落在一页上；闸门现在会拒绝"
+        "与同目录活页撞名的新标题。"
+    ),
+    "check.form.unordered_chronology.impact": (
+        "`{path}` 的 {count} 个日期小节没有按时间往前走（{first}），这一页读起来是编译的顺序，"
+        "不是事情发生的顺序。"
+    ),
+    "check.form.unordered_chronology.action": (
+        "对 `{path}` 执行 reorder_chronology：整个小节按升序移动，不碰任何一条断言（claim）。"
+        "第一处乱序是 {first}。"
+    ),
+    "check.form.overview_restates.impact": (
+        "`{path}` 总览里的 `{slot}` 一字不差地重复了它自己账本里的一条断言（claim），这个头部"
+        "没说出任何账本没说过的话。"
+    ),
+    "check.form.overview_restates.action": (
+        "把『{title}』的 `{slot}` 重写成它本该是的东西——对账本的一次解读——或者干脆去掉这一"
+        "格。"
+    ),
+    "check.form.definition_empty.impact": (
+        "`{path}` 的 definition 里只有指代，本该一句话说清这是什么的那一行什么也没说。"
+    ),
+    "check.form.definition_empty.action": (
+        "重写 `{path}` 的总览，用文字写出 definition；引用跟在这句话后面，而不是顶替它。"
+    ),
+    "check.form.unanchored_citation.impact": (
+        "`{path}` 有 {count} 行带着引用却没有锚，这些证据只是能翻到的文字，永远进不了断言"
+        "（claim）索引。"
+    ),
+    "check.form.unanchored_citation.action": (
+        "把 `{path}` 上这 {count} 行改用 append_block 写成断言（claim），系统会给它上锚。"
+    ),
+    "check.nav.hub_incomplete.impact": (
+        "总览 `{path}` 够不到自己项目的 {count} 个页面，从总览进来的读者永远不会知道它们存在。"
+    ),
+    "check.nav.hub_incomplete.action": (
+        "在『{title}』里补上通往 {targets} 的关联。"
+    ),
+    "check.nav.chronology_unlinked.impact": (
+        "`{path}` 记下了一串带日期的转折，却没有链到解释这些转折的 {count} 个特性页或决策页，"
+        "读者只看到「变了」，看不到「为什么」。"
+    ),
+    "check.nav.chronology_unlinked.action": (
+        "把『{title}』的每个日期小节链到解释它的那一页：{targets}。"
+    ),
+    "check.nav.decision_unlinked.impact": (
+        "决策页 `{path}` 不链向任何它影响的东西，被它约束的主题上因此看不到它的痕迹。"
+    ),
+    "check.nav.decision_unlinked.action": (
+        "把『{title}』链到这个决策实际作用到的特性、项目或主题。"
+    ),
+    "check.nav.mention_unlinked.impact": (
+        "`{path}` 提到『{mention}』{count} 次却从不链它，手里拿着这一页的读者到不了定义它的那"
+        "一页。"
+    ),
+    "check.nav.mention_unlinked.action": (
+        "在『{title}』提到它的那些断言（claim）里，或在它的关联里，链上『{mention}』"
+        "（`{target}`）。"
+    ),
+    "check.nav.dead_link.impact": (
+        "`{path}` 链向 `{target}`，而没有任何文档在那个路径上，读者从这里跳出去等于跳进空处。"
+    ),
+    "check.nav.dead_link.action": (
+        "闸门现在会拒绝新写入指向不存在页面的链接；这一处请把 `{href}` 改指一个真实存在的页"
+        "面，或者把 `{target}` 建出来。"
+    ),
+    "check.id.title_duplicate.impact": (
+        "有 {count} 个活跃页面分处不同目录，却都叫『{title}』（{paths}），读者和检索都分不出"
+        "这个名字指的是哪一页。"
+    ),
+    "check.id.title_duplicate.action": (
+        "决定『{title}』这个名字归哪一页，其余的各起各的名字；或者把它们合成一个主题。"
+    ),
+    "check.corr.single_source.impact": (
+        "`{path}` 的 {count} 条断言（claim）全都只引 `{source_id}`，整个主题压在对它的同一份"
+        "陈述上。"
+    ),
+    "check.corr.single_source.action": (
+        "用别的材料为『{title}』做旁证，或者在它的头部说清 `{source_id}` 就是全部证据。"
+    ),
+    "check.form.legacy_sections.impact": (
+        "`{path}` 既有总览头部，又还留着 {count} 个讲同样四件事的旧小节（{sections}），同一幅"
+        "画面在一页里立了两遍。"
+    ),
+    "check.form.legacy_sections.action": (
+        "把 {sections} 还在说的东西并进『{title}』的总览，账本只留断言（claim）。"
+    ),
+    # ═══════════════════════════════════════════════════ 结构透镜的六个维度（§4）
+    #
+    # 每个档位两句，说的是整座库而不是某一页：一个外来读者一眼看去看到什么，以及这一眼指向
+    # 哪个杠杆——契约条款、一次 evolve、一次 groom、一轮 review。从不点名某一页。
+    "lens.walkability.open.statement": (
+        "这座库不只查得到，还走得通：{subjects} 个主题里，{dead_end_share} 没有下一跳，"
+        "{arrival_blind_share} 没有任何页面能走到，其中 {component_share} 连成一整块。"
+    ),
+    "lens.walkability.open.direction": (
+        "这里不需要动杠杆。契约里那条期待照旧——一页要链上它自己的断言（claim）所依赖的主"
+        "题；还欠着的那些具体链接在体检清单上。"
+    ),
+    "lens.walkability.thin.statement": (
+        "这座库好查不好走：{subjects} 个主题里有 {dead_ends} 个（{dead_end_share}）走到就没有"
+        "下一跳，另有 {arrival_blind} 个（{arrival_blind_share}）根本没有页面能走到。"
+    ),
+    "lens.walkability.thin.direction": (
+        "一轮 review 一页一页地把链接补上。如果走到头的页面成片属于同一个族，那是契约里这个族"
+        "的条款欠一句话：这个族的一页该链什么。"
+    ),
+    "lens.walkability.broken.statement": (
+        "作为一个整体，这座库没有连起来：{subjects} 个主题里 {dead_end_share} 不通向任何地"
+        "方，{arrival_blind_share} 没有任何页面能走到，只有 {component_share} 连成一块，还有 "
+        "{islands} 个项目与其余部分完全隔开。"
+    ),
+    "lens.walkability.broken.direction": (
+        "到这个规模，可达性已经不是某一页的过错。在契约里定下每一页欠邻居什么——总览要够得到"
+        "自己名下的页面，断言（claim）要链上它所依赖的东西——再用一轮 review 把已经立着的那些"
+        "逐页过一遍。"
+    ),
+    "lens.shape.even.statement": (
+        "知识在这座库里是铺开的，不是堆起来的：最大的主题『{title}』占 {claims} 条断言"
+        "（claim）的 {lead_share}，也没有哪个族占的断言份额与它占的页面份额明显失衡。"
+    ),
+    "lens.shape.even.direction": (
+        "不需要动杠杆。形状随材料而变；下一段编译之后再读一次。"
+    ),
+    "lens.shape.leaning.statement": (
+        "这座库在倾斜：『{title}』占 {claims} 条断言（claim）的 {lead_share}——是 {subjects} "
+        "个主题均分的 {lead_over_even} 倍，是排在它后面那个主题的 {lead_ratio} 倍——而 "
+        "`{family}` 用 {family_pages} 的页面占了其中 {family_share}。"
+    ),
+    "lens.shape.leaning.direction": (
+        "问一句堆起来的材料是不是想要一个自己的族。若是，那是一次 evolve；若只是一页长厚了，"
+        "把它变薄的是 groom 和它的分卷。"
+    ),
+    "lens.shape.collapsing.statement": (
+        "有一个主题成了「别处放不下就放这里」的地方：『{title}』占 {claims} 条断言（claim）的 "
+        "{lead_share}——是 {subjects} 个主题均分的 {lead_over_even} 倍，是排在它后面那个主题的 "
+        "{lead_ratio} 倍。"
+    ),
+    "lens.shape.collapsing.direction": (
+        "这是结构的问题，不是某一页的问题：定下契约期待在那个主题旁边还应该有什么，再让 "
+        "evolve 把它点名的族开出来。"
+    ),
+    "lens.knowledge_vs_log.knowledge.statement": (
+        "这座库装的是关于主题的知识：{claims} 条断言（claim）里只有 {narration_share} 带着会"
+        "话流水那种「有日期、只引一个来源」的形状。"
+    ),
+    "lens.knowledge_vs_log.knowledge.direction": (
+        "不需要动杠杆。契约里那条长期指令照旧：一条断言（claim）说的是某个主题上什么为真，而"
+        "不是某场会话里发生了什么。"
+    ),
+    "lens.knowledge_vs_log.mixed.statement": (
+        "这里有相当一部分是会话的记录：{claims} 条断言（claim）里有 {count} 条"
+        "（{narration_share}）是带日期、只引一个来源的条目，另有 {log_subjects} 个主题大半由它"
+        "们组成。"
+    ),
+    "lens.knowledge_vs_log.mixed.direction": (
+        "在契约里定下这座库到底为哪一种而设：带日期的转折归历程族，这些转折确立下来的东西归主"
+        "题页。"
+    ),
+    "lens.knowledge_vs_log.log.statement": (
+        "这读起来是一本流水账，而不是一体的知识：{claims} 条断言（claim）里 {narration_share} "
+        "是带日期、只引一个来源的条目，{log_subjects} 个主题（{log_subject_share}）几乎全由它"
+        "们构成。"
+    ),
+    "lens.knowledge_vs_log.log.direction": (
+        "契约要来的是一本日记。在契约里说清什么才算一条关于主题的断言（claim），再用一轮 "
+        "review 判定已经立着的页面里哪些是主题、哪些只是材料。"
+    ),
+    "lens.liveness.living.statement": (
+        "这座库会自我纠正：已有 {count} 条断言（claim）被取代（每百条 {per_hundred} 条），"
+        "{developed} 个写得成型的主题里 {overview_share} 带着总览头部，还有 {rollovers} 个卷已"
+        "经结卷。"
+    ),
+    "lens.liveness.living.direction": (
+        "不需要动杠杆。取代（supersede）正作为「世界变了」的通道在起作用；契约里那条指令照"
+        "旧：世界变了就取代，而不是编辑。"
+    ),
+    "lens.liveness.settling.statement": (
+        "这座库在沉淀：{claims} 条断言（claim）上发生过 {count} 次取代（每百条 {per_hundred} "
+        "次），{developed} 个写得成型的主题里 {overview_share} 带着总览头部。"
+    ),
+    "lens.liveness.settling.direction": (
+        "留意新材料还会不会落到旧主题上。如果进来的东西从不碰它们，这个问题归契约的接收口，而"
+        "不归任何一页。"
+    ),
+    "lens.liveness.still.statement": (
+        "这座库里没有东西在被纠正：{claims} 条断言（claim）上只有 {count} 次取代（每百条 "
+        "{per_hundred} 次）。最先写下的仍然立着，不论它是否还成立。"
+    ),
+    "lens.liveness.still.direction": (
+        "问一句进来的材料是否谈到过已经写下的东西。若谈到，契约就得写明：事实变了要取代，而不"
+        "是追加；若不谈，这就是一份存底，把它当作活的知识库来读只会一次次落空。"
+    ),
+    "lens.type_structure.aligned.statement": (
+        "进来的知识与为它声明的结构相合：{claims} 条断言（claim）里 {dated_share} 带着日期却不"
+        "在历程页上，{decision_share} 的小节是决策的形状却不在决策族里，{families} 个声明的族"
+        "里有 {empty_families} 个空着。"
+    ),
+    "lens.type_structure.aligned.direction": (
+        "不需要动杠杆。这正是一次 evolve 会拿来掂量的读数，而现在还没有什么可掂量的。"
+    ),
+    "lens.type_structure.strained.statement": (
+        "声明的结构正被进来的东西撑着：有 {dated} 条断言（claim）带着日期却不在任何历程页上，"
+        "{decision_shaped} 个决策形状的小节落在决策族之外，{families} 个声明的族里有 "
+        "{empty_families} 个从来没有归入过任何页面。"
+    ),
+    "lens.type_structure.strained.direction": (
+        "把这个读数留到下一次 evolve：知识暗示的结构并不存在，正是模式提案要掂量的东西，而一"
+        "次读数还不算趋势。"
+    ),
+    "lens.type_structure.misfiled.statement": (
+        "这座库正在积累的东西没有自己的去处——有一类里 {worst_share} 被放到了别处：{dated} 条"
+        "带日期的断言（claim）不在历程页上，{decision_shaped} 个决策形状的小节在决策族之外，"
+        "{families} 个族里有 {empty_families} 个从来没有归入过任何页面。"
+    ),
+    "lens.type_structure.misfiled.direction": (
+        "这正是 evolve 存在的理由：把材料暗示的那些族提出来，把从来没有东西落进去的声明退掉。"
+    ),
+    "lens.demand_supply.matched.statement": (
+        "这座库装的东西与它被问到的东西大致相当：{consultations} 次咨询触到了 {subjects} 个主"
+        "题里的 {consulted} 个，其中 {gap_share} 的回答什么也没引用，问得最多的族 `{family}` "
+        "占提问的 {demand_share}、占断言（claim）的 {claim_share}。"
+    ),
+    "lens.demand_supply.matched.direction": (
+        "不需要动杠杆。等提问变了再读一次；需求比一座库变得快。"
+    ),
+    "lens.demand_supply.skewed.statement": (
+        "人们问的不是这座库装的：`{family}` 占提问的 {demand_share}，却只占断言（claim）的 "
+        "{claim_share}；{subjects} 个主题里有 {never_consulted} 个从来没被问到过，还有 {count} "
+        "次回答（{gap_share}）什么也没引用。"
+    ),
+    "lens.demand_supply.skewed.direction": (
+        "把这份需求带到接收口，而不是带到某一页：能回答这些问题的材料要么没有进来，要么没有被"
+        "编译，而这由契约来定。"
+    ),
+    "lens.demand_supply.unread.statement": (
+        "还没有人向这座库问过任何问题，{subjects} 个主题上的 {claims} 条断言（claim）因此没有"
+        "可供衡量的参照。"
+    ),
+    "lens.demand_supply.unread.direction": (
+        "在它被用起来之前没有杠杆可动：一座库装了什么，只能对着它被问到什么来判断。"
     ),
 }
 

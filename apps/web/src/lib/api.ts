@@ -13,6 +13,12 @@ import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
 import { confirmRequestBody } from "./archive";
 import { parseHomeStatus, type HomeStatus } from "./home";
+import {
+  parseCheckReport,
+  parseLensReading,
+  type CheckReport,
+  type LensReading,
+} from "./lensReport";
 import type { StewardImage } from "./steward";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
@@ -1801,7 +1807,7 @@ export function deleteKbSnapshot(
 }
 
 /**
- * Canonical dataset projection for Library / Graph. Audit data is owned by the
+ * Canonical dataset projection for the Canonical view. Audit data is owned by the
  * paged History endpoint and is intentionally not duplicated here.
  */
 export function getDatasetRaw(
@@ -1813,6 +1819,64 @@ export function getDatasetRaw(
   return req<Record<string, unknown>>(
     `/v1/users/${u(userId)}/dataset?${query.toString()}`,
   );
+}
+
+/* ------------------------------------------------- the check and the structure lens */
+
+/**
+ * The check's report at one canonical ref (docs/design/structure-lens.md §3.3).
+ *
+ * Derived and model-free, and computed in core — so this is a READ and nothing more: the
+ * console never assembles a finding or decides what kind it is. `at` names any ref (a commit,
+ * a frozen snapshot's pinned commit); omitted, it reads HEAD.
+ */
+export function getCheckReport(userId: string, at?: string | null): Promise<CheckReport> {
+  const query = at ? `?at=${encodeURIComponent(at)}` : "";
+  return req<unknown>(`/v1/users/${u(userId)}/review${query}`).then(parseCheckReport);
+}
+
+/**
+ * The structure lens's reading: six dimensions at one ref, each carrying its movement since
+ * a previous ref (§4.5).
+ *
+ * `previous` left off is not "no movement" — the service reads HEAD's parent itself, and the
+ * reading says which ref it settled on. Nothing on this side computes a parent, a band or a
+ * threshold.
+ */
+export function getLensReading(
+  userId: string,
+  at?: string | null,
+  previous?: string | null,
+): Promise<LensReading> {
+  const query = new URLSearchParams();
+  if (at) query.set("at", at);
+  if (previous) query.set("previous", previous);
+  const params = query.toString();
+  const suffix = params ? `?${params}` : "";
+  return req<unknown>(`/v1/users/${u(userId)}/lens${suffix}`).then(parseLensReading);
+}
+
+/** What a queued round answers with: the job, and where it is in the queue. */
+export interface JobEnqueued {
+  job_id: string;
+  status: string;
+}
+
+/**
+ * Enqueue the Steward's review round (§3.2): a canonical-lane job whose task is the check's
+ * report for this library and whose instruction is to repair what a round can repair.
+ *
+ * It is the Owner's act and nothing else in this version schedules it. The response is read
+ * defensively — a service that answers with the job id alone still gives the console
+ * something to show.
+ */
+export function enqueueReviewRound(userId: string): Promise<JobEnqueued> {
+  return req<Record<string, unknown>>(`/v1/users/${u(userId)}/jobs/review`, {
+    method: "POST",
+  }).then((raw) => ({
+    job_id: typeof raw?.job_id === "string" ? raw.job_id : "",
+    status: typeof raw?.status === "string" ? raw.status : "",
+  }));
 }
 
 /* ------------------------------------------------ schema-evolve + skill (Stage C/D) */

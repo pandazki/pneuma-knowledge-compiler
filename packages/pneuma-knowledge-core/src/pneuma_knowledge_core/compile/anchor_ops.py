@@ -316,6 +316,115 @@ def append_block_text(
     return _append_to_section(doc_text, heading, block)
 
 
+# ------------------------------------------------------- the chronology's own order
+#
+# A chronology page is a page whose sections are DATES, and a date is the one heading whose
+# right place is computable (docs/design/structure-lens.md §2). So the mechanism places it:
+# `append_block` on such a page lands the claim in the section of its date, or opens that
+# section where the date belongs, and the model never has to know the rule. What a library
+# already holds of the old behaviour — sections in the order the compiles happened to run —
+# is repaired by `reorder_dated_sections`, which moves whole sections and nothing else.
+
+#: A dated chronology section: `## 2026-01-02`, with or without words after the date.
+DATED_SECTION_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})")
+
+#: A heading that IS a date and nothing else — what `append_block` is handed when a round
+#: writes into a chronology.
+DATE_HEADING_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def dated_section_spans(lines: list[str]) -> list[tuple[str, int, int]]:
+    """`(date, first line, last line + 1)` for every dated section, in document order.
+
+    A section runs from its heading to the next heading of level 1 or 2, so its deeper
+    headings, its blank lines and its trailing separator travel inside it. That is what makes
+    a reorder a PERMUTATION of the file's lines rather than a rewrite of it.
+    """
+    spans: list[tuple[str, int, int]] = []
+    starts = [
+        (index, match.group(1))
+        for index, line in enumerate(lines)
+        if (match := DATED_SECTION_RE.match(line))
+    ]
+    for index, date in starts:
+        end = len(lines)
+        for after in range(index + 1, len(lines)):
+            match = _HEADING_RE.match(lines[after])
+            if match and len(match.group(1)) <= 2:
+                end = after
+                break
+        spans.append((date, index, end))
+    return spans
+
+
+def insert_dated_block_text(
+    doc_text: str, date: str, block: str, *, document_path: str = ""
+) -> str:
+    """Append a new claim under `## <date>`, placed by the DATE rather than by arrival order.
+
+    Three cases, in this order:
+
+    1. the page already has a section for that date → the block goes at the end of the LAST
+       such section (a page may carry two sections of one date; the newest text belongs with
+       the later of them, and nothing is moved to make that true);
+    2. the page has a later dated section → a new `## <date>` section is opened immediately
+       before the FIRST section whose date is greater, which is where that date belongs in a
+       page that runs forward;
+    3. otherwise → a new section at the end of the file, which is both the chronological
+       place and the old behaviour.
+
+    Nothing else moves: no existing section is reordered, no anchor is touched, no heading is
+    rewritten. On a page whose dated sections were already out of order, case 2 reads the
+    document as it stands — the first LATER date in document order — so the placement is a
+    function of the bytes and not of a repair the round did not ask for.
+    """
+    block = block.strip("\n")
+    if extract_anchors(block):
+        raise AnchorToolError(prompt("compile.anchor.append_anchor_present"))
+    block = assign_document_anchors(
+        block, document_path, existing=set(extract_anchors(doc_text))
+    )
+    lines = doc_text.split("\n")
+    spans = dated_section_spans(lines)
+    same = [span for span in spans if span[0] == date]
+    if same:
+        _, start, end = same[-1]
+        while end > start + 1 and not lines[end - 1].strip():
+            end -= 1
+        return "\n".join(lines[:end] + ["", block] + lines[end:])
+    later = next((span for span in spans if span[0] > date), None)
+    section = [f"## {date}", "", block, ""]
+    if later is None:
+        suffix = [""] if lines and lines[-1].strip() else []
+        return "\n".join(lines + suffix + section)
+    return "\n".join(lines[: later[1]] + section + lines[later[1] :])
+
+
+def reorder_dated_sections(doc_text: str) -> str:
+    """The same document with its dated sections in ascending order — and nothing else moved.
+
+    A pure permutation of whole sections: each dated section keeps its bytes, its anchors and
+    its heading, and is re-emitted into the slots the dated sections already occupied. Every
+    other line of the file — the title, an undated section, a preamble between two dated ones
+    — stays exactly where it is. Sections of one date keep their relative order (a stable
+    sort), so the verb never has to decide which of two same-day sections came first.
+    """
+    lines = doc_text.split("\n")
+    spans = dated_section_spans(lines)
+    if len(spans) < 2:
+        return doc_text
+    order = sorted(range(len(spans)), key=lambda index: (spans[index][0], index))
+    out: list[str] = []
+    cursor = 0
+    for slot, (_, start, end) in enumerate(spans):
+        out.extend(lines[cursor:start])
+        _, source_start, source_end = spans[order[slot]]
+        out.extend(lines[source_start:source_end])
+        cursor = end
+    out.extend(lines[cursor:])
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------- supersede_claim
 
 
@@ -655,3 +764,84 @@ def refuse_text_machinery(op: str, body: str) -> None:
             preview=problems[0][1],
         )
     )
+
+
+# ───────────────────────────────────── the page's NAME, and text that lost its line breaks
+#
+# Two mechanical faults a real library accumulated, both of which no prompt line prevented
+# and both of which the lens now lists the existing instances of
+# (docs/design/structure-lens.md §2):
+#
+# 1. A `# ` line typed inside a claim. A page is named by the heading at the TOP of its
+#    body, and the derivation reads the first one it finds — so a heading written in the
+#    middle of an append silently renamed the page, and every outline, glance and retrieval
+#    card started calling the subject something else.
+# 2. A body whose line breaks arrived as the two characters `\n`. Nothing downstream can
+#    split it: `_iter_content_blocks` reads one line, the anchoring pass anchors one block,
+#    and a dozen claims are committed as one, with the escape sequences standing in the text.
+#    Its sibling is a single line long enough to be a whole document, which is the same
+#    accident with the escapes stripped.
+#
+# Both are refused where the round can still fix them, in the same words the gate uses.
+
+#: A line that would NAME the page: `# ` at the very start, with something after it.
+TITLE_LINE_RE = re.compile(r"^#[ \t]+\S")
+
+#: The longest single line a write face accepts. Past this a "claim" is a body that lost its
+#: line breaks — one number, read by the write faces here and by the lens that lists the
+#: instances a library already holds.
+MAX_LINE_CHARS = 1_000
+
+#: How many literal `\n` sequences make a text escaped rather than merely quoting one.
+MAX_ESCAPED_NEWLINES = 2
+
+
+def heading_lines(text: str) -> list[tuple[int, str]]:
+    """`(line number, heading text)` for every `# ` line in `text`, 1-based."""
+    return [
+        (index, line.lstrip("# ").strip())
+        for index, line in enumerate(text.split("\n"), start=1)
+        if TITLE_LINE_RE.match(line)
+    ]
+
+
+def refuse_heading_in_block(op: str, text: str, *, allow_leading: bool = False) -> None:
+    """Refuse a write whose text carries a `# ` line — the page's name, written as content.
+
+    `allow_leading` is `create_document`'s one exemption: a new document's body MAY open with
+    its own title, because that is where a page's name belongs. Anywhere else the line is
+    refused, so the name of a page can only ever be changed by the verb that changes names.
+    """
+    found = heading_lines(text)
+    if not found:
+        return
+    if allow_leading:
+        lines = text.split("\n")
+        first = next((n for n, line in enumerate(lines, start=1) if line.strip()), 0)
+        found = [item for item in found if item[0] != first]
+        if not found:
+            return
+    raise AnchorToolError(
+        prompt("compile.anchor.heading_in_block", op=op, heading=found[0][1])
+    )
+
+
+def refuse_escaped_newlines(op: str, text: str) -> None:
+    """Refuse a write whose text is one run of characters rather than lines.
+
+    Two shapes of the same accident, each named in its own words: line breaks that arrived
+    escaped, and a line long enough to be a whole document. Naming the fault is the point —
+    a refusal that says only "rejected" sends the round looking for a rule it did not break.
+    """
+    escaped = text.count("\\n")
+    if escaped > MAX_ESCAPED_NEWLINES and "\n" not in text:
+        raise AnchorToolError(
+            prompt("compile.anchor.escaped_newlines", op=op, count=escaped)
+        )
+    longest = max((len(line) for line in text.split("\n")), default=0)
+    if longest >= MAX_LINE_CHARS:
+        raise AnchorToolError(
+            prompt(
+                "compile.anchor.long_line", op=op, chars=longest, limit=MAX_LINE_CHARS
+            )
+        )

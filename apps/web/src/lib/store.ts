@@ -685,10 +685,11 @@ export const useApp = create<AppState>((set, get) => ({
           // Nothing moved — but a blocked link still has to be answered: rewrite the hash
           // (leaving it in the bar makes Back a loop) and say why nothing happened, or a
           // deep link into the cockpit from the reading room looks like a dead address bar.
-          if (blocked) {
-            set({ notice: { key: "nav.notice.lensGuard" } });
-            writeHash(next, nextSelection, true);
-          }
+          if (blocked) set({ notice: { key: "nav.notice.lensGuard" } });
+          // Normalize unconditionally: a RETIRED route name (`#/graph` → `#/lens`) parses to
+          // the state already on screen, so without this the old spelling would stay in the
+          // address bar and be shared onward. `writeHash` no-ops when nothing differs.
+          writeHash(next, nextSelection, true);
           return;
         }
         set({

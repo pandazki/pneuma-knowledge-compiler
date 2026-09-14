@@ -60,7 +60,8 @@ export const VIEW_LENSES: Record<ViewName, readonly Lens[]> = {
   library: EVERY_LENS,
   process: OWNER_ONLY,
   history: OWNER_ONLY,
-  graph: OWNER_ONLY,
+  review: OWNER_ONLY,
+  lens: OWNER_ONLY,
   evolve: OWNER_ONLY,
   engine_console: OWNER_ONLY,
   // hidden route: the primitives state matrix (for acceptance shots; not in the contents)

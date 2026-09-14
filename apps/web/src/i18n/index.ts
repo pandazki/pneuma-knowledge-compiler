@@ -18,10 +18,10 @@ import { enums } from "./enums";
 import { events } from "./events";
 import { evolve } from "./evolve";
 import { gallery } from "./gallery";
-import { graph } from "./graph";
 import { history } from "./history";
 import { home } from "./home";
 import { ingest } from "./ingest";
+import { lens } from "./lens";
 import { library } from "./library";
 import { liveContext } from "./liveContext";
 import { nav } from "./nav";
@@ -29,6 +29,7 @@ import { overview } from "./overview";
 import { process } from "./process";
 import { profile } from "./profile";
 import { recall } from "./recall";
+import { review } from "./review";
 import { service } from "./service";
 import { sources } from "./sources";
 import { steward } from "./steward";
@@ -52,11 +53,12 @@ export const BUNDLES = [
   ingest,
   process,
   recall,
+  review,
   ask,
   liveContext,
   steward,
   library,
-  graph,
+  lens,
   history,
   home,
   evolve,
@@ -79,11 +81,12 @@ export const MESSAGES = {
     ...ingest.zh,
     ...process.zh,
     ...recall.zh,
+    ...review.zh,
     ...ask.zh,
     ...liveContext.zh,
     ...steward.zh,
     ...library.zh,
-    ...graph.zh,
+    ...lens.zh,
     ...history.zh,
     ...home.zh,
     ...evolve.zh,
@@ -104,11 +107,12 @@ export const MESSAGES = {
     ...ingest.en,
     ...process.en,
     ...recall.en,
+    ...review.en,
     ...ask.en,
     ...liveContext.en,
     ...steward.en,
     ...library.en,
-    ...graph.en,
+    ...lens.en,
     ...history.en,
     ...home.en,
     ...evolve.en,

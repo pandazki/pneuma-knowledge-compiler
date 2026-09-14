@@ -10,17 +10,37 @@
  *   #/process/patch/kp-3
  *   #/process/job/job-2026...
  *   #/history/snapshot/src-c7a3...
- *   #/graph/node/doc-a11c
+ *   #/lens/node/doc-a11c
  *
  * The set of routable views is NOT declared here: it is the key set of `VIEW_LENSES` in
  * ./lenses, which is also what decides who may see each of them. One table, so a view can
  * never be deep-linkable and unknown to the lens guard at the same time.
+ *
+ * One view has been renamed since links to it were shared, so `LEGACY_VIEWS` below maps the
+ * old first segment onto the new one on the way IN only. Nothing writes an old address: the
+ * store re-writes the hash from the parsed state, so following an old link normalizes the
+ * address bar in place and Back still walks in-app history.
  */
 import { ROUTED_VIEWS } from "./lenses";
 import type { Selection, ViewName } from "./types";
 
 export function isViewName(v: string): v is ViewName {
   return (ROUTED_VIEWS as string[]).includes(v);
+}
+
+/**
+ * Retired route names, and where they resolve now. `#/graph` was the structure surface
+ * before it became the structure lens; `#/graph/node/<id>` keeps its selection, which the
+ * lens view resolves to the document (or source) that node stood for.
+ */
+const LEGACY_VIEWS: Record<string, ViewName> = {
+  graph: "lens",
+};
+
+/** The view a hash's first segment names, following a retired name to its successor. */
+function routeView(segment: string): ViewName | null {
+  if (isViewName(segment)) return segment;
+  return LEGACY_VIEWS[segment] ?? null;
 }
 
 export function selectionToHash(view: ViewName, selection: Selection): string {
@@ -57,8 +77,8 @@ export function hashToState(hash: string): RouteState | null {
       }
     });
   if (segs.length === 0) return null;
-  const view = segs[0];
-  if (!isViewName(view)) return null;
+  const view = routeView(segs[0]);
+  if (view === null) return null;
 
   let selection: Selection = null;
   const kind = segs[1];

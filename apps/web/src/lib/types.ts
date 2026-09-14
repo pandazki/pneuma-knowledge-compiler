@@ -336,7 +336,11 @@ export type ViewName =
   | "library"
   | "process"
   | "history"
-  | "graph"
+  // the check: the page-level findings an insider can see against the contract, and the
+  // Steward round that repairs them
+  | "review"
+  // the structure lens: an outside, model-free reading of the whole library's shape
+  | "lens"
   // schema-evolve review + the tailored-skill surface
   | "evolve"
   // engine console: the compilation lifecycle as a navigable, editable pipeline map

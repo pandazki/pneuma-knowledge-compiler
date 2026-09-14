@@ -64,6 +64,11 @@ JOB_LANES: dict[str, tuple[str, str]] = {
         CANONICAL_LANE,
         "one commit moves the document under archive/ and writes the archive record",
     ),
+    "review": (
+        CANONICAL_LANE,
+        "the check reaches the Steward as its own round: a draft over the whole library, "
+        "repaired through the ordinary draft verbs and committed by the ordinary gate",
+    ),
     "challenge": (
         CANONICAL_LANE,
         "it commits nothing itself, but it judges coverage against canonical HEAD and queues "

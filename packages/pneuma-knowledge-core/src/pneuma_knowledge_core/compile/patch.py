@@ -27,10 +27,17 @@ from ..domain.ids import DocumentId, extract_anchors
 from ..prompts import prompt
 from .anchor_ops import (
     AnchorToolError,
+    DATE_HEADING_RE,
+    _heading_title,
     append_block_text,
     assign_document_anchors,
+    dated_section_spans,
     edit_claim_text,
     insert_block_verbatim,
+    insert_dated_block_text,
+    reorder_dated_sections,
+    refuse_escaped_newlines,
+    refuse_heading_in_block,
     refuse_text_machinery,
     remove_claim_block,
     supersede_claim_text,
@@ -46,6 +53,7 @@ from .documents import (
     render_document,
     render_overview,
     remove_overview_region,
+    set_leading_title,
     set_overview_region,
     with_derived_title,
 )
@@ -57,30 +65,22 @@ from .overview import (
     overview_write_problems,
 )
 from ..components import registered_components
-
-_SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+# Path OWNERSHIP and the volume grammar live in `shape.families` — the leaf table every tier
+# reads, the gate included. They are re-exported here under the names this module has always
+# had, because path ownership is a write concern to every existing caller and moving the
+# question is not the same as moving the callers.
+from ..shape.families import (  # noqa: F401
+    ROLE_CHRONOLOGY,
+    VOLUME_FILE_RE as _VOLUME_FILE_RE,
+    path_allowed,
+    role_of,
+)
 
 #: Frontmatter the SYSTEM owns. `set_fields` refuses all four: a document's identity is not
 #: content the model may overwrite (discipline 1 — mechanism, not persuasion). Three of them
 #: are ASSIGNED at creation; `title` is DERIVED, re-read from the document's `# ` heading on
 #: every write, so the name in the frontmatter is the name on the page by construction.
 RESERVED_FRONTMATTER = (DOC_ID_KEY, "type", "slug", TITLE_KEY)
-
-
-def _template_regex(template: str) -> re.Pattern[str]:
-    parts = re.split(r"(\{slug\})", template)
-    body = "".join(_SLUG if p == "{slug}" else re.escape(p) for p in parts)
-    return re.compile(f"^{body}$")
-
-
-def path_allowed(path: str, path_templates: list[str]) -> bool:
-    """True iff `path` matches one of the skill's path templates (path ownership).
-
-    This is the WRITE ownership predicate: what `create_document` will accept. It deliberately
-    does NOT recognize a page's volume directory (see `history_volume_owner`) — a rollover
-    volume must be unreachable from the compile tool face.
-    """
-    return any(_template_regex(t).match(path) for t in path_templates)
 
 
 def _bare_grounding(overview: Overview) -> Overview:
@@ -103,12 +103,6 @@ def _bare_grounding(overview: Overview) -> Overview:
             for connection in overview.connections
         ),
     )
-
-
-#: A closed volume's filename inside a page's volume directory: `a01.md`, `a02.md`, …
-#: The naming itself belongs to `compile.rollover`; the GRAMMAR lives here because path
-#: ownership is one concern and must be stated in one place.
-_VOLUME_FILE_RE = re.compile(r"^a(\d{2,})\.md$")
 
 
 def history_dir(document_path: str) -> str:
@@ -603,6 +597,10 @@ class PatchDraft:
                 prompt("compile.patch.create_exists", path=path)
             )
         refuse_text_machinery("create_document", body)
+        # A new document MAY open with its own `# ` title — that is where a page's name
+        # belongs — and may carry one nowhere else (docs/design/structure-lens.md §2).
+        refuse_heading_in_block("create_document", body, allow_leading=True)
+        refuse_escaped_newlines("create_document", body)
         doc_id = _assign_document_id(path)
         anchored = assign_document_anchors(body, path)
         # Normalize first so a legacy id key handed in by a caller is folded away rather
@@ -619,6 +617,39 @@ class PatchDraft:
         self._working[path] = doc
         # Whoever just wrote a document has, by definition, seen everything in it.
         self.mark_read(path)
+        return doc
+
+    def retitle(self, path: str, title: str) -> DraftDoc:
+        """Give `path` the name `title`: rewrite its leading `# ` heading, or insert one.
+
+        The third thing a page can be wrong about, after its claims and its head: its NAME.
+        A page that took a heading from the middle of an append, or that was created under
+        the name of the thing it is a page ABOUT rather than the thing it IS, could not be
+        corrected before this verb existed — every write face was claim-level, and the
+        frontmatter `title` is derived and refused to `set_fields`. So a wrong name was
+        permanent, and the lens that lists wrong names would have listed a fault with no
+        repair (docs/design/structure-lens.md §2).
+
+        It touches no claim: the heading line's trailing system markers are kept, the body
+        below is not read, and the derived frontmatter follows the heading as it does at
+        every other write path. The refusals are the ones every write face makes — a closed
+        volume, an archived path, an archive record — plus the shadowed-title rule
+        `create_document` runs, because renaming a page into a retired subject's name
+        rebuilds that subject exactly as creating it under that name would. The gate's
+        sibling-collision check is the final arbiter for the other half: one name over two
+        live pages in one directory.
+        """
+        self._refuse_closed_volume(path, "retitle")
+        self._refuse_archived_path(path, "retitle")
+        self._refuse_archive_record(path, "retitle")
+        doc = self.read(path)
+        name = " ".join(str(title or "").split())
+        if not name:
+            raise AnchorToolError(prompt("compile.patch.retitle_empty", path=path))
+        refuse_text_machinery("retitle", name)
+        self._refuse_shadowed_title({TITLE_KEY: name}, "", path)
+        doc.body = set_leading_title(doc.body, name)
+        doc.frontmatter = with_derived_title(doc.frontmatter, doc.body)
         return doc
 
     def _refuse_superseded(self, anchor_id: str, op: str) -> None:
@@ -649,6 +680,8 @@ class PatchDraft:
         self._refuse_archive_record(path, "edit_claim")
         self._refuse_superseded(anchor_id, "edit_claim")
         refuse_text_machinery("edit_claim", new_text)
+        refuse_heading_in_block("edit_claim", new_text)
+        refuse_escaped_newlines("edit_claim", new_text)
         doc = self.read(path)
         doc.body = edit_claim_text(doc.body, anchor_id, new_text)
         return doc
@@ -665,6 +698,8 @@ class PatchDraft:
         self._refuse_archive_record(path, "supersede_claim")
         self._refuse_superseded(anchor_id, "supersede_claim")
         refuse_text_machinery("supersede_claim", new_text)
+        refuse_heading_in_block("supersede_claim", new_text)
+        refuse_escaped_newlines("supersede_claim", new_text)
         doc = self.read(path)
         doc.body, new_anchor = supersede_claim_text(
             doc.body, anchor_id, new_text, document_path=path
@@ -702,6 +737,19 @@ class PatchDraft:
         self._refuse_archived_path(path, "rewrite_overview")
         self._refuse_archive_record(path, "rewrite_overview")
         self._refuse_unread(path, "rewrite_overview")
+        # The head is prose under system-written slot markers, so a `# ` line in it is the
+        # page's own name written into its overview. Judged per slot, before anything is
+        # rendered. The line-length rule that guards a BLOCK is deliberately not applied
+        # here: the region already has a character ceiling of its own
+        # (`_refuse_unwritable_overview`), and two bounds over one text would mean the
+        # refusal a writer reads depends on which of them happened to fire first.
+        for slot_text in (
+            overview.definition,
+            overview.summary,
+            overview.introduction,
+            *(connection.relation for connection in overview.connections),
+        ):
+            refuse_heading_in_block("rewrite_overview", str(slot_text or ""))
         doc = self.read(path)
         incoming = self._checked_fields(path, "rewrite_overview", fields)
         if overview.is_empty():
@@ -830,8 +878,55 @@ class PatchDraft:
         self._refuse_archived_path(path, "append_block")
         self._refuse_archive_record(path, "append_block")
         refuse_text_machinery("append_block", text)
+        refuse_heading_in_block("append_block", text)
+        refuse_escaped_newlines("append_block", text)
         doc = self.read(path)
-        doc.body = append_block_text(doc.body, heading, text, document_path=path)
+        date = self._chronological_date(path, heading)
+        if date:
+            doc.body = insert_dated_block_text(doc.body, date, text, document_path=path)
+        else:
+            doc.body = append_block_text(doc.body, heading, text, document_path=path)
+        return doc
+
+    def _chronological_date(self, path: str, heading: str) -> str:
+        """The date this append belongs under, or `""` — the whole of the placement rule.
+
+        Two conditions, both mechanical: the page is a CHRONOLOGY by its family's role
+        (`shape.families`, the same table the gate and the check read), and the section the
+        round asked for is a DATE and nothing else. Then the section's place in the page is
+        computable, so the mechanism computes it instead of asking the model to remember
+        (docs/design/structure-lens.md §2). Every other page and every other heading keeps
+        the ordinary end-of-section append, byte for byte.
+        """
+        if role_of(path, self.path_templates) != ROLE_CHRONOLOGY:
+            return ""
+        title = _heading_title(heading)
+        return title if DATE_HEADING_RE.match(title) else ""
+
+    def reorder_chronology(self, path: str) -> DraftDoc:
+        """Put `path`'s dated sections in ascending order — a permutation, not a rewrite.
+
+        The repair verb for the pages that predate the placement rule above: a chronology
+        whose sections arrived in the order the compiles ran reads in ingest order rather
+        than in time, and until this verb existed nothing could correct it — every write face
+        was claim-level, and moving a claim is not moving a section.
+
+        Mechanical and total: whole sections move, every byte inside one is conserved, every
+        anchor stays on the claim it identifies, and no other line of the file moves. The
+        refusals are the ones every write face makes — a closed volume, an archived path, an
+        archive record — plus a page with fewer than two dated sections, where there is
+        nothing to order and a silent success would read as a repair that happened.
+        """
+        self._refuse_closed_volume(path, "reorder_chronology")
+        self._refuse_archived_path(path, "reorder_chronology")
+        self._refuse_archive_record(path, "reorder_chronology")
+        doc = self.read(path)
+        spans = dated_section_spans(doc.body.split("\n"))
+        if len(spans) < 2:
+            raise AnchorToolError(
+                prompt("compile.patch.reorder_not_dated", path=path, count=len(spans))
+            )
+        doc.body = reorder_dated_sections(doc.body)
         return doc
 
     # --- evolve-only merge channel (move / delete) ----------------------------

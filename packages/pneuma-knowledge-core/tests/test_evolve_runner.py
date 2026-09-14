@@ -330,6 +330,12 @@ def test_compile_tool_face_excludes_evolve_only_tools():
         "append_block",
         "supersede_claim",
         "rewrite_overview",
+        # `retitle` rewrites a page's leading `# ` heading and nothing else — a name is
+        # corrected without a claim being touched (docs/design/structure-lens.md §2).
+        "retitle",
+        # …and `reorder_chronology` moves whole dated sections into ascending order: bytes
+        # and anchors conserved, no claim touched (same design, same §).
+        "reorder_chronology",
         "set_fields",
         "finish_compile",
         "search_knowledge",

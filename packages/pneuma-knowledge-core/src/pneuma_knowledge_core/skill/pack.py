@@ -37,7 +37,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..compile.patch import _template_regex
+from ..shape.families import _template_regex
 from ..domain.user import UserProfile
 from ..prompts import prompt
 from ..recall.fast import invoke_config

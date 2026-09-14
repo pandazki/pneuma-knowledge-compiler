@@ -98,6 +98,14 @@ WRITE_TOOLS = frozenset(
         "supersede_claim",
         "rewrite_overview",
         "set_fields",
+        # The page's name is the third thing it can be wrong about, and rewriting it is a
+        # write like any other: the gate's shadowed- and sibling-title predicates judge the
+        # page it touched, in the round that touched it.
+        "retitle",
+        # Only section order moves and no byte of a claim changes, but the page it touched is
+        # still a page the gate has something to say about, and a repair verb that skipped the
+        # post-check would be the one write in the round nobody judged.
+        "reorder_chronology",
     }
 )
 

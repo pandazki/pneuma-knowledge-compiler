@@ -54,7 +54,7 @@ const {
   showsShellChrome,
 } = await import(lensesUrl);
 
-const { isViewName } = await import(
+const { hashToState, isViewName, selectionToHash } = await import(
   await compile(new URL("../src/lib/hash.ts", import.meta.url), (code) =>
     code.replace('from "./lenses"', `from "${lensesUrl}"`),
   )
@@ -78,6 +78,20 @@ const railViews = (groups) => groups.flatMap((group) => group.items).map((item) 
 
 test("every view in the contents rail parses as a deep link", () => {
   assert.deepEqual(railViews(TOC).filter((view) => !isViewName(view)), []);
+});
+
+test("a retired route name still resolves, and normalizes to its successor's address", () => {
+  // Links to `#/graph` were shared before the structure surface became the structure lens.
+  // The old name resolves on the way IN and is never written back out, so following one
+  // rewrites the address bar in place rather than keeping a spelling that no longer exists.
+  assert.equal(hashToState("#/graph").view, "lens");
+  assert.equal(isViewName("graph"), false, "the retired name is not a view");
+  const deep = hashToState("#/graph/node/doc-a11c");
+  assert.equal(deep.view, "lens");
+  assert.deepEqual(deep.selection, { kind: "node", id: "doc-a11c" });
+  assert.equal(selectionToHash(deep.view, deep.selection), "#/lens/node/doc-a11c");
+  // A first segment that names nothing at all is still nothing.
+  assert.equal(hashToState("#/nowhere"), null);
 });
 
 test("the rail's section numbers are unique and in order", () => {

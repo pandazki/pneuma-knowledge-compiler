@@ -2,7 +2,7 @@
 
 **English** | [简体中文](DESIGN.zh-CN.md)
 
-A library Owner glances at a Mac menu bar at their reading desk, in daylight or lamplight. The tray belongs to the console's galley-proof world: warm paper, ink, hairlines, footnotes. It is quiet, bookish and exact. The confirmed context is [.impeccable.md](.impeccable.md); the console's [world and palette](../../apps/web/DESIGN.md) inform it. All implementation and tokens live here, with no console imports.
+A library Owner glances at a Mac menu bar at their reading desk, in daylight or lamplight. The tray belongs to the console's galley-proof world: warm paper, ink, hairlines, footnotes. It is quiet, bookish and exact. The confirmed context is [.impeccable.md](.impeccable.md); the console's own design document (its world and palette) informs it. All implementation and tokens live here, with no console imports.
 
 ## Surfaces and tokens
 
