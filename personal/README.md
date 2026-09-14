@@ -208,7 +208,12 @@ its manual triage (turn floor 3, character floor 0, default acknowledgement limi
 Once the numeric thresholds are met, only slash commands/known acknowledgements and explicit
 research/chat receive index-only treatment. Subagents and directory conflicts are excluded.
 Owner words and agent prose remain verbatim; tools become bounded stubs, with arguments,
-results, reasoning and injected harness context excluded. `list`/`export` retain their
+results, reasoning and injected harness context excluded. Context a harness injects into
+an Owner turn — `<system-info>`, `<pneuma:env>`, `<system-reminder>`, a slash-command
+envelope and the rest of a named, explicit set — is never the Owner's words: the wrapper
+is removed, a turn left with nothing counts toward no threshold and reaches no payload,
+and the triage record names how many blocks it took (`injected_blocks`). `list`/`export`
+retain their
 whole-session rules: below the character threshold skips, below the turn floor is index-only.
 
 `sync-state.json` beside `library.yaml` stores source IDs, the exported turn cursor and a
