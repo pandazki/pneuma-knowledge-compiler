@@ -24,6 +24,13 @@ What is only here:
 * **the Owner's turn is recorded BEFORE the harness sees it.** `steward_turns` is written
   first, so `pkc owner say` can never be handed a session whose transcript is one turn behind
   the conversation the Steward is acting on (ruling 13).
+* **an attachment lives in the session's own directory and dies with it.** A pasted
+  screenshot is decoded into `attachments/` INSIDE the per-session config home — the
+  directory this session made with `mkdtemp` and removes on `close` — so no two sessions and
+  no two Owners ever share a scratch path, and nothing survives the conversation. The file is
+  named by this framework (`image-0.png`), never by the Owner's filename, so a name cannot be
+  a path. What the Owner called it is kept only in the transcript's attachment note, beside
+  the turn's text and never inside it (`steward_turns`).
 * **a mid-turn message is queued, never steered.** Claude's streaming input carries no turn
   id, so a second turn written into a running one would race it. The bridge holds the text
   until `turn_finished` and tells the client it did. A protocol race fails explicitly; it is
@@ -42,7 +49,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Sequence
 
 from pneuma_knowledge_core.domain.ids import UserId
 
@@ -62,6 +69,8 @@ from .steward_turns import (
     SESSION_ENV,
     InMemoryStewardTurnStore,
     PairedStewardTurnStore,
+    StewardImage,
+    attachment_note,
 )
 
 log = logging.getLogger(__name__)
@@ -72,6 +81,10 @@ SNAPSHOT_LIMIT = 200
 
 #: What a session's config home is called, so a leftover is recognisable in `/tmp`.
 CONFIG_HOME_PREFIX = "pkc-steward-"
+
+#: Where a turn's images are decoded, under the session's own config home. Never a shared
+#: temp directory: this one is made per session and removed whole when the session closes.
+ATTACHMENTS_DIR = "attachments"
 
 #: How much stdout is read at a time. Whole lines are the adapter's problem, not this one's.
 READ_CHUNK = 65536
@@ -109,7 +122,9 @@ class StewardSession:
     exit_code: int | None = None
     started_at: float = field(default_factory=time.monotonic)
     last_active: float = field(default_factory=time.monotonic)
-    _queued: list[str] = field(default_factory=list)
+    _queued: list[tuple[str, tuple[StewardImage, ...]]] = field(default_factory=list)
+    #: How many attachments this session has written, so each file gets its own name.
+    _attachments: int = 0
     _config_home: str = ""
     _tasks: set = field(default_factory=set)
     _idle_task: Any = None
@@ -257,29 +272,71 @@ class StewardSession:
         """A turn just ended and something is waiting: send it now, in the order it arrived."""
         if not self._queued or self.adapter.busy or self.exited:
             return
-        text = self._queued.pop(0)
-        self.adapter.user_turn(text)
+        text, images = self._queued.pop(0)
+        self._hand_over(text, images)
         await self._flush()
 
     # ── what the route calls ─────────────────────────────────────────────────────────────
 
-    async def send_user_turn(self, text: str) -> bool:
+    def _hand_over(self, text: str, images: Sequence[StewardImage]) -> None:
+        """One turn, in the shape this harness's adapter takes it."""
+        if images:
+            self.adapter.user_turn(text, images)
+        else:
+            # The no-image call is left exactly as it was, so an adapter that never grew a
+            # second parameter still works.
+            self.adapter.user_turn(text)
+
+    def attachments_dir(self) -> Path:
+        """This session's own scratch directory for decoded images.
+
+        Inside the config home `start` made, so it is per session, unshared, and removed with
+        everything else when `close` drops that directory.
+        """
+        return Path(self._config_home or tempfile.gettempdir()) / ATTACHMENTS_DIR
+
+    def _write_images(self, images: Sequence[StewardImage]) -> list[StewardImage]:
+        """Decode-to-disk, blocking: called through `to_thread`, never on the loop."""
+        directory = self.attachments_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        written: list[StewardImage] = []
+        for image in images:
+            # The name is this framework's, not the Owner's: a filename is never a path here.
+            path = directory / image.filename(self._attachments)
+            self._attachments += 1
+            path.write_bytes(image.data)
+            written.append(image.at(str(path)))
+        return written
+
+    async def send_user_turn(
+        self, text: str, images: Sequence[StewardImage] = ()
+    ) -> bool:
         """Record the Owner's turn, then hand it to the harness. True when it was QUEUED.
 
         Recording first is the mechanism ruling 13 rests on: `pkc owner say` runs INSIDE the
         turn it is quoting, so a transcript written after the harness saw the text would be
-        one turn behind exactly when it is read.
+        one turn behind exactly when it is read. The attachment note is recorded BESIDE the
+        text and never inside it, so nothing this framework wrote can be quoted as the
+        Owner's own words.
         """
-        await self.turns.append(self.user_id, self.session_id, text)
+        if images and not getattr(self.adapter, "accepts_images", False):
+            raise ValueError(
+                f"{self.manifest.display_label} takes no images in an interactive session"
+            )
+        if images:
+            images = await asyncio.to_thread(self._write_images, list(images))
+        await self.turns.append(
+            self.user_id, self.session_id, text, note=attachment_note(images)
+        )
         self.last_active = time.monotonic()
         if self.exited:
             self._emit([Notice(code="session_exited", detail="the harness is not running")])
             return False
         if self.adapter.busy:
-            self._queued.append(text)
+            self._queued.append((text, tuple(images)))
             self._emit([Notice(code=QUEUED, detail=text[:200])])
             return True
-        self.adapter.user_turn(text)
+        self._hand_over(text, images)
         await self._flush()
         return False
 
@@ -338,6 +395,8 @@ class StewardSession:
         with contextlib.suppress(Exception):
             await self.turns.clear(self.user_id, self.session_id)
         if self._config_home:
+            # `attachments/` is inside it, so the turn's decoded images go with the session
+            # and there is no second place to remember to clean.
             shutil.rmtree(self._config_home, ignore_errors=True)
             self._config_home = ""
         self._emit([SessionExited(exit_code=int(self.exit_code or 0), detail=detail)])
@@ -432,6 +491,7 @@ class StewardSessions:
 
 
 __all__ = [
+    "ATTACHMENTS_DIR",
     "CONFIG_HOME_PREFIX",
     "NoCodingAgent",
     "SNAPSHOT_LIMIT",

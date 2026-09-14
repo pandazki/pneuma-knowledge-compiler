@@ -11,9 +11,15 @@
     WS  /v1/users/{user_id}/steward
 
       client → server
-        {"type": "user", "text": str}   one Owner turn. Recorded in `steward_turns` BEFORE
-                                        the harness sees it (ruling 13). A turn sent while
-                                        another is in flight is QUEUED, never steered.
+        {"type": "user", "text": str,   one Owner turn. Recorded in `steward_turns` BEFORE
+         "images": [                    the harness sees it (ruling 13). A turn sent while
+           {"name": str,                another is in flight is QUEUED, never steered.
+            "mime": "image/png"         `images` is optional: at most 4, at most 5 MiB each
+                    |"image/jpeg"       after decoding, one of the four media types, and the
+                    |"image/webp"       `data_url` must be `data:<that mime>;base64,…`.
+                    |"image/gif",       Anything else is REFUSED with the reason stated on an
+            "data_url": str}]}          `error` frame — never silently dropped, and never
+                                        truncated to the first four.
         {"type": "start"}               the harness died and the Owner asked for a fresh
                                         session. The ONLY way a new process appears after an
                                         exit: nothing restarts silently (§5.6).
@@ -54,6 +60,7 @@ from pneuma_knowledge_core.domain.ids import UserId
 
 from ...coding_agent.backends import backend as backend_manifest
 from ...coding_agent.steward_session import StewardSessions
+from ...coding_agent.steward_turns import decode_images
 
 logger = logging.getLogger(__name__)
 
@@ -184,8 +191,10 @@ async def steward_ws(websocket: WebSocket, user_id: str) -> None:
             await asyncio.sleep(PING_INTERVAL)
             await websocket.send_json({"type": "ping"})
 
-    workers = [asyncio.create_task(c) for c in (send_loop(), ping_loop())]
+    # The repaint goes out BEFORE the live pump starts, so a frame the session emits while
+    # this socket is being set up cannot overtake the snapshot it belongs after.
     await websocket.send_json(snapshot_frame(session))
+    workers = [asyncio.create_task(c) for c in (send_loop(), ping_loop())]
     try:
         while True:
             raw = await websocket.receive_text()
@@ -200,19 +209,20 @@ async def steward_ws(websocket: WebSocket, user_id: str) -> None:
             try:
                 if kind == "user":
                     text = str(message.get("text") or "")
-                    if not text.strip():
+                    images = decode_images(message.get("images"))
+                    if not text.strip() and not images:
                         raise ValueError("a turn nobody typed is not a turn")
-                    await session.send_user_turn(text)
+                    await session.send_user_turn(text, images)
                 elif kind == "start":
                     # The Owner pressed "start again" after an exit. Detach from the old
                     # session first so its idle clock does not outlive this socket.
                     session.detach(queue)
-                    session = await open_session(restart=True)
-                    queue = session.attach()
                     for task in workers:
                         task.cancel()
-                    workers = [asyncio.create_task(c) for c in (send_loop(), ping_loop())]
+                    session = await open_session(restart=True)
+                    queue = session.attach()
                     await websocket.send_json(snapshot_frame(session))
+                    workers = [asyncio.create_task(c) for c in (send_loop(), ping_loop())]
                 elif kind == "end":
                     await registry.end(user_id, detail="ended by the owner")
                     break

@@ -380,3 +380,267 @@ def test_the_two_adapters_speak_the_same_vocabulary():
     assert QUEUED == "queued"
     for cls in (TurnStarted, TextDelta, StepStarted, StepFinished, TurnFinished):
         assert cls().payload()["type"] == cls().kind
+
+
+# ── Codex: the sandbox, the double-delivered answer, and a turn's images ───────────────────
+#
+# The frames below are TRANSCRIBED from a real `codex app-server` session (CLI 0.154.0), not
+# imagined: one turn, one command, one answer. What it showed is the defect this section
+# holds shut — Codex streams every `item/agentMessage/delta` AND then repeats the whole text
+# on `item/completed`, so a bridge that reads both renders every paragraph twice.
+
+
+def codex_started(project_dir: str = "/srv/library") -> tuple[CodexJsonRpcAdapter, int]:
+    adapter = CodexJsonRpcAdapter(project_dir=project_dir)
+    adapter.start()
+    start_id = written(adapter)[2]["id"]
+    adapter.feed(json.dumps({"id": start_id, "result": {"thread": {"id": "thr-1"}}}) + "\n")
+    adapter.take_events()
+    return adapter, start_id
+
+
+#: One real turn's answer, exactly as 0.154 delivered it: an item that starts empty, its
+#: deltas, and the same text once more on completion.
+RECORDED_ANSWER = [
+    {
+        "method": "item/started",
+        "params": {
+            "item": {
+                "type": "agentMessage",
+                "id": "msg_0501a2b2",
+                "text": "",
+                "phase": "final_answer",
+            }
+        },
+    },
+    *(
+        {
+            "method": "item/agentMessage/delta",
+            "params": {"itemId": "msg_0501a2b2", "delta": part},
+        }
+        for part in ("Seven", " is", " a", " prime", " number", ".")
+    ),
+    {
+        "method": "item/completed",
+        "params": {
+            "item": {
+                "type": "agentMessage",
+                "id": "msg_0501a2b2",
+                "text": "Seven is a prime number.",
+                "phase": "final_answer",
+            }
+        },
+    },
+]
+
+
+def test_codex_asks_for_network_access_on_the_thread_and_on_every_turn():
+    """`pkc` opens Postgres, Qdrant and Meilisearch: a sandbox without a socket answers
+    nothing. The two requests spell it differently — the enum plus a config override at boot,
+    the whole policy object per turn — and both spellings come from one constant."""
+    fresh = CodexJsonRpcAdapter(project_dir="/srv/library")
+    fresh.start()
+    start = written(fresh)[2]
+    assert start["method"] == "thread/start"
+    assert start["params"]["sandbox"] == "workspace-write"
+    # `thread/start` has no sandbox POLICY — only the mode enum — so network access rides the
+    # config override, exactly as `-c sandbox_workspace_write.network_access=true` does.
+    assert start["params"]["config"] == {"sandbox_workspace_write": {"network_access": True}}
+
+    adapter, _ = codex_started()
+    adapter.user_turn("what came in this week?")
+    turn = written(adapter)[0]
+    assert turn["method"] == "turn/start"
+    assert turn["params"]["sandboxPolicy"] == {
+        "type": "workspaceWrite",
+        "networkAccess": True,
+    }
+
+
+def test_codex_says_a_recorded_answer_exactly_once():
+    """The deltas ARE the answer; the completed item repeats it. Emitting both is the bug."""
+    adapter, _ = codex_started()
+    adapter.user_turn("tell me about seven")
+    adapter.take_writes()
+    adapter.take_events()
+
+    said: list[str] = []
+    for frame in RECORDED_ANSWER:
+        adapter.feed(json.dumps(frame) + "\n")
+        # Drained after every frame, exactly as the session drains it — which is why the rule
+        # cannot be "have I emitted a TextDelta before?".
+        said += [e.text for e in adapter.take_events() if isinstance(e, TextDelta)]
+
+    assert "".join(said) == "Seven is a prime number."
+    assert said.count("Seven is a prime number.") == 0  # never the whole text again
+
+
+def test_codex_speaks_a_message_that_was_never_streamed():
+    """An item id no delta arrived for: the completed item IS the answer."""
+    adapter, _ = codex_started()
+    adapter.user_turn("go")
+    adapter.take_writes()
+    adapter.take_events()
+    adapter.feed(
+        json.dumps(
+            {
+                "method": "item/completed",
+                "params": {"item": {"type": "agentMessage", "id": "m-9", "text": "all done"}},
+            }
+        )
+        + "\n"
+    )
+    assert [e.text for e in adapter.take_events() if isinstance(e, TextDelta)] == ["all done"]
+
+
+def test_codex_emits_only_the_tail_when_the_completed_item_runs_past_its_deltas():
+    adapter, _ = codex_started()
+    adapter.user_turn("go")
+    adapter.take_writes()
+    adapter.take_events()
+    for frame in (
+        {"method": "item/agentMessage/delta", "params": {"itemId": "m-1", "delta": "half "}},
+        {
+            "method": "item/completed",
+            "params": {"item": {"type": "agentMessage", "id": "m-1", "text": "half a word"}},
+        },
+    ):
+        adapter.feed(json.dumps(frame) + "\n")
+    assert [e.text for e in adapter.take_events() if isinstance(e, TextDelta)] == [
+        "half ",
+        "a word",
+    ]
+
+
+def test_codex_keeps_two_messages_of_one_turn_apart():
+    """Per item id, not per turn: a second message must not be silenced by the first's deltas."""
+    adapter, _ = codex_started()
+    adapter.user_turn("go")
+    adapter.take_writes()
+    adapter.take_events()
+    said: list[str] = []
+    for frame in (
+        {"method": "item/agentMessage/delta", "params": {"itemId": "m-1", "delta": "first"}},
+        {
+            "method": "item/completed",
+            "params": {"item": {"type": "agentMessage", "id": "m-1", "text": "first"}},
+        },
+        {
+            "method": "item/completed",
+            "params": {"item": {"type": "agentMessage", "id": "m-2", "text": "second"}},
+        },
+    ):
+        adapter.feed(json.dumps(frame) + "\n")
+        said += [e.text for e in adapter.take_events() if isinstance(e, TextDelta)]
+    assert said == ["first", "second"]
+
+
+def test_codex_names_a_turns_images_as_local_image_paths():
+    """Verified against the CLI's own schema and a live turn: `localImage` takes a PATH, and
+    the bytes never ride the JSON-RPC wire."""
+    from pneuma_knowledge_service.coding_agent.steward_turns import StewardImage
+
+    adapter, _ = codex_started()
+    adapter.user_turn(
+        "what is this?",
+        [
+            StewardImage(
+                name="shot.png",
+                mime="image/png",
+                data=b"\x89PNG",
+                path="/tmp/pkc-steward-x/attachments/image-0.png",
+            )
+        ],
+    )
+    turn = written(adapter)[0]
+    assert turn["params"]["input"] == [
+        {"type": "localImage", "path": "/tmp/pkc-steward-x/attachments/image-0.png"},
+        {"type": "text", "text": "what is this?"},
+    ]
+
+
+def test_codex_holds_a_turns_images_across_the_handshake():
+    """The console's first message beats `thread/start`, and its attachments beat it too."""
+    adapter = CodexJsonRpcAdapter(project_dir="/srv/library")
+    adapter.start()
+    start_id = written(adapter)[2]["id"]
+    from pneuma_knowledge_service.coding_agent.steward_turns import StewardImage
+
+    adapter.user_turn(
+        "look",
+        [StewardImage(name="a.png", mime="image/png", data=b"\x89PNG", path="/tmp/a.png")],
+    )
+    assert adapter.take_writes() == []
+
+    adapter.feed(json.dumps({"id": start_id, "result": {"thread": {"id": "t"}}}) + "\n")
+    turn = written(adapter)[0]
+    assert turn["params"]["input"][0] == {"type": "localImage", "path": "/tmp/a.png"}
+
+
+# ── Claude: the same turn, the other wire ──────────────────────────────────────────────────
+
+
+def test_claude_carries_a_turns_images_as_base64_blocks():
+    """Verified against this CLI: a base64 image block beside the text is answered."""
+    from pneuma_knowledge_service.coding_agent.steward_turns import StewardImage
+
+    adapter = ClaudeStreamAdapter()
+    adapter.start()
+    adapter.user_turn(
+        "what is this?",
+        [StewardImage(name="shot.png", mime="image/png", data=b"\x89PNG-ish")],
+    )
+    content = written(adapter)[0]["message"]["content"]
+    assert content[0] == {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": "image/png",
+            "data": "iVBORy1pc2g=",
+        },
+    }
+    assert content[1] == {"type": "text", "text": "what is this?"}
+
+
+def test_a_claude_turn_without_images_keeps_the_shape_it_always_had():
+    adapter = ClaudeStreamAdapter()
+    adapter.start()
+    adapter.user_turn("plain text")
+    assert written(adapter)[0]["message"]["content"] == "plain text"
+
+
+def test_both_interactive_adapters_declare_that_they_take_images():
+    """The session refuses images for an adapter that does not say it takes them, so the
+    declaration is the mechanism and not a comment."""
+    assert CodexJsonRpcAdapter.accepts_images is True
+    assert ClaudeStreamAdapter.accepts_images is True
+
+
+def test_codex_never_lets_one_message_eat_another_messages_deltas():
+    """A message that was never streamed completing WHILE another is mid-stream: each keeps
+    its own text. The fallback for a version whose deltas name no id must not reach for an
+    id it does know."""
+    adapter, _ = codex_started()
+    adapter.user_turn("go")
+    adapter.take_writes()
+    adapter.take_events()
+    said: list[str] = []
+    for frame in (
+        {
+            "method": "item/started",
+            "params": {"item": {"type": "agentMessage", "id": "m-2", "text": ""}},
+        },
+        {"method": "item/agentMessage/delta", "params": {"itemId": "m-2", "delta": "later"}},
+        # An item that never streamed, completing first.
+        {
+            "method": "item/completed",
+            "params": {"item": {"type": "agentMessage", "id": "m-1", "text": "earlier"}},
+        },
+        {
+            "method": "item/completed",
+            "params": {"item": {"type": "agentMessage", "id": "m-2", "text": "later"}},
+        },
+    ):
+        adapter.feed(json.dumps(frame) + "\n")
+        said += [e.text for e in adapter.take_events() if isinstance(e, TextDelta)]
+    assert said == ["later", "earlier"]

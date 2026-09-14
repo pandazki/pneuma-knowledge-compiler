@@ -13,6 +13,7 @@ import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
 import { confirmRequestBody } from "./archive";
 import { parseHomeStatus, type HomeStatus } from "./home";
+import type { StewardImage } from "./steward";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
 
@@ -2289,9 +2290,23 @@ export class StewardSocket {
     return true;
   }
 
-  /** One Owner turn. Recorded by the service before the harness sees it (ruling 13). */
-  say(text: string): boolean {
-    return this.send({ type: "user", text });
+  /**
+   * One Owner turn. Recorded by the service before the harness sees it (ruling 13).
+   *
+   * `images` travel beside the text as data URLs of the bytes the Owner pasted or dropped —
+   * the field is present only when there are any, so a turn of plain text is byte-for-byte
+   * the message it always was.
+   */
+  say(text: string, images: readonly StewardImage[] = []): boolean {
+    const message: Record<string, unknown> = { type: "user", text };
+    if (images.length > 0) {
+      message.images = images.map((image) => ({
+        name: image.name,
+        mime: image.mime,
+        data_url: image.dataUrl,
+      }));
+    }
+    return this.send(message);
   }
 
   /** After an exit: a NEW session, because nothing restarts one silently. */

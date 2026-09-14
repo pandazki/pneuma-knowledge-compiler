@@ -139,8 +139,7 @@ export function ActivityHeatmap({
                 const label = activityDescription(cell, kindLabels, t);
                 const pinned = selectedDate === cell.date;
                 const shared = cn(
-                  "h-3 w-3 rounded-1 border outline-none transition-transform duration-120",
-                  "focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+                  "h-3 w-3 rounded-1 border transition-transform duration-120",
                   "hover:scale-125",
                   LEVEL_CLASSES[level],
                   pinned && "ring-2 ring-accent ring-offset-1 scale-125",

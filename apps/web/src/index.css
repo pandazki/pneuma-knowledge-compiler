@@ -356,14 +356,82 @@
     cursor: not-allowed;
   }
 
-  /* ---- Global focus-visible standard: 2px accent outline + 2px offset ---- */
+  /* ---- Global focus standard: a pencil mark, INSIDE the box (DESIGN.md §4.1) ----
+     Two tiers, stated once here and never hand-rolled per component. Neither of them draws
+     anything outside the focused element's border box: a ring floating two pixels off a
+     control reaches over its neighbours and, in a popover row or a dense list, over the
+     container's own edge. A pencil mark does not.
+
+     The ground is an INSET SHADOW rather than a background-color, for two reasons: it
+     composites over whatever ground the element already carries (a primary button's accent,
+     a field's surface, a ghost button's nothing), and it never has to win a cascade fight
+     with a Tailwind `bg-*` utility, which sits in a later layer than anything here.
+
+     Mouse users still see nothing: `:focus-visible` is the browser's own heuristic, and
+     `:focus` is cleared above it. No transition is declared here; on a control that already
+     animates its colours the mark arrives with them, and reduced motion zeroes that as it
+     zeroes everything else. */
   :focus {
     outline: none;
   }
+
+  /* Tier 2 — everything else focusable: buttons, links, menu and list items, tabs, chips,
+     contents-rail entries. The hairline sits ON the element's edge. */
   :focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: var(--r-1);
+    outline: 1px solid var(--accent);
+    outline-offset: 0;
+    box-shadow:
+      inset 0 0 0 1px var(--accent-ink),
+      inset 0 0 0 100vmax var(--accent-tint);
+  }
+
+  /* The first of those two shadows is the companion hairline, and it is how a control whose
+     own ground IS the accent (the primary button, a checked Checkbox or Switch, the darkest
+     heatmap cell) still shows its focus: an accent line on an accent ground is invisible, and
+     `--accent-ink` is by definition the ink that reads on that ground (6.45:1 on Paper,
+     7.57:1 on Lightbox). Everywhere else it is the ground's own near-colour — 1.00–1.46:1
+     against bg / surface / raised, tinted or not, in both themes — so it disappears instead
+     of doubling the ring. One rule, and no per-component exception list to keep in sync. */
+
+  /* Tier 1 — text entry: the same mark moved one pixel further in, so a control that already
+     carries a border token shows one line and not two. A text field never has an accent
+     ground, so it drops the companion hairline. */
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  [contenteditable]:focus-visible {
+    outline-offset: -1px;
+    box-shadow: inset 0 0 0 100vmax var(--accent-tint);
+  }
+
+  /* A drawn field surface (TextField / SearchField / NumberField / the Steward composer) is
+     the control as far as the eye is concerned, so it owns the mark and the input inside it
+     shows none — otherwise focusing the field would draw two. */
+  .field-surface:focus-within {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+    box-shadow: inset 0 0 0 100vmax var(--accent-tint);
+  }
+  .field-surface :is(input, textarea, select, [contenteditable]):focus-visible {
+    outline: none;
+    box-shadow: none;
+  }
+
+  /* Autofill keeps its own opaque ground UNDER the tint: both are box-shadows, so they stack
+     in one declaration rather than one replacing the other. */
+  input:-webkit-autofill:focus {
+    box-shadow:
+      0 0 0 1000px var(--surface) inset,
+      inset 0 0 0 100vmax var(--accent-tint);
+  }
+
+  /* A Radix item highlighted by arrow key or pointer must read exactly as keyboard focus
+     does. Its accent-soft ground already IS the tint (Menu / Select draw it), so only the
+     hairline is added, and the tint is dropped so the two never stack into a stronger wash. */
+  [data-highlighted] {
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+    box-shadow: none;
   }
 
   /* ---- Thin, hairline scrollbars ---- */

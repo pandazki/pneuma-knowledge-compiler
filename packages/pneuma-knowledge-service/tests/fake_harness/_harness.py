@@ -29,6 +29,9 @@ running is read off the ARGV the bridge itself built, exactly as the real binari
 
     PKC_FAKE_COMMAND      the command the fake's one step reports having run
     PKC_FAKE_APPROVAL     ask for approval before the step, to exercise the decline path
+
+The interactive `codex` also writes one `{"turn_start": params}` line into `PKC_FAKE_LOG` per
+turn, so a test can read back the sandbox policy and the input items the bridge built.
 """
 
 from __future__ import annotations
@@ -104,6 +107,15 @@ def _log(argv: list[str], stdin_text: str) -> None:
         },
         "workdir_entries": sorted(p.name for p in Path.cwd().iterdir()),
     }
+    with open(target, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
+def _log_frame(record: dict) -> None:
+    """One extra line in the invocation log: what the bridge asked this process to do."""
+    target = os.environ.get("PKC_FAKE_LOG", "")
+    if not target:
+        return
     with open(target, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")
 
@@ -267,6 +279,9 @@ def _interactive_codex() -> int:
         elif method == "turn/start":
             turns += 1
             item = f"itm-{turns}"
+            # The turn's own params, so a test can read back what the bridge asked for —
+            # the sandbox policy, and the input items a pasted image became.
+            _log_frame({"turn_start": frame.get("params") or {}})
             _emit({"method": "turn/started", "params": {"turn": {"id": f"trn-{turns}"}}})
             if os.environ.get("PKC_FAKE_APPROVAL"):
                 _emit(
@@ -303,7 +318,31 @@ def _interactive_codex() -> int:
                     },
                 }
             )
-            _emit({"method": "item/agentMessage/delta", "params": {"delta": "two jobs"}})
+            # What Codex 0.154 really does with an answer: stream every delta under an item
+            # id, and then send the SAME text again on `item/completed`. A bridge that reads
+            # both renders the answer twice.
+            message = f"msg-{turns}"
+            _emit(
+                {
+                    "method": "item/started",
+                    "params": {"item": {"type": "agentMessage", "id": message, "text": ""}},
+                }
+            )
+            for part in ("two ", "jobs"):
+                _emit(
+                    {
+                        "method": "item/agentMessage/delta",
+                        "params": {"itemId": message, "delta": part},
+                    }
+                )
+            _emit(
+                {
+                    "method": "item/completed",
+                    "params": {
+                        "item": {"type": "agentMessage", "id": message, "text": "two jobs"}
+                    },
+                }
+            )
             last = {"inputTokens": 120, "outputTokens": 30, "totalTokens": 150}
             total = {
                 "inputTokens": total["inputTokens"] + last["inputTokens"],

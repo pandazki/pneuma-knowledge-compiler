@@ -45,7 +45,7 @@ Every colour lives in `src/styles/tokens.css` as CSS custom properties, mapped t
 | `--warn` | `#94650f` | a real warning state |
 | `--danger` | `#a03d2c` | a real error state |
 
-Derived shades come from `color-mix` over the variables above, never from a new hex: `--accent-soft` (accent 10% on bg, selected ground), `--accent-line` (accent 35%, selected border), `--hover` (ink 4%, as an overlay so it works over any ground), `--active` (ink 7%), and `--ok-soft` / `--warn-soft` / `--danger-soft` (10%).
+Derived shades come from `color-mix` over the variables above, never from a new hex: `--accent-soft` (accent 10% on bg, selected ground), `--accent-tint` (accent 10% on *transparent*, the focus ground — an overlay, so it lays over whatever ground the focused control already has), `--accent-line` (accent 35%, selected border), `--hover` (ink 4%, as an overlay so it works over any ground), `--active` (ink 7%), and `--ok-soft` / `--warn-soft` / `--danger-soft` (10%).
 
 ### 2.2 Colour · dark "Lightbox"
 
@@ -69,7 +69,7 @@ Not an inversion: the ground is warmer, the ink slightly desaturated, and the ha
 
 The dark derivations sit a few points higher than their light counterparts (12% for the soft grounds, ink 5%/9% for hover/active) because the same ratio reads weaker over a dark ground.
 
-Contrast (WCAG 2.2 AA): body and control text ≥ 4.5:1, large text and icons ≥ 3:1, the focus ring against its ground ≥ 3:1. Both accents were chosen at body-text contrast.
+Contrast (WCAG 2.2 AA): body and control text ≥ 4.5:1, large text and icons ≥ 3:1, the focus mark against its ground ≥ 3:1. Both accents were chosen at body-text contrast, so the hairline clears it with room: 5.4–6.7:1 on Paper and 5.2–7.6:1 on Lightbox, over bg / surface / raised, tinted or not. On an accent ground (the primary button, a checked box or switch) the mark is drawn in `--accent-ink` instead — 6.45:1 on Paper, 7.57:1 on Lightbox.
 
 ### 2.3 Type
 
@@ -141,7 +141,7 @@ Layers: `src/ui/` (primitives) → `src/components/` (composed, product-wide) �
 
 ### 4.1 Primitives (`src/ui/`)
 
-Every primitive is controlled, keyboard reachable, focus-visible through the global standard (2px accent outline + 2px offset — already in effect, don't hand-roll one), labelled (`aria-label` / description), carries the disabled / error / loading / empty states that apply to it, works in both themes and at 390px, and looks the same across the three engines. No native control appearance leaks through; `index.css` strips it globally (§6 rule 2).
+Every primitive is controlled, keyboard reachable, focus-visible through the global standard (**a pencil mark inside the box**: a 1px `--accent` hairline over a faint `--accent-tint` ground, on the element's own edge for ordinary controls and one pixel further in for text-entry surfaces, which carry `.field-surface` so the frame shows the mark and the input inside it shows none — stated once in `index.css`, already in effect, don't hand-roll one; nothing may reach outside the border box. The one deliberate exception is a Tabs content panel, which is focusable only so the keyboard can reach what it holds), labelled (`aria-label` / description), carries the disabled / error / loading / empty states that apply to it, works in both themes and at 390px, and looks the same across the three engines. No native control appearance leaks through; `index.css` strips it globally (§6 rule 2).
 
 Contracts worth stating beyond what the types say:
 

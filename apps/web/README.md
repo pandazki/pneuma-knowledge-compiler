@@ -36,6 +36,8 @@ The shell carries the tenant switcher, the snapshot picker (HEAD / frozen KB sna
 | Evolution | evolve (draft review: rationale, file diffs, dropped anchors, adopt/drop) |
 | Back matter | components (the design-system gallery) |
 
+The owner-only `steward` view is a chat with the coding agent that compiles the library: its prose streams as Markdown, and the composer takes images (paste, drop, or the attach button — png/jpeg/webp/gif, at most 4 per message and 5 MiB each), which travel with the message as data URLs and stay visible as thumbnails in the Owner's own bubble.
+
 ## Design rules
 
 The design authority is [`DESIGN.md`](DESIGN.md); its executable forms are two files — [`src/styles/tokens.css`](src/styles/tokens.css) (every color lives here; components use zero hex/rgb literals; derived shades via `color-mix` only) and [`src/index.css`](src/index.css) (prose typography, scroll-region conventions, native-control resets). The short version:

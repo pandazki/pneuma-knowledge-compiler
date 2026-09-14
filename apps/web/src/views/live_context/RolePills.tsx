@@ -108,7 +108,7 @@ export function RolePills({
         maxLength={16}
         placeholder={t("liveContext.roles.namePlaceholder")}
         aria-label={t("liveContext.roles.nameLabel")}
-        className="w-24 rounded-1 border border-accent-line bg-raised px-2 py-1 text-13 text-ink outline-none"
+        className="w-24 rounded-1 border border-accent-line bg-raised px-2 py-1 text-13 text-ink"
       />
       <IconButton size="sm" aria-label={t("liveContext.roles.confirm")} onMouseDown={(e) => e.preventDefault()} onClick={commit}>
         <Check size={13} aria-hidden />

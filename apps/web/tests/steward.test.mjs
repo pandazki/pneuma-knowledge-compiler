@@ -28,6 +28,9 @@ async function tsModuleUrl(url) {
 
 const {
   INVALIDATING,
+  MAX_IMAGES,
+  MAX_IMAGE_BYTES,
+  admitImages,
   clearInvalidations,
   emptyConversation,
   formatDuration,
@@ -35,6 +38,7 @@ const {
   ownerSaid,
   reduce,
   usageEntries,
+  willQueue,
 } = await import(await tsModuleUrl(new URL("../src/lib/steward.ts", import.meta.url)));
 
 const { VIEW_LENSES, isViewVisible, resolveView } = await import(
@@ -236,6 +240,82 @@ test("the Steward view is the owner's, and a visitor deep link lands in the read
   assert.equal(isViewVisible("steward", "silent"), false);
   assert.equal(resolveView("steward", "visitor"), "recall");
   assert.equal(resolveView("steward", "owner"), "steward");
+});
+
+test("the composer warns before the send, and the message carries the receipt after it", () => {
+  // Nothing typed, nothing in flight: no warning at all.
+  assert.equal(willQueue(emptyConversation(), ""), false);
+  const running = fold(TURN.slice(0, 2));
+  assert.equal(willQueue(running, "   "), false, "whitespace is not a message");
+  assert.equal(willQueue(running, "and the tender?"), true);
+  // The turn ended: what is typed now goes straight in.
+  assert.equal(willQueue(fold(TURN), "and the tender?"), false);
+  // An attachment with no text is a message too.
+  assert.equal(willQueue(running, "", 1), true);
+  assert.equal(willQueue(running, "", 0), false);
+  // A session that exited queues nothing — there is nothing to queue behind.
+  const exited = fold([...TURN.slice(0, 2), { type: "session_exited", exit_code: 0, detail: "" }]);
+  assert.equal(willQueue(exited, "hello", 2), false);
+});
+
+test("images travel with the Owner's own message and with nothing else", () => {
+  const picture = { name: "screen.png", mime: "image/png", dataUrl: "data:image/png;base64,AAA" };
+  const state = ownerSaid(emptyConversation(), "what is this?", [picture]);
+  const owner = state.items[0];
+  assert.deepEqual(owner.images, [picture]);
+  // The list is copied, not aliased: clearing the composer must not empty a sent message.
+  const held = [picture];
+  const sent = ownerSaid(emptyConversation(), "again", held);
+  held.length = 0;
+  assert.equal(sent.items[0].images.length, 1);
+  // A turn with no images says so with an empty list, never undefined.
+  assert.deepEqual(ownerSaid(emptyConversation(), "plain").items[0].images, []);
+});
+
+test("an image is admitted on its type, its size and how many are already held", () => {
+  const png = (name, size = 1024) => ({ name, mime: "image/png", size });
+
+  const plain = admitImages(0, [png("a.png"), png("b.png")]);
+  assert.deepEqual(plain, { accepted: [0, 1], rejected: [] });
+
+  // Type: a PDF dropped on the composer is refused BY NAME, never silently swallowed.
+  const typed = admitImages(0, [
+    png("ok.png"),
+    { name: "notes.pdf", mime: "application/pdf", size: 10 },
+    { name: "clip.mp4", mime: "video/mp4", size: 10 },
+  ]);
+  assert.deepEqual(typed.accepted, [0]);
+  assert.deepEqual(typed.rejected, [
+    { name: "notes.pdf", reason: "type" },
+    { name: "clip.mp4", reason: "type" },
+  ]);
+
+  // Size: the boundary is admissible, one byte past it is not.
+  assert.deepEqual(admitImages(0, [png("edge.png", MAX_IMAGE_BYTES)]).accepted, [0]);
+  assert.deepEqual(admitImages(0, [png("big.png", MAX_IMAGE_BYTES + 1)]).rejected, [
+    { name: "big.png", reason: "size" },
+  ]);
+
+  // Count: four per message, counting the ones already attached.
+  const full = admitImages(MAX_IMAGES, [png("fifth.png")]);
+  assert.deepEqual(full.accepted, []);
+  assert.deepEqual(full.rejected, [{ name: "fifth.png", reason: "count" }]);
+  const partial = admitImages(3, [png("c.png"), png("d.png")]);
+  assert.deepEqual(partial.accepted, [0]);
+  assert.deepEqual(partial.rejected, [{ name: "d.png", reason: "count" }]);
+
+  // A refused file never takes a slot from the ones that follow it.
+  const mixed = admitImages(2, [
+    { name: "notes.pdf", mime: "application/pdf", size: 10 },
+    png("c.png"),
+    png("d.png"),
+    png("e.png"),
+  ]);
+  assert.deepEqual(mixed.accepted, [1, 2]);
+  assert.deepEqual(mixed.rejected, [
+    { name: "notes.pdf", reason: "type" },
+    { name: "e.png", reason: "count" },
+  ]);
 });
 
 test("a duration reads in the unit a person reads it in", () => {

@@ -45,7 +45,7 @@
 | `--warn` | `#94650f` | 真实警告状态 |
 | `--danger` | `#a03d2c` | 真实错误状态 |
 
-派生色一律由上表变量 `color-mix` 得到，绝不新写 hex：`--accent-soft`（accent 10% on bg，选中底）、`--accent-line`（accent 35%，选中边）、`--hover`（ink 4%，做成叠加层因此在任何底色上都成立）、`--active`（ink 7%），以及 `--ok-soft` / `--warn-soft` / `--danger-soft`（10%）。
+派生色一律由上表变量 `color-mix` 得到，绝不新写 hex：`--accent-soft`（accent 10% on bg，选中底）、`--accent-tint`（accent 10% on *transparent*，focus 底——做成叠加层，因此盖在受焦控件原本的任何底色之上）、`--accent-line`（accent 35%，选中边）、`--hover`（ink 4%，做成叠加层因此在任何底色上都成立）、`--active`（ink 7%），以及 `--ok-soft` / `--warn-soft` / `--danger-soft`（10%）。
 
 ### 2.2 颜色 · 夜间「灯箱 Lightbox」
 
@@ -69,7 +69,7 @@
 
 夜间的派生比例比日间高几个点（soft 底 12%，hover / active 用 ink 5% / 9%），因为同样的比例在深底上读起来更弱。
 
-对比度（WCAG 2.2 AA）：正文与控件文字 ≥ 4.5:1，大字与图标 ≥ 3:1，focus 环与其底 ≥ 3:1。两个 accent 都按正文级对比度选取。
+对比度（WCAG 2.2 AA）：正文与控件文字 ≥ 4.5:1，大字与图标 ≥ 3:1，focus 标记与其底 ≥ 3:1。两个 accent 都按正文级对比度选取，因此这条发丝线留有余量：日间 5.4–6.7:1、夜间 5.2–7.6:1（在 bg / surface / raised 上，加不加 tint 都成立）。当控件自身的底就是 accent（primary 按钮、勾选的 Checkbox / Switch）时，标记改用 `--accent-ink` 画——日间 6.45:1，夜间 7.57:1。
 
 ### 2.3 字体与字号
 
@@ -141,7 +141,7 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：12 个视图加 selectio
 
 ### 4.1 Primitives（`src/ui/`）
 
-每个 primitive 都受控、键盘可达、focus 走全局规范（accent 2px outline + 2px offset，已全局生效，不要自造）、有 label（`aria-label` / description）、带上适用于它的 disabled / error / loading / empty 状态、双主题成立、390px 可用、三引擎外观一致。原生控件外观不外泄；`index.css` 已全局剥除（§6 规则 2）。
+每个 primitive 都受控、键盘可达、focus 走全局规范（**一道画在框内的铅笔印**：1px `--accent` 发丝线压在一层很淡的 `--accent-tint` 底上，普通控件画在自身边缘、文本输入面再向内一像素；输入面挂 `.field-surface`，由外框显示标记、里面的 input 不再画第二道——规范只写在 `index.css` 一处，已全局生效，不要自造；任何情况下都不得越出 border box。唯一的刻意例外是 Tabs 的内容面板，它可聚焦只是为了让键盘够到里面的东西）、有 label（`aria-label` / description）、带上适用于它的 disabled / error / loading / empty 状态、双主题成立、390px 可用、三引擎外观一致。原生控件外观不外泄；`index.css` 已全局剥除（§6 规则 2）。
 
 值得在类型之外说清的契约：
 

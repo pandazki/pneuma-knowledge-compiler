@@ -51,7 +51,7 @@ export function Menu({
                 disabled={item.disabled}
                 onSelect={item.onSelect}
                 className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-1 px-2.5 py-1.5 text-13 outline-none select-none",
+                  "flex cursor-pointer items-center gap-2 rounded-1 px-2.5 py-1.5 text-13 select-none",
                   item.danger ? "text-danger" : "text-ink",
                   "data-[highlighted]:bg-accent-soft",
                   "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45",

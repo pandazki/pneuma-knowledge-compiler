@@ -244,7 +244,7 @@ export function SchemaAxisPanel({
                         name: label.name,
                         description: label.description,
                       })}
-                      className="inline-flex rounded-1 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1"
+                      className="inline-flex rounded-1"
                     >
                       <Badge
                         tone={label.tier === "solid" ? "accent" : "neutral"}

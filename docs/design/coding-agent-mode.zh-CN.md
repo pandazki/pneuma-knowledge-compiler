@@ -638,6 +638,23 @@ agent 没做的，也不隐藏它做了的。断开的标签页让 harness 会�
   因为没有人在看；这里所有者盯着每一条命令，而 harness 需要 `AGENTS.md` / `CLAUDE.md` 和装好的
   技能包，它们都在项目里。`PNEUMA_KNOWLEDGE_PROJECT_DIR` 点名它，默认就是 API 自己的工作目录。
 
+**控制台会话需要、而无人值守轮次早已有的三件事。** workspace-write 沙箱默认**禁网**，而 Steward
+唯一的那只手是 `pkc`，`pkc` 要连 Postgres、Qdrant 与 Meilisearch——于是一场不开网的交互式会话对
+任何问题都只会回一个沙箱错误，而旁边的无人值守轮次照常工作。Codex 的 app-server 对此有两种拼法，
+适配器由同一个常量派生二者：`thread/start` 只收 `SandboxMode` 枚举，网络访问因此走 `config` 覆盖
+表（`sandbox_workspace_write.network_access`），与 CLI 上的 `-c` 是同一条路；`turn/start` 收的是
+完整的 `SandboxPolicy` 对象，`networkAccess` 直接写在里面。同一段回答在这条线上会来两次、只渲染
+一次：Codex 先流式发出每一条 `item/agentMessage/delta`，随后在 `item/completed` 上把整段文本再说
+一遍——因此「完成项」只对那些从未收到过 delta 的 item id 有权威性，收到过 delta 的，只补发 delta
+没覆盖到的尾巴；判据按 item id 记，因为桥每读一次就清空自己的事件缓冲，记不住「曾经来过一条
+delta」。图片是回合的一部分：socket 的 `user` 帧接受可选的 `images` 列表（最多 4 张，解码后每张
+最多 5 MiB，`image/png|jpeg|webp|gif`，每张是 `data:<mime>;base64,…`），不合规者具名拒绝，既不
+截断也不静默丢弃。每张解码进会话**自己**那个 config home 下的 `attachments/`——会话结束时整个目录
+被删掉——文件名由框架自己取，所以所有者给的文件名永远不会变成一条路径；Codex 收到的是指向该路径的
+`localImage` 项，Claude Code 收到的是同一批字节的 base64 图片块。记录里，所有者的文本与有界的附件
+备注（`[image: shot.png, 12608 bytes]`）分**两个字段**存放：`pkc owner say` 只能引用文本那一半，
+因为备注是框架写的句子。
+
 逐字校验（裁定 13）：桥接会话里的 `pkc owner say` 通过桥设置的环境变量拿到会话 id，向桥索取所有者
 回合，拒绝任何不是其中之一的子串（空白归一后）的文本。桥之外——终端会话——该命令没有 transcript
 可对，skill 里写明；陈述仍是来源、有引用、有日期，库的诚实不依赖这项校验，只有"这是所有者的话"

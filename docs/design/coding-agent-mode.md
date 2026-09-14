@@ -810,6 +810,29 @@ never silently restarted into a fresh session.
   which are in the project. `PNEUMA_KNOWLEDGE_PROJECT_DIR` names it, defaulting to the API's
   own working directory.
 
+**What the console session needs that a headless round already had.** A workspace-write
+sandbox is network-RESTRICTED by default, and the Steward's one hand is `pkc`, which opens
+Postgres, Qdrant and Meilisearch — so an interactive session without network access answers
+every question with a sandbox error while the headless rounds beside it work. Codex's
+app-server says it in two spellings and the adapter derives both from one constant:
+`thread/start` takes only the `SandboxMode` enum, so network access rides the `config`
+override map (`sandbox_workspace_write.network_access`) exactly as `-c` carries it on the
+CLI, while `turn/start` takes the whole `SandboxPolicy` object and states `networkAccess`
+inside it. The answer arrives twice on that wire and is rendered once: Codex streams every
+`item/agentMessage/delta` and then repeats the whole message text on `item/completed`, so the
+completed item is authoritative only for an item id no delta arrived for, and where deltas did
+arrive only the tail they did not cover is emitted — tracked per item id, because the bridge
+drains its events after every read and cannot remember "a delta arrived once". Images are part
+of a turn: the socket's `user` frame takes an optional `images` list (at most four, at most
+5 MiB each after decoding, `image/png|jpeg|webp|gif`, each a `data:<mime>;base64,…` URL),
+refused by name rather than truncated or dropped. Each is decoded into `attachments/` inside
+the session's OWN config home — removed whole when the session closes — under a filename this
+framework chose, so an Owner's filename is never a path; Codex is handed a `localImage` item
+naming that path and Claude Code the same bytes as a base64 image block. The transcript
+records the Owner's text and the bounded attachment note (`[image: shot.png, 12608 bytes]`)
+in SEPARATE fields: only the text is what `pkc owner say` may quote, because the note is a
+sentence this framework wrote.
+
 The verbatim check (ruling 13): `pkc owner say` in a bridged session receives the session id
 through the environment the bridge sets, asks the bridge for the Owner turns, and refuses a
 text that is not a substring of one of them, whitespace-normalized. Outside a bridge — a

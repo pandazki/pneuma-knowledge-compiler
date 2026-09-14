@@ -22,6 +22,7 @@ from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_service.coding_agent.backends import CLAUDE_CODE, CODEX
 from pneuma_knowledge_service.coding_agent.launcher import BACKEND_ENV
 from pneuma_knowledge_service.coding_agent.steward_session import (
+    CONFIG_HOME_PREFIX,
     StewardSession,
     StewardSessions,
 )
@@ -378,3 +379,109 @@ async def test_a_harness_that_will_not_start_is_reported_as_an_exit(fake_path, m
         assert session.live is False
     finally:
         await registry.aclose()
+
+
+# ── a turn that carries images ─────────────────────────────────────────────────────────────
+
+
+def png(byte: int = 1) -> bytes:
+    return b"\x89PNG\r\n\x1a\n" + bytes([byte]) * 16
+
+
+async def test_a_turns_images_land_in_the_sessions_own_directory_and_die_with_it():
+    """Never a shared temp: the files are written inside the config home this session made,
+    and `close` drops that directory whole."""
+    from pneuma_knowledge_service.coding_agent.steward_turns import StewardImage
+
+    process = StubProcess()
+    session = await open_stub(process)
+    await codex_thread(session, process)
+    await session.send_user_turn(
+        "what do you make of this?",
+        [StewardImage(name="screenshot.png", mime="image/png", data=png())],
+    )
+    await settle()
+
+    directory = session.attachments_dir()
+    written = sorted(directory.iterdir())
+    assert [p.name for p in written] == ["image-0.png"]
+    assert written[0].read_bytes() == png()
+    # Inside the config home this session made — per session, per Owner, never shared.
+    assert directory.parent == Path(process.kwargs["env"]["CODEX_HOME"])
+    assert directory.parent.name.startswith(CONFIG_HOME_PREFIX)
+
+    turn = [f for f in process.sent() if f.get("method") == "turn/start"][-1]
+    assert turn["params"]["input"] == [
+        {"type": "localImage", "path": str(written[0])},
+        {"type": "text", "text": "what do you make of this?"},
+    ]
+
+    await session.close()
+    assert not directory.exists()
+
+
+async def test_the_attachment_note_sits_beside_the_owners_words_never_inside_them():
+    """Ruling 13 in the presence of images: `[image: …]` is the framework's sentence, so it
+    must not become quotable as something the Owner said."""
+    from pneuma_knowledge_service.coding_agent.steward_turns import StewardImage, is_verbatim
+
+    process = StubProcess()
+    session = await open_stub(process)
+    try:
+        await codex_thread(session, process)
+        await session.send_user_turn(
+            "Li left the supplier in June",
+            [StewardImage(name="proof.png", mime="image/png", data=png())],
+        )
+        await settle()
+
+        turns = await session.turns.list(USER, session.session_id)
+        assert turns == ["Li left the supplier in June"]  # the text, and only the text
+        notes = await session.turns.attachments(USER, session.session_id)
+        assert notes == [f"[image: proof.png, {len(png())} bytes]"]
+
+        # The Owner's sentence still quotes; the note this framework wrote never does.
+        assert is_verbatim("Li left the supplier", turns) is True
+        assert is_verbatim("[image: proof.png", turns) is False
+    finally:
+        await session.close()
+
+
+async def test_a_harness_that_takes_no_images_refuses_rather_than_dropping_them():
+    from pneuma_knowledge_service.coding_agent.steward_turns import StewardImage
+
+    process = StubProcess()
+    session = await open_stub(process)
+    try:
+        await codex_thread(session, process)
+        session.adapter.accepts_images = False
+        with pytest.raises(ValueError, match="no images"):
+            await session.send_user_turn(
+                "look", [StewardImage(name="a.png", mime="image/png", data=png())]
+            )
+        # Refused BEFORE anything was recorded: a turn nobody could take is not a turn.
+        assert await session.turns.list(USER, session.session_id) == []
+    finally:
+        await session.close()
+
+
+async def test_images_queued_behind_a_running_turn_arrive_with_their_turn():
+    from pneuma_knowledge_service.coding_agent.steward_turns import StewardImage
+
+    process = StubProcess()
+    session = await open_stub(process)
+    try:
+        await codex_thread(session, process)
+        await session.send_user_turn("first")
+        await settle()
+        queued = await session.send_user_turn(
+            "second", [StewardImage(name="b.png", mime="image/png", data=png(2))]
+        )
+        assert queued is True
+
+        process.say({"method": "turn/completed", "params": {"turn": {"status": "completed"}}})
+        await settle()
+        turns = [f for f in process.sent() if f.get("method") == "turn/start"]
+        assert [i["type"] for i in turns[-1]["params"]["input"]] == ["localImage", "text"]
+    finally:
+        await session.close()

@@ -24,7 +24,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, ChevronRight, Plug, RotateCcw, Send, Terminal } from "lucide-react";
+import { Bot, ChevronRight, Plug, RotateCcw, Terminal } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useT } from "@/lib/useT";
 import {
@@ -40,8 +40,10 @@ import {
   ownerSaid,
   reduce,
   usageEntries,
+  willQueue,
   type StepItem,
   type StewardFrame,
+  type StewardImage,
   type StewardItem,
   type StewardState,
 } from "@/lib/steward";
@@ -50,9 +52,11 @@ import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
 import { EmptyState } from "@/ui/EmptyState";
+import { Dialog } from "@/ui/Dialog";
 import { Mono } from "@/ui/Mono";
 import { ScrollRegion } from "@/ui/ScrollRegion";
-import { TextArea } from "@/ui/TextArea";
+import { StewardComposer } from "./StewardComposer";
+import { StewardMarkdown } from "./StewardMarkdown";
 
 export default function StewardView() {
   const t = useT();
@@ -64,6 +68,8 @@ export default function StewardView() {
   const [socketState, setSocketState] = useState<LiveContextSocketStatus>("connecting");
   const [conversation, setConversation] = useState<StewardState>(emptyConversation);
   const [draft, setDraft] = useState("");
+  const [images, setImages] = useState<StewardImage[]>([]);
+  const [zoomed, setZoomed] = useState<StewardImage | null>(null);
   const socketRef = useRef<StewardSocket | null>(null);
   const tailRef = useRef<HTMLDivElement | null>(null);
 
@@ -109,15 +115,17 @@ export default function StewardView() {
 
   const send = useCallback(() => {
     const text = draft.trim();
-    if (!text || !socketRef.current) return;
-    socketRef.current.say(text);
-    setConversation((c) => ownerSaid(c, text));
+    if ((!text && images.length === 0) || !socketRef.current) return;
+    socketRef.current.say(text, images);
+    setConversation((c) => ownerSaid(c, text, images));
     setDraft("");
-  }, [draft]);
+    setImages([]);
+  }, [draft, images]);
 
   const restart = useCallback(() => {
     socketRef.current?.startAgain();
     setConversation(emptyConversation());
+    setImages([]);
   }, []);
 
   const endSession = useCallback(() => {
@@ -197,9 +205,14 @@ export default function StewardView() {
         <ol className="flex flex-col gap-3 pr-2">
           {conversation.items.map((item) => (
             <li key={item.id}>
-              <ConversationItem item={item} />
+              <ConversationItem item={item} onZoomImage={setZoomed} />
             </li>
           ))}
+          {conversation.busy && !conversation.exited && (
+            <li>
+              <WorkingNote />
+            </li>
+          )}
         </ol>
         {conversation.exited && (
           <Callout tone="warn" title={t("steward.exited.title")} className="mt-4">
@@ -215,54 +228,95 @@ export default function StewardView() {
         <div ref={tailRef} />
       </ScrollRegion>
       <div className="mt-3 border-t border-line pt-3">
-        {conversation.busy && (
-          <p className="mb-1 text-12 text-ink-3">{t("steward.compose.busy")}</p>
-        )}
-        <div className="flex items-end gap-2">
-          <TextArea
-            autoRows
-            maxRows={6}
-            rows={2}
-            value={draft}
-            disabled={conversation.exited}
-            placeholder={t("steward.compose.placeholder")}
-            hint={t("steward.compose.hint")}
-            wrapperClassName="flex-1"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-          />
-          <Button
-            variant="primary"
-            disabled={conversation.exited || draft.trim() === ""}
-            onClick={send}
-          >
-            <Send size={14} aria-hidden />
-            {t("steward.compose.send")}
-          </Button>
-        </div>
+        <StewardComposer
+          draft={draft}
+          onDraftChange={setDraft}
+          images={images}
+          onImagesChange={setImages}
+          onSend={send}
+          disabled={conversation.exited}
+          queueing={willQueue(conversation, draft, images.length)}
+          working={conversation.busy}
+        />
       </div>
+      <Dialog
+        open={zoomed != null}
+        onOpenChange={(open) => !open && setZoomed(null)}
+        title={zoomed?.name ?? ""}
+        contentClassName="max-w-3xl"
+      >
+        {zoomed != null && (
+          <img
+            src={zoomed.dataUrl}
+            alt={zoomed.name}
+            className="max-h-[70vh] w-full rounded-2 border border-line object-contain"
+          />
+        )}
+      </Dialog>
     </div>
   );
 }
 
-function ConversationItem({ item }: { item: StewardItem }) {
+/**
+ * The turn in flight, said on the Steward's own side of the page.
+ *
+ * It sits where the next sentence will appear, because that is the thing being waited for.
+ * The dot's pulse collapses to nothing under prefers-reduced-motion (index.css, hard rule 9).
+ */
+function WorkingNote() {
+  const t = useT();
+  return (
+    <p className="flex items-center gap-2 text-12 text-ink-3" aria-live="polite">
+      <span
+        aria-hidden
+        className="size-1.5 shrink-0 animate-pulse rounded-full bg-accent"
+      />
+      {t("steward.compose.working")}
+    </p>
+  );
+}
+
+function ConversationItem({
+  item,
+  onZoomImage,
+}: {
+  item: StewardItem;
+  onZoomImage: (image: StewardImage) => void;
+}) {
   const t = useT();
   if (item.kind === "owner") {
     return (
       <div className="rounded-2 border border-accent-line bg-accent-soft px-3 py-2">
         <p className="text-12 font-medium text-accent">{t("steward.item.owner")}</p>
-        <p className="whitespace-pre-wrap text-14 text-ink">{item.text}</p>
+        {/* The Owner's words, verbatim: plain text with the line breaks kept. */}
+        {item.text !== "" && <p className="whitespace-pre-wrap text-14 text-ink">{item.text}</p>}
+        {item.images.length > 0 && (
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {item.images.map((image, index) => (
+              <li key={`${image.name}:${index}`}>
+                <button
+                  type="button"
+                  title={image.name}
+                  aria-label={t("steward.item.openImage", { name: image.name })}
+                  onClick={() => onZoomImage(image)}
+                  className="block rounded-2"
+                >
+                  <img
+                    src={image.dataUrl}
+                    alt={image.name}
+                    className="size-16 rounded-2 border border-accent-line object-cover"
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         {item.queued && <p className="mt-1 text-12 text-ink-3">{t("steward.item.queued")}</p>}
       </div>
     );
   }
   if (item.kind === "text") {
-    return <p className="whitespace-pre-wrap text-14 text-ink">{item.text}</p>;
+    return <StewardMarkdown text={item.text} />;
   }
   if (item.kind === "usage") {
     const entries = usageEntries(item.usage);
