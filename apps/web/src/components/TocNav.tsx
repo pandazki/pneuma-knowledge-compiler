@@ -70,7 +70,7 @@ export const TOC: TocGroup[] = [
     group: "nav.group.canon",
     items: [
       { view: "library", no: "09", label: "nav.view.library" },
-      { view: "graph", no: "10", label: "nav.view.graph" },
+      { view: "lens", no: "10", label: "nav.view.lens" },
       { view: "history", no: "11", label: "nav.view.history" },
     ],
   },

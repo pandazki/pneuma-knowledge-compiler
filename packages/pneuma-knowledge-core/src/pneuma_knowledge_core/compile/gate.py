@@ -27,6 +27,11 @@ repair round by the runner):
    anchor placeholder, anywhere before a block's trailing system markers. Judged for the
    pages this round CHANGED: a legacy page nobody touched keeps its bytes (the only channel
    that could repair it is a compile that is writing it anyway).
+4f. a `# ` heading NAMES the page and therefore stands at the top of its body or nowhere;
+   a heading further down used to rename the page silently (docs/design/structure-lens.md
+   §6). Judged for the pages this round changed, volumes exempt, like 4e.
+4g. two LIVE pages in one directory may not answer to one name (`retitle` is what can now
+   produce that). Judged for the pages this round touched.
 4c. the OVERVIEW region — bounded in size, grounded in the ledger, four slots and no others
    (compile/overview.py). Every declared reference must resolve to a ledger anchor.
    Rewritten regions are fully checked; unchanged regions must retain every reference
@@ -73,6 +78,7 @@ from ..prompts import prompt
 from ..components import registered_components
 from .anchor_ops import (
     anchored_blocks,
+    heading_lines,
     missing_anchors,
     text_machinery_problems,
     unanchored_blocks,
@@ -160,6 +166,13 @@ VIOLATION_KINDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("owner_voice", ("gate.owner_voice", "gate.owner_voice_unresolved")),
     ("anchor_coverage", ("gate.anchor_coverage",)),
     ("claim_text", ("gate.claim_text_machinery",)),
+    # A page is named by the heading at the TOP of its body. A `# ` line anywhere else used
+    # to rename it silently, in every outline, glance and card
+    # (docs/design/structure-lens.md §6).
+    ("heading_in_block", ("gate.heading_in_block",)),
+    # …and the other half of the same concern: two live pages in one directory answering to
+    # one name, which `retitle` can now produce and nothing else could.
+    ("title_sibling_collision", ("gate.title_sibling_collision",)),
     (
         "overview",
         (
@@ -357,6 +370,102 @@ def check_claim_text_machinery(
                     prompt("gate.claim_text_machinery", found=found, preview=preview),
                 )
             )
+    return violations
+
+
+def check_heading_in_block(
+    docs: Mapping[str, object],
+    base_bodies: Mapping[str, str],
+    *,
+    path_templates: Sequence[str] = (),
+) -> list[Violation]:
+    """A `# ` heading stands at the TOP of a body or nowhere — the final arbiter behind the
+    write faces' `refuse_heading_in_block`.
+
+    A page's name is derived from its leading heading (`compile.documents.derived_title`), so
+    a `# ` line further down is a second name written into the middle of the page. Before the
+    derivation was narrowed, that line WAS the name: an append could rename a subject with
+    nothing in the diff saying so.
+
+    Judged for the pages this round CHANGED, and only for the headings this round
+    INTRODUCED — a heading the base body already carried is grandfathered, exactly as a
+    citation carried over verbatim is. That limit is not leniency, it is the absence of a
+    corrective action: a `# ` line is a HEADING to the block walker, so it belongs to no
+    claim, no `edit_claim` can reach it and no write verb can delete it. Refusing a page for
+    a line nothing can remove would be a deadlock, and what the existing instances are for is
+    the lens's `form.stray_heading`, which lists them for a repair the Owner decides on.
+
+    Closed volumes are exempt for the reason they are exempt from 4e: no write verb reaches
+    one at all.
+    """
+    violations: list[Violation] = []
+    for path, doc in docs.items():
+        base = base_bodies.get(path)
+        if base is not None and doc.body == base:
+            continue
+        if history_volume_owner(path, list(path_templates)) is not None:
+            continue
+        carried = {heading for _, heading in heading_lines(base or "")}
+        lines = doc.body.split("\n")
+        first = next((n for n, line in enumerate(lines, start=1) if line.strip()), 0)
+        for line_number, heading in heading_lines(doc.body):
+            if line_number == first or heading in carried:
+                continue
+            violations.append(
+                Violation(
+                    "heading_in_block",
+                    path,
+                    prompt("gate.heading_in_block", heading=heading),
+                )
+            )
+    return violations
+
+
+def check_title_siblings(
+    docs: Mapping[str, object], base_docs: Mapping[str, object]
+) -> list[Violation]:
+    """No two LIVE pages in one directory answer to one name.
+
+    The companion rule to the archive's title shadowing, over the live tree: `retitle` can
+    give a page any name, and the name that would be worst is the one its neighbour already
+    has — a reader and a citation then have no way to tell the two apart, which is exactly
+    the `id.title_duplicate` finding the lens reports about libraries that already did it.
+
+    "Sibling" is the immediate directory and nothing cleverer: it is the one grouping every
+    path has, it needs no contract to state it, and it is the grouping a person reading a
+    file tree sees. Judged for the pages this round TOUCHED, so a collision two legacy pages
+    have carried for months does not abort a compile that never looked at either.
+    """
+    violations: list[Violation] = []
+    live = {
+        path: doc
+        for path, doc in docs.items()
+        if not is_archived_path(path) and not is_archive_record(doc)
+    }
+    by_directory: dict[str, list[str]] = {}
+    for path in live:
+        by_directory.setdefault(path.rsplit("/", 1)[0] if "/" in path else "", []).append(path)
+    for path, doc in sorted(live.items()):
+        if not touched_this_round(doc, base_docs.get(path)):
+            continue
+        title = document_title(doc)
+        key = normalize_title(title)
+        if not key:
+            continue
+        directory = path.rsplit("/", 1)[0] if "/" in path else ""
+        for other in sorted(by_directory.get(directory, [])):
+            if other == path:
+                continue
+            if normalize_title(document_title(live[other])) != key:
+                continue
+            violations.append(
+                Violation(
+                    "title_sibling_collision",
+                    path,
+                    prompt("gate.title_sibling_collision", title=title, other=other),
+                )
+            )
+            break
     return violations
 
 
@@ -865,6 +974,16 @@ def run_gate(
             docs, base_bodies, path_templates=draft.path_templates
         )
     )
+
+    # 4f. a `# ` heading names the page and stands at the top of it, or it is a second name
+    # written into the middle of one. The write faces refuse a new one; this is the arbiter
+    # over the produced draft, on the same changed-pages terms as 4e.
+    violations.extend(
+        check_heading_in_block(docs, base_bodies, path_templates=draft.path_templates)
+    )
+
+    # 4g. …and the same concern between pages: two live siblings under one name.
+    violations.extend(check_title_siblings(docs, draft.base_documents()))
 
     # 4c. the OVERVIEW region: bounded, grounded in the ledger, four slots. The pure judgement
     # lives in compile/overview.py; the gate owns the Violation type, so it wraps the findings

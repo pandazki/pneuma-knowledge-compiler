@@ -3177,6 +3177,20 @@ DEFAULTS: dict[str, str] = {
         "a character budget — it may drop pages and says how many. Use it to choose "
         "subjects when the outline is long; for the whole library, `outline`."
     ),
+    "steward.cli.lens": (
+        "The structure lens: a model-free reading of the library's SHAPE rather than its "
+        "contents — the counts, a score, and findings each carrying its evidence, what it "
+        "costs a reader or a retrieval, and one recommended action. A reading and not a "
+        "verdict: nothing it says is enforced anywhere, and nothing calls it for you."
+    ),
+    "steward.cli.lens_path": (
+        "report only the findings this page answers for (a closed volume is answered for "
+        "by its open page)"
+    ),
+    "steward.cli.lens_at": (
+        "read the library at this canonical ref — a commit, a tag, a frozen snapshot — "
+        "instead of HEAD"
+    ),
     "steward.skill.consume": """## Reading the library
 
 At session start, `pkc outline` is the first command: the complete map, in seconds, every
@@ -3532,5 +3546,254 @@ The task follows.
         "## The components enabled here\n\n"
         "Each of these judges the documents of the family it binds to, on its own terms, and "
         "its findings arrive in the same list."
+    ),
+    # ════════════════════════════════════ what the write face refuses from now on (§6)
+    #
+    # Three mechanical faults a real library accumulated and no prompt line ever prevented:
+    # a `# ` heading typed inside a claim (which silently renamed the page), a body whose
+    # line breaks arrived as the two characters `\n`, and a single line long enough to be a
+    # whole document. Each is refused where the round can still fix it, in the same words
+    # the gate would use behind it.
+    "compile.anchor.heading_in_block": (
+        "{op} rejected: a `# ` line is the page's NAME, and the text you submitted carries one "
+        "(『{heading}』). A page is named by the heading at the very top of its body — nowhere "
+        "else — so this one would silently rename the page from the middle of it. Write the "
+        "line as ordinary prose or as a `## ` section heading, and change a page's name with "
+        "retitle."
+    ),
+    "compile.anchor.escaped_newlines": (
+        "{op} rejected: the text carries {count} literal `\\n` sequences and not one real line "
+        "break, so it would be stored as a single run of characters rather than as lines. Send "
+        "real newlines; if those were meant as separate claims, submit them as separate calls, "
+        "one claim each."
+    ),
+    "compile.anchor.long_line": (
+        "{op} rejected: the text has a line of {chars} characters and the limit is {limit}. A "
+        "line that long is a body that lost its line breaks, not a claim: break it into lines, "
+        "and into one block per claim."
+    ),
+    "gate.heading_in_block": (
+        "a `# ` heading (『{heading}』) stands inside this document's body rather than at the "
+        "top of it, so the page is named from the middle of itself. Remove it — write the line "
+        "as prose or as a `## ` section — and name the page with retitle."
+    ),
+    "gate.title_sibling_collision": (
+        "『{title}』 is already the name of `{other}`, a live page in the same directory. One "
+        "name over two pages cannot be told apart by a reader or by a citation; give this page "
+        "a name of its own."
+    ),
+    "compile.patch.retitle_empty": (
+        "retitle rejected: a title cannot be empty. A page's name is the heading at the top of "
+        "it, so give `{path}` a name that says what it is about."
+    ),
+    "compile.tool.retitle": (
+        "Rename a page: rewrite its leading `# ` heading — inserting one when the page has "
+        "none — so a page that took the wrong name can be given the right one without touching "
+        "a claim. The frontmatter `title` follows the heading by itself. Closed volumes, "
+        "archived paths and archive records are refused, as is a name an archived subject "
+        "already carries or a name a live page in the same directory already has."
+    ),
+    "compile.tool.retitle_result": "retitle: `{path}` is now titled 『{title}』.",
+    # A closed volume has no name of its own on any read face: it is a volume OF a page, and
+    # its filename (`a02`) names nothing. Every face that labels a document reads this.
+    "canonical.volume_label": "{title} · vol. {volume}",
+    # ══════════════════════════════════════════════════ the structure lens (§4 of its design)
+    #
+    # Two sentences per lens: what the finding COSTS, and what to DO about it, the second
+    # addressed to the finding's actor — the Steward for a drift, the Owner for a principle,
+    # the mechanism for a shape fault the write face now refuses. They are catalog keys and
+    # not sentences inside the lens because the same finding is read in a terminal, in a
+    # console and in another language, and three renderings of one key cannot disagree.
+    "lens.nav.dead_end.impact": (
+        "{count} subjects — {share} of the library — link to nothing, so a reader who arrives "
+        "at any of them has no next hop and everything beside them is unreachable from there."
+    ),
+    "lens.nav.dead_end.action": (
+        "Work through those {count} pages as ordinary rounds reach them: link each to the "
+        "subjects its own claims already depend on, from the overview's connections or from "
+        "the claim that names them."
+    ),
+    "lens.nav.arrival_blind.impact": (
+        "Nothing in the library links to {count} of its subjects — {share} of them — so "
+        "everything those pages hold is reachable only by a search that already knows the name."
+    ),
+    "lens.nav.arrival_blind.action": (
+        "Give each of those {count} pages one page a reader would arrive from: its project's "
+        "overview, or the subject its claims belong beside."
+    ),
+    "lens.nav.dead_link.impact": (
+        "`{path}` links to `{target}`, which no document has, so the hop a reader takes from "
+        "it ends nowhere."
+    ),
+    "lens.nav.dead_link.action": (
+        "The gate refuses a new link to a page that does not exist; repair this one by "
+        "pointing `{href}` at a page that does, or by creating `{target}`."
+    ),
+    "lens.nav.hub_incomplete.impact": (
+        "The overview `{path}` does not reach {count} of its own project's pages, so a reader "
+        "who starts at the hub never learns that they exist."
+    ),
+    "lens.nav.hub_incomplete.action": (
+        "Add connections from 『{title}』 to {targets}."
+    ),
+    "lens.nav.chronology_unlinked.impact": (
+        "`{path}` records dated turns without reaching any of the {count} feature or decision "
+        "pages that explain them, so a reader learns that something changed and never why."
+    ),
+    "lens.nav.chronology_unlinked.action": (
+        "Link each dated section of 『{title}』 to the page that explains it: {targets}."
+    ),
+    "lens.nav.decision_unlinked.impact": (
+        "The decision `{path}` links to nothing it affects, so the subjects it constrains "
+        "carry no trace of it."
+    ),
+    "lens.nav.decision_unlinked.action": (
+        "Link 『{title}』 to the feature, project or subject the decision applies to."
+    ),
+    "lens.nav.mention_unlinked.impact": (
+        "`{path}` names 『{mention}』 {count} times and never links it, so a reader holding "
+        "this page cannot reach the page that defines it."
+    ),
+    "lens.nav.mention_unlinked.action": (
+        "Link 『{mention}』 (`{target}`) from the claims of 『{title}』 that name it, or from "
+        "its connections."
+    ),
+    "lens.nav.island.impact": (
+        "`{project}` is {count} pages and {claims} claims that no page outside it reaches and "
+        "that reach no page outside it — a library inside the library."
+    ),
+    "lens.nav.island.action": (
+        "Decide where `{project}` belongs in the layout: connect it to the subjects it shares "
+        "work with, or fold it into one of them."
+    ),
+    "lens.id.title_duplicate.impact": (
+        "{count} live pages are called 『{title}』 ({paths}), so neither a reader nor a "
+        "retrieval can tell which of them that name means."
+    ),
+    "lens.id.title_duplicate.action": (
+        "Decide which page keeps the name 『{title}』 and give the others names of their own, "
+        "or merge them into one subject."
+    ),
+    "lens.id.title_child_collision.impact": (
+        "`{path}` carries the same name as `{target}` below it, so a page and its own child "
+        "answer to one name."
+    ),
+    "lens.id.title_child_collision.action": (
+        "Rename one of the two — retitle `{path}` so 『{title}』 names one page only; the gate "
+        "now refuses a new title that collides with a sibling."
+    ),
+    "lens.id.title_degenerate.impact": (
+        "`{path}` is called 『{title}』, which names its place in the layout rather than its "
+        "subject, so nothing distinguishes it from every other page of its family."
+    ),
+    "lens.id.title_degenerate.action": (
+        "Retitle `{path}` with a name that says what it is about; the leading heading is the "
+        "name, and rewriting it touches no claim."
+    ),
+    "lens.id.title_shared_with_hub.impact": (
+        "`{path}` carries its project overview's name 『{title}』, so one name stands over two "
+        "different pages."
+    ),
+    "lens.id.title_shared_with_hub.action": (
+        "Retitle `{path}` for what it holds — the project's history — and leave 『{title}』 to "
+        "`{target}`."
+    ),
+    "lens.form.collapsed_body.impact": (
+        "`{path}` has a line of {chars} characters and {count} escaped line breaks, so its "
+        "claims were written as one run of text that no reader and no block walker can take "
+        "apart."
+    ),
+    "lens.form.collapsed_body.action": (
+        "The write face now refuses text like this; repair `{path}` by splitting the run into "
+        "one block per claim, with real line breaks."
+    ),
+    "lens.form.stray_heading.impact": (
+        "`{path}` carries a `# ` heading on line {line} (『{heading}』), which is how a page "
+        "used to be renamed from the middle of its own body."
+    ),
+    "lens.form.stray_heading.action": (
+        "The write face now refuses a `# ` line inside a block; remove this one from `{path}` "
+        "and set the page's name with retitle."
+    ),
+    "lens.form.unanchored_citation.impact": (
+        "`{path}` holds {count} cited lines carrying no anchor, so that evidence is "
+        "browse-visible text which never enters the claim index."
+    ),
+    "lens.form.unanchored_citation.action": (
+        "Write each of those {count} lines on `{path}` as a claim through append_block, which "
+        "anchors it."
+    ),
+    "lens.form.overview_restates.impact": (
+        "The `{slot}` slot of `{path}` repeats one of its own ledger claims word for word, so "
+        "the head says nothing the ledger had not already said."
+    ),
+    "lens.form.overview_restates.action": (
+        "Rewrite the `{slot}` of 『{title}』 as the reading of the ledger it is meant to be, or "
+        "drop that slot."
+    ),
+    "lens.form.legacy_sections.impact": (
+        "`{path}` carries an overview head and still holds {count} older sections saying the "
+        "same four things ({sections}), so one picture stands twice in one page."
+    ),
+    "lens.form.legacy_sections.action": (
+        "Fold what {sections} still say into the overview of 『{title}』, and leave the ledger "
+        "its claims."
+    ),
+    "lens.form.definition_empty.impact": (
+        "The definition of `{path}` holds only references, so the one line that says what this "
+        "subject is says nothing."
+    ),
+    "lens.form.definition_empty.action": (
+        "Rewrite the overview of `{path}` with a definition in words; the references belong "
+        "behind that sentence, not instead of it."
+    ),
+    "lens.form.unordered_chronology.impact": (
+        "The {count} dated sections of `{path}` do not run forward in time ({first}), so the "
+        "page reads in the order it was compiled rather than in the order things happened."
+    ),
+    "lens.form.unordered_chronology.action": (
+        "Put the dated sections of 『{title}』 in ascending order and give each date one "
+        "section; the first pair out of order is {first}."
+    ),
+    "lens.conc.catch_all.impact": (
+        "`{path}` holds {share} of the library's claims — {ratio}× an even share — so one page "
+        "is where knowledge goes when nothing else fits."
+    ),
+    "lens.conc.catch_all.action": (
+        "Decide what 『{title}』 is for, and give the {count} claims that are not about it "
+        "pages of their own."
+    ),
+    "lens.bal.family_heavy.impact": (
+        "`{family}` is {pages} of the pages and {share} of the claims, so the library's weight "
+        "sits in one kind of subject."
+    ),
+    "lens.bal.family_heavy.action": (
+        "Decide whether `{family}` is where this material belongs, or whether the contract "
+        "owes a family to the material that has been going there for want of one."
+    ),
+    "lens.bal.family_empty.impact": (
+        "The contract declares `{family}` and no page has ever been filed there, so a family "
+        "offered to every compile means nothing."
+    ),
+    "lens.bal.family_empty.action": (
+        "Decide whether `{family}` is still expected — its material has not arrived — or "
+        "whether the contract should stop declaring it."
+    ),
+    "lens.bal.session_shaped.impact": (
+        "{share} of `{path}`'s claims are dated single-source entries ({count} of them), which "
+        "is the shape of a log of sessions rather than of a subject."
+    ),
+    "lens.bal.session_shaped.action": (
+        "Ask what 『{title}』 is: a project, in which case the {count} session entries belong "
+        "as evidence and not as claims — or a log, in which case it is material and not a "
+        "subject."
+    ),
+    "lens.corr.single_source.impact": (
+        "All {count} claims of `{path}` cite `{source_id}` alone, so the whole subject rests "
+        "on one account of it."
+    ),
+    "lens.corr.single_source.action": (
+        "Corroborate 『{title}』 from other material, or say in its head that `{source_id}` is "
+        "all the evidence there is."
     ),
 }

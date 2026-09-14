@@ -350,8 +350,8 @@ test("the source-kind families both cover the projection's kinds", () => {
 test("count-like placeholders are grouped, and index-like ones are left alone", () => {
   // One policy for every number a message carries: what a page prints inside a sentence and
   // what it prints beside it (`fmtCount`) go through the same function.
-  assert.equal(translate("en", "graph.anomaly.deadEnd", { count: 5832, share: "39.9%" }).includes("5,832"), true);
-  assert.equal(translate("zh", "graph.anomaly.deadEnd", { count: 5832, share: "39.9%" }).includes("5,832"), true);
+  assert.equal(translate("en", "lens.group.count", { count: 5832 }).includes("5,832"), true);
+  assert.equal(translate("zh", "lens.group.count", { count: 5832 }).includes("5,832"), true);
   // A block index, a year, a version and an id are not cardinal counts: "¶1,238" is wrong.
   assert.equal(translate("en", "sources.exactSpan.title", { block: 1238 }), "b1238 · exact source span");
   assert.equal(translate("en", "common.pagination.page", { current: 2, total: 7 }), "Page 2 of 7");
@@ -369,8 +369,8 @@ test("the grouping policy is a name denylist, applied to integers only", () => {
   // The denylist matches a NAME, not a spelling tail: `claims` is a count even though it
   // happens to end in "ms", and `elapsed_ms` / `elapsedMs` are not.
   assert.equal(
-    translate("zh", "graph.health.summary", { files: 156, subjects: 153, claims: 2941, edges: 306 }),
-    "156 个文件归并为 153 个主体 · 2,941 条断言（claim）· 306 条内链。",
+    translate("zh", "lens.counts", { files: 156, subjects: 153, claims: 2941, edges: 306 }),
+    "156 个文件归并为 153 个主体 · 2,941 条断言 · 306 条内链。",
   );
   // A non-numeric count still leaves its plural token visible (see above): grouping does
   // not repair a param that was never a number.

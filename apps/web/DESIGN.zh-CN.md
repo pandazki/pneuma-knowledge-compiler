@@ -119,7 +119,7 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：12 个视图加 selectio
 | 原料篇 | 02 / 03 | `sources` / `ingest` | 读进来的东西；导入并看它的计划 |
 | 工序篇 | 04 | `process` | 编译 job 与状态 |
 | 取用篇 | 05 / 06 / 07 | `recall` / `ask` / `live_context` | 三条检索 lane、briefing、即时建议 |
-| 正典篇 | 08 / 09 / 10 | `library` / `graph` / `history` | canonical 文档、结构健康、版本 |
+| 正典篇 | 08 / 09 / 10 | `library` / `lens` / `history` | canonical 文档、结构透镜、版本 |
 | 演化篇 | 11 | `evolve` | 待评审的 schema 草案 |
 | 卷末 | 12 | `profile` | 当前租户的画像 |
 
@@ -206,7 +206,7 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：12 个视图加 selectio
 - **ask** — briefing 构建（query、来源多选、字符预算 NumberField），然后是连续的 serif 问答线程，带引用脚注与逐轮用量。点击引用打开 `SourceSpanSheet`。
 - **live_context** — 一个视图里两条链路：一次性 SSE（工作流窗口、focus/kind、min-confidence Slider → 存活卡片 + `GateLedger`）与长连接 WS（连接态、config、turn 追加、flush、`want_more`）。卡片是标题 + serif 正文 + trigger + confidence 数字，不是仪表。
 - **library** — 左为文档树；右为选中文档的版样：serif 正文、mono claim 锚点、脚注引用、flag 作页边注。选中 claim deep-link 到 `#/library/claim/…`。顺藤摸瓜发生在邻域卡（§4.2）里。归档被从目录里折出来，收进左栏底部一个默认折叠的分区（`lib/archive.ts`，只认 `archive/` 前缀）——已归档的文档照样能打开，并在页眉挂一枚徽标；owner 视角下页眉的动作打开归档提议对话框（`views/archive/`），页面抬头的「归档」则打开当前归档清单。
-- **graph** — 结构**透镜**，不是探索 canvas：全库自由力导图答不了人们真正带来的问题。两个 tab——**结构健康**（先用几句话直说最异常的三件事，其下集中度、连通性、族均衡，异常条目可点进对应文档）与**时间对比**（选两个快照：指标差值表、主体增减清单、新增内链且每条带成边的那句话）。老 `#/graph/node/<id>` 链接解析到该节点代表的文档（或原料）。
+- **lens** — **结构透镜**：从外面读整座库，由服务里一个派生的、无模型的阅读器给出报告（docs/design/structure-lens.md）。控制台自己不算任何一个数——这正是要点：这里的数就是 Steward 跑 `pkc lens` 看到的数。两个 tab。**本次读数**以结构分（没有任何未决发现点到的主体占全部主体的比例）开场，紧跟着那句说明它不是成绩的话，然后是**先做这三件事**：每条发现先说它让人付出什么，其下是动作、面向谁（一个词）、它涉及的页（点进文档，超过 12 页折叠为「另 N 条」）与依据；再往下是同一批发现按层级重列——原则 / 漂移 / 形制——折叠在各自的条数后面。**时间对比**在两个 ref 上各读一次报告并相减：结构分与基数，然后是发现的去向（已解决 / 新出现 / 仍未决，按 key 匹配，所以「仍未决」指同一页上的同一处），新增内链及写下它的那句话是按钮后的第二次读取——那句话只在正本投影里，两份投影很贵。这是一个纯阅读面：页面上没有任何把发现递给谁的动作（设计文档 §9 把那件事留到以后）。前身 `#/graph` 重定向到这里，老 `#/graph/node/<id>` 链接解析到该节点代表的文档（或来源）。
 - **history** — snapshot / job / patch 三类记录的统一账页（mono ref、时间、changed paths、sources consumed、lineage）。patch 展开为 escalations、flag counts 与 claims trace；snapshot 行可经 SnapshotPicker 以只读态打开。
 - **evolve** — 三个面：演化时间线（状态即站点的形状与语义色）、任务详情（proposal 依据、pack 草案全文、会消失的 anchors、changed-file diff、adopt/drop）、schema 轴（族与 path template 随时间累积）。409 单飞冲突以 `Callout` 呈现。`#/evolve/evolve-task/<id>` 落在详情上。
 - **profile** — 当前租户的画像：身份加一张编译契约会读的字段定义表，以及全部由 primitives 搭的编辑表单。AI 生成只属于「新建画像」onboarding（一句话 → 草稿 → 用户确认）；已有画像不显示生成入口。

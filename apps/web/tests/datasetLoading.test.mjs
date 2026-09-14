@@ -15,7 +15,8 @@ const { needsCanonicalDataset } = await import(moduleUrl);
 
 test("only canonical readers trigger the expensive dataset projection", () => {
   assert.equal(needsCanonicalDataset("library"), true);
-  assert.equal(needsCanonicalDataset("graph"), true);
+  // The structure lens reads a report the service derives, not the projection (§5.1).
+  assert.equal(needsCanonicalDataset("lens"), false);
 
   for (const view of [
     "overview",

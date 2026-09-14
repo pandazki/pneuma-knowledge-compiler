@@ -330,6 +330,9 @@ def test_compile_tool_face_excludes_evolve_only_tools():
         "append_block",
         "supersede_claim",
         "rewrite_overview",
+        # `retitle` rewrites a page's leading `# ` heading and nothing else — a name is
+        # corrected without a claim being touched (docs/design/structure-lens.md §6).
+        "retitle",
         "set_fields",
         "finish_compile",
         "search_knowledge",

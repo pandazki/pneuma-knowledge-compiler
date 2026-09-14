@@ -68,21 +68,49 @@ _TRAILING_COMMENT_RE = re.compile(r"(?:[ \t]*<!--.*?-->)+[ \t]*$")
 
 
 def derived_title(body: str) -> str:
-    """`body`'s first `# ` heading text, or `""` when it has none.
+    """`body`'s LEADING `# ` heading text, or `""` when its first line is not one.
 
     Stripped of anchor marks, of any trailing HTML comment, and of surrounding whitespace —
-    a title is what the heading SAYS. Deliberately the same first-`# `-line rule the glance
-    reads (`canonical_glance.document_title`), so the stored field and the derived display
-    name agree by construction instead of by discipline.
+    a title is what the heading SAYS. Deliberately the same rule the glance reads
+    (`canonical_glance.document_title`), so the stored field and the derived display name
+    agree by construction instead of by discipline.
+
+    LEADING, and only leading (docs/design/structure-lens.md §6). This used to read the first
+    `# ` line anywhere in the body, which meant a heading typed in the middle of an append
+    renamed the page — silently, in every outline, glance and retrieval card, with nothing in
+    the diff saying a name had changed. A page is named by the heading at the top of it; a
+    heading further down is text, the write faces now refuse a new one
+    (`anchor_ops.refuse_heading_in_block`), and `retitle` is the verb that changes a name.
     """
     for line in body.split("\n"):
-        if not line.startswith("# "):
+        if not line.strip():
             continue
+        if not line.startswith("# "):
+            return ""
         text = ANCHOR_MARK_RE.sub("", line[2:])
         text = _TRAILING_COMMENT_RE.sub("", text).strip()
-        if text:
-            return text
+        return text
     return ""
+
+
+def set_leading_title(body: str, title: str) -> str:
+    """`body` with `title` as its leading `# ` heading — inserted when it has none.
+
+    The one place a page's name is written, so `retitle` and any later channel that renames
+    a page produce the same bytes. A trailing run of system markers on the existing heading
+    line (its anchor, a supersedes marker) is KEPT: those are the system's and they identify
+    the block, while the words in front of them are the name.
+    """
+    lines = body.split("\n")
+    at = next((n for n, line in enumerate(lines) if line.strip()), None)
+    if at is not None and lines[at].startswith("# "):
+        markers = _TRAILING_COMMENT_RE.search(lines[at])
+        lines[at] = f"# {title}" + (markers.group(0) if markers else "")
+        return "\n".join(lines)
+    head = [f"# {title}", ""]
+    if at is None:
+        return "\n".join(head).rstrip("\n")
+    return "\n".join(head + lines[at:])
 
 
 def with_derived_title(frontmatter: dict, body: str) -> dict:
@@ -103,11 +131,75 @@ def with_derived_title(frontmatter: dict, body: str) -> dict:
     return out
 
 
+#: Characters that make a scalar unreadable as a bare YAML value where it appears: a colon
+#: separates a key from its value, a `#` opens a comment, a quote opens a quoted scalar, and a
+#: newline — real or written as the two characters `\n` — ends the line the value is on.
+_YAML_UNSAFE = (":", "#", '"', "'", "\n", "\\n")
+
+#: …and characters YAML reads as SYNTAX when a value starts with one (an indicator).
+_YAML_LEADING_INDICATORS = "-?:,[]{}#&*!|>%@`\"' \t"
+
+
+def _needs_quoting(value: str) -> bool:
+    if not value:
+        return False
+    if value != value.strip():
+        return True
+    if value[0] in _YAML_LEADING_INDICATORS:
+        return True
+    return any(token in value for token in _YAML_UNSAFE)
+
+
+def _quote_scalar(value: str) -> str:
+    """One YAML double-quoted scalar: backslash and quote escaped, real newlines folded."""
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+    )
+    return f'"{escaped}"'
+
+
+def _unquote_scalar(raw: str) -> str:
+    """The inverse of `_quote_scalar`, and the round trip the parser owes it.
+
+    A single-quoted scalar is read too, because a human editing a frontmatter by hand writes
+    one; nothing ever emits it.
+    """
+    if len(raw) >= 2 and raw[0] == raw[-1] == '"':
+        out: list[str] = []
+        index = 1
+        while index < len(raw) - 1:
+            char = raw[index]
+            if char == "\\" and index + 1 < len(raw) - 1:
+                nxt = raw[index + 1]
+                out.append("\n" if nxt == "n" else nxt)
+                index += 2
+                continue
+            out.append(char)
+            index += 1
+        return "".join(out)
+    if len(raw) >= 2 and raw[0] == raw[-1] == "'":
+        return raw[1:-1].replace("''", "'")
+    return raw
+
+
 def render_document(frontmatter: dict, body: str) -> str:
-    """Serialize (frontmatter, body) to a frontmatter-fenced markdown file."""
+    """Serialize (frontmatter, body) to a frontmatter-fenced markdown file.
+
+    `title` is the one value written QUOTED when it needs quoting. It is the only frontmatter
+    field whose content is a subject's real name rather than a slug or an id, so it is the
+    only one that legitimately carries a colon, a `#` or a quote — and an unquoted `title:
+    Aurora: phase two` is a frontmatter that parses back as `Aurora`, i.e. a page whose
+    stored name silently differs from the one on its page. Every other key stays byte-for-byte
+    as it was written, so no existing file's frontmatter moves for a rule it never needed.
+    """
     lines = [_FENCE]
     for key in sorted(frontmatter):
-        lines.append(f"{key}: {frontmatter[key]}")
+        value = frontmatter[key]
+        if key == TITLE_KEY and isinstance(value, str) and _needs_quoting(value):
+            value = _quote_scalar(value)
+        lines.append(f"{key}: {value}")
     lines.append(_FENCE)
     text = "\n".join(lines) + "\n"
     if body:
@@ -134,7 +226,14 @@ def parse_document(text: str) -> tuple[dict, str]:
         raw = lines[i]
         if ":" in raw:
             key, _, value = raw.partition(":")
-            frontmatter[key.strip()] = value.strip()
+            name = key.strip()
+            # Unquoted for exactly the key `render_document` quotes, so the two halves of the
+            # round trip cover the same set: a value nothing ever quotes must not be read as
+            # quoted either, or a field that happens to open and close on a quote character
+            # would lose two bytes every time its file was re-serialized.
+            frontmatter[name] = (
+                _unquote_scalar(value.strip()) if name == TITLE_KEY else value.strip()
+            )
     if end < 0:
         return {}, text.strip("\n")
     body = "\n".join(lines[end + 1 :]).strip("\n")

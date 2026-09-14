@@ -360,8 +360,18 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 | POST | `/…/kb-snapshots` | 冻结整座文库 → **202**，后台复制；`{label}` 必填 |
 | DELETE | `/…/kb-snapshots/{id}` | 从各存储清除冻结副本；正本历史不动 |
 | GET | `/…/dataset` | 正本 + 审计装配成界面的多视图数据（`at`、`audit`） |
+| GET | `/…/lens` | 某个 ref 下整座文库的**结构透镜**（`at`）——基数、评分、发现 |
 
 `/dataset` 之所以存在，是因为文库/图谱视图合法地需要一个快照下的全部文档；正本适配器用一次 `git archive` 整树读出来供给它。
+
+`/lens` 读的是同一棵树，但读的是它的**形状**而不是内容：一份派生的、不经模型的报告——
+`{ref, read_at, subjects, files, claims, edges, score, findings[], families[]}`——每条发现都
+指明它关于哪些页面、证据是什么、代价是什么，以及一条带责任人（`owner` / `steward` /
+`mechanism`）的建议动作。`impact` 与 `action` 是提示词目录的 key 加字段，而不是成句的文本，
+所以控制台和 `pkc lens` 渲染的是同一份文案的同一个目录。它不写入任何东西，也不保存任何东西：
+同一个 `at` 返回同一份报告，比较标签页正是据此按发现 key 对比两个 ref。`at` 接受任意正本 ref
+（提交、标签、冻结快照）；不给则为 HEAD，此时报告自身的 `ref` 为空。设计权威：
+[结构透镜](../design/structure-lens.zh-CN.md)。
 
 ## Briefing
 

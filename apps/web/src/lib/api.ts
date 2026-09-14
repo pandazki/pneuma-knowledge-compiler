@@ -13,6 +13,7 @@ import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
 import { confirmRequestBody } from "./archive";
 import { parseHomeStatus, type HomeStatus } from "./home";
+import { parseLensReport, type LensReport } from "./lensReport";
 import type { StewardImage } from "./steward";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
@@ -1801,7 +1802,7 @@ export function deleteKbSnapshot(
 }
 
 /**
- * Canonical dataset projection for Library / Graph. Audit data is owned by the
+ * Canonical dataset projection for the Canonical view. Audit data is owned by the
  * paged History endpoint and is intentionally not duplicated here.
  */
 export function getDatasetRaw(
@@ -1813,6 +1814,20 @@ export function getDatasetRaw(
   return req<Record<string, unknown>>(
     `/v1/users/${u(userId)}/dataset?${query.toString()}`,
   );
+}
+
+/* ----------------------------------------------------------------- structure lens */
+
+/**
+ * The structure lens's report at one canonical ref (docs/design/structure-lens.md §7).
+ *
+ * Derived and model-free, and computed in core — so this is a READ and nothing more: the
+ * console never assembles a finding, a weight or the score itself. `at` names any ref (a
+ * commit, a frozen snapshot's pinned commit); omitted, it reads HEAD.
+ */
+export function getLensReport(userId: string, at?: string | null): Promise<LensReport> {
+  const query = at ? `?at=${encodeURIComponent(at)}` : "";
+  return req<unknown>(`/v1/users/${u(userId)}/lens${query}`).then(parseLensReport);
 }
 
 /* ------------------------------------------------ schema-evolve + skill (Stage C/D) */

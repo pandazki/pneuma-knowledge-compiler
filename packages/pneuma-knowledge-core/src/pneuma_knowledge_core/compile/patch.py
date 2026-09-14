@@ -31,6 +31,8 @@ from .anchor_ops import (
     assign_document_anchors,
     edit_claim_text,
     insert_block_verbatim,
+    refuse_escaped_newlines,
+    refuse_heading_in_block,
     refuse_text_machinery,
     remove_claim_block,
     supersede_claim_text,
@@ -46,6 +48,7 @@ from .documents import (
     render_document,
     render_overview,
     remove_overview_region,
+    set_leading_title,
     set_overview_region,
     with_derived_title,
 )
@@ -603,6 +606,10 @@ class PatchDraft:
                 prompt("compile.patch.create_exists", path=path)
             )
         refuse_text_machinery("create_document", body)
+        # A new document MAY open with its own `# ` title — that is where a page's name
+        # belongs — and may carry one nowhere else (docs/design/structure-lens.md §6).
+        refuse_heading_in_block("create_document", body, allow_leading=True)
+        refuse_escaped_newlines("create_document", body)
         doc_id = _assign_document_id(path)
         anchored = assign_document_anchors(body, path)
         # Normalize first so a legacy id key handed in by a caller is folded away rather
@@ -619,6 +626,39 @@ class PatchDraft:
         self._working[path] = doc
         # Whoever just wrote a document has, by definition, seen everything in it.
         self.mark_read(path)
+        return doc
+
+    def retitle(self, path: str, title: str) -> DraftDoc:
+        """Give `path` the name `title`: rewrite its leading `# ` heading, or insert one.
+
+        The third thing a page can be wrong about, after its claims and its head: its NAME.
+        A page that took a heading from the middle of an append, or that was created under
+        the name of the thing it is a page ABOUT rather than the thing it IS, could not be
+        corrected before this verb existed — every write face was claim-level, and the
+        frontmatter `title` is derived and refused to `set_fields`. So a wrong name was
+        permanent, and the lens that lists wrong names would have listed a fault with no
+        repair (docs/design/structure-lens.md §6).
+
+        It touches no claim: the heading line's trailing system markers are kept, the body
+        below is not read, and the derived frontmatter follows the heading as it does at
+        every other write path. The refusals are the ones every write face makes — a closed
+        volume, an archived path, an archive record — plus the shadowed-title rule
+        `create_document` runs, because renaming a page into a retired subject's name
+        rebuilds that subject exactly as creating it under that name would. The gate's
+        sibling-collision check is the final arbiter for the other half: one name over two
+        live pages in one directory.
+        """
+        self._refuse_closed_volume(path, "retitle")
+        self._refuse_archived_path(path, "retitle")
+        self._refuse_archive_record(path, "retitle")
+        doc = self.read(path)
+        name = " ".join(str(title or "").split())
+        if not name:
+            raise AnchorToolError(prompt("compile.patch.retitle_empty", path=path))
+        refuse_text_machinery("retitle", name)
+        self._refuse_shadowed_title({TITLE_KEY: name}, "", path)
+        doc.body = set_leading_title(doc.body, name)
+        doc.frontmatter = with_derived_title(doc.frontmatter, doc.body)
         return doc
 
     def _refuse_superseded(self, anchor_id: str, op: str) -> None:
@@ -649,6 +689,8 @@ class PatchDraft:
         self._refuse_archive_record(path, "edit_claim")
         self._refuse_superseded(anchor_id, "edit_claim")
         refuse_text_machinery("edit_claim", new_text)
+        refuse_heading_in_block("edit_claim", new_text)
+        refuse_escaped_newlines("edit_claim", new_text)
         doc = self.read(path)
         doc.body = edit_claim_text(doc.body, anchor_id, new_text)
         return doc
@@ -665,6 +707,8 @@ class PatchDraft:
         self._refuse_archive_record(path, "supersede_claim")
         self._refuse_superseded(anchor_id, "supersede_claim")
         refuse_text_machinery("supersede_claim", new_text)
+        refuse_heading_in_block("supersede_claim", new_text)
+        refuse_escaped_newlines("supersede_claim", new_text)
         doc = self.read(path)
         doc.body, new_anchor = supersede_claim_text(
             doc.body, anchor_id, new_text, document_path=path
@@ -702,6 +746,19 @@ class PatchDraft:
         self._refuse_archived_path(path, "rewrite_overview")
         self._refuse_archive_record(path, "rewrite_overview")
         self._refuse_unread(path, "rewrite_overview")
+        # The head is prose under system-written slot markers, so a `# ` line in it is the
+        # page's own name written into its overview. Judged per slot, before anything is
+        # rendered. The line-length rule that guards a BLOCK is deliberately not applied
+        # here: the region already has a character ceiling of its own
+        # (`_refuse_unwritable_overview`), and two bounds over one text would mean the
+        # refusal a writer reads depends on which of them happened to fire first.
+        for slot_text in (
+            overview.definition,
+            overview.summary,
+            overview.introduction,
+            *(connection.relation for connection in overview.connections),
+        ):
+            refuse_heading_in_block("rewrite_overview", str(slot_text or ""))
         doc = self.read(path)
         incoming = self._checked_fields(path, "rewrite_overview", fields)
         if overview.is_empty():
@@ -830,6 +887,8 @@ class PatchDraft:
         self._refuse_archived_path(path, "append_block")
         self._refuse_archive_record(path, "append_block")
         refuse_text_machinery("append_block", text)
+        refuse_heading_in_block("append_block", text)
+        refuse_escaped_newlines("append_block", text)
         doc = self.read(path)
         doc.body = append_block_text(doc.body, heading, text, document_path=path)
         return doc

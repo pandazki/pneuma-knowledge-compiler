@@ -32,7 +32,7 @@ React 18 + Zustand + Radix + Tailwind v4。没有 react-router：`src/App.tsx` �
 | 原料 | sources（目录、校样、L0 直取）、ingest（契约 + 文档，先预览后落地） |
 | 工序 | process（触发 + 任务队列）、history（编译时间线、逐 claim 差异） |
 | 取用 | recall（rag / fast / deep-SSE）、ask（briefing）、live_context（SSE + WS、门禁账） |
-| 正本 | library（文档、claim 徽章、引用、邻域）、graph（结构体检 + 快照对比） |
+| 正本 | library（文档、claim 徽章、引用、邻域）、lens（结构透镜：审读结果 + 两个 ref 对比） |
 | 演化 | evolve（草稿评审：理由、文件 diff、消失锚点、采纳/丢弃） |
 | 卷末 | components（设计系统画廊） |
 

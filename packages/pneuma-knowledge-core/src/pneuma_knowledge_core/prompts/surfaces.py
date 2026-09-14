@@ -409,6 +409,271 @@ _ANSWER_STYLE = (
 
 
 SURFACES: tuple[Surface, ...] = (
+    # ───────────────────────────────────────────────────────────────── the structure lens
+    Surface(
+        id="steward.lens",
+        group="steward",
+        title_en="Structure lens findings",
+        title_zh="结构透镜的发现",
+        summary_en=(
+            "The two sentences every structure-lens finding carries: what it COSTS a reader "
+            "or a retrieval, and what to DO about it — the second addressed to the finding's "
+            "actor (the Steward for a drift, the Owner for a principle, the mechanism itself "
+            "for a shape fault the write face now refuses). The lens is derived and "
+            "model-free; these are the words a person or a coding-agent Steward reads out of "
+            "`pkc lens` and out of the console, which is why they are catalog keys and not "
+            "sentences inside the lens module."
+        ),
+        summary_zh=(
+            "结构透镜每条发现都带的两句话：它让读者或检索付出什么代价，以及该怎么办——后一句"
+            "说给这条发现的当事人听（漂移归 Steward，原则归所有者，写入面从此会拒绝的形状问题"
+            "归机制本身）。透镜是派生的、不调模型；这些字是人或编码代理 Steward 从 `pkc lens` "
+            "和控制台里读到的，所以它们是目录键，而不是写死在透镜模块里的句子。"
+        ),
+        segments=(
+            f(
+                "lens.nav.dead_end.impact",
+                "What the `nav.dead_end` finding COSTS, shown when a subject links to nothing.",
+                "`nav.dead_end` 这条发现的代价，某个主题不指向任何页面时出现。",
+            ),
+            f(
+                "lens.nav.dead_end.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.nav.arrival_blind.impact",
+                "What the `nav.arrival_blind` finding COSTS, shown when nothing links to a subject.",
+                "`nav.arrival_blind` 这条发现的代价，没有任何页面链到某个主题时出现。",
+            ),
+            f(
+                "lens.nav.arrival_blind.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.nav.dead_link.impact",
+                "What the `nav.dead_link` finding COSTS, shown when a link resolves to a path no document has.",
+                "`nav.dead_link` 这条发现的代价，链接解析到没有任何文档的路径时出现。",
+            ),
+            f(
+                "lens.nav.dead_link.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.nav.hub_incomplete.impact",
+                "What the `nav.hub_incomplete` finding COSTS, shown when a family hub does not reach every page of its own project.",
+                "`nav.hub_incomplete` 这条发现的代价，族总览够不到自己项目的每一页时出现。",
+            ),
+            f(
+                "lens.nav.hub_incomplete.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.nav.chronology_unlinked.impact",
+                "What the `nav.chronology_unlinked` finding COSTS, shown when a chronology with dated sections reaches none of its project's feature or decision pages.",
+                "`nav.chronology_unlinked` 这条发现的代价，带日期小节的历程页够不到本项目任何特性页或决策页时出现。",
+            ),
+            f(
+                "lens.nav.chronology_unlinked.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.nav.decision_unlinked.impact",
+                "What the `nav.decision_unlinked` finding COSTS, shown when a decision page has no outbound link.",
+                "`nav.decision_unlinked` 这条发现的代价，决策页没有任何出向链接时出现。",
+            ),
+            f(
+                "lens.nav.decision_unlinked.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.nav.mention_unlinked.impact",
+                "What the `nav.mention_unlinked` finding COSTS, shown when a page names another subject's title over and over and never links it.",
+                "`nav.mention_unlinked` 这条发现的代价，一页反复提到另一个主题的标题却从不链它时出现。",
+            ),
+            f(
+                "lens.nav.mention_unlinked.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.nav.island.impact",
+                "What the `nav.island` finding COSTS, shown when a whole project directory neither reaches nor is reached from outside itself.",
+                "`nav.island` 这条发现的代价，整个项目目录既够不到外面、外面也够不到它时出现。",
+            ),
+            f(
+                "lens.nav.island.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.id.title_duplicate.impact",
+                "What the `id.title_duplicate` finding COSTS, shown when two live subjects normalize to one title.",
+                "`id.title_duplicate` 这条发现的代价，两个活跃主题的标题归一化后相同时出现。",
+            ),
+            f(
+                "lens.id.title_duplicate.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.id.title_child_collision.impact",
+                "What the `id.title_child_collision` finding COSTS, shown when a page and a page below it in its own directory carry one name.",
+                "`id.title_child_collision` 这条发现的代价，一页和它目录下更深处的一页同名时出现。",
+            ),
+            f(
+                "lens.id.title_child_collision.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.id.title_degenerate.impact",
+                "What the `id.title_degenerate` finding COSTS, shown when a title is empty, names a family role, or repeats the project slug.",
+                "`id.title_degenerate` 这条发现的代价，标题为空、只说出族角色，或重复项目 slug 时出现。",
+            ),
+            f(
+                "lens.id.title_degenerate.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.id.title_shared_with_hub.impact",
+                "What the `id.title_shared_with_hub` finding COSTS, shown when a chronology carries its project overview's name.",
+                "`id.title_shared_with_hub` 这条发现的代价，历程页顶着所属项目总览的名字时出现。",
+            ),
+            f(
+                "lens.id.title_shared_with_hub.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.form.collapsed_body.impact",
+                "What the `form.collapsed_body` finding COSTS, shown when a body has a line long enough to be a document, or line breaks that arrived escaped.",
+                "`form.collapsed_body` 这条发现的代价，正文里有一行长到可以当一篇文档，或换行以转义形式送达时出现。",
+            ),
+            f(
+                "lens.form.collapsed_body.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.form.stray_heading.impact",
+                "What the `form.stray_heading` finding COSTS, shown when a `# ` heading stands somewhere other than the top of a body.",
+                "`form.stray_heading` 这条发现的代价，`# ` 标题出现在正文顶端以外的地方时出现。",
+            ),
+            f(
+                "lens.form.stray_heading.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.form.unanchored_citation.impact",
+                "What the `form.unanchored_citation` finding COSTS, shown when a ledger line carries a citation with no anchor on its block.",
+                "`form.unanchored_citation` 这条发现的代价，账本里某一行带引用、所在块却没有锚时出现。",
+            ),
+            f(
+                "lens.form.unanchored_citation.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.form.overview_restates.impact",
+                "What the `form.overview_restates` finding COSTS, shown when an overview slot repeats one of the page's own ledger claims word for word.",
+                "`form.overview_restates` 这条发现的代价，总览的某一格一字不差地重复了本页账本里的一条断言（claim）时出现。",
+            ),
+            f(
+                "lens.form.overview_restates.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.form.legacy_sections.impact",
+                "What the `form.legacy_sections` finding COSTS, shown when a page with an overview head still carries the four slot names as `## ` sections.",
+                "`form.legacy_sections` 这条发现的代价，已有总览头部的页面仍带着四个槽位名的 `## ` 小节时出现。",
+            ),
+            f(
+                "lens.form.legacy_sections.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.form.definition_empty.impact",
+                "What the `form.definition_empty` finding COSTS, shown when a definition slot holds references and no prose.",
+                "`form.definition_empty` 这条发现的代价，definition 一格里只有引用、没有文字时出现。",
+            ),
+            f(
+                "lens.form.definition_empty.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.form.unordered_chronology.impact",
+                "What the `form.unordered_chronology` finding COSTS, shown when a chronology's dated sections do not ascend, or repeat a date.",
+                "`form.unordered_chronology` 这条发现的代价，历程页的日期小节不升序，或有重复日期时出现。",
+            ),
+            f(
+                "lens.form.unordered_chronology.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.conc.catch_all.impact",
+                "What the `conc.catch_all` finding COSTS, shown when one subject holds a share of the claims that no even split explains.",
+                "`conc.catch_all` 这条发现的代价，某一个主题占的断言（claim）份额无法用均分解释时出现。",
+            ),
+            f(
+                "lens.conc.catch_all.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.bal.family_heavy.impact",
+                "What the `bal.family_heavy` finding COSTS, shown when one family carries a claim share far past its page share.",
+                "`bal.family_heavy` 这条发现的代价，某个族占的断言（claim）份额远超它占的页面份额时出现。",
+            ),
+            f(
+                "lens.bal.family_heavy.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.bal.family_empty.impact",
+                "What the `bal.family_empty` finding COSTS, shown when the contract declares a family that has never held a page.",
+                "`bal.family_empty` 这条发现的代价，契约声明的族从来没有归入过任何页面时出现。",
+            ),
+            f(
+                "lens.bal.family_empty.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.bal.session_shaped.impact",
+                "What the `bal.session_shaped` finding COSTS, shown when most of a subject's claims are dated single-source entries.",
+                "`bal.session_shaped` 这条发现的代价，某个主题大部分断言（claim）都是带日期、只引一个来源的条目时出现。",
+            ),
+            f(
+                "lens.bal.session_shaped.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+            f(
+                "lens.corr.single_source.impact",
+                "What the `corr.single_source` finding COSTS, shown when every claim of a well-developed subject cites one source.",
+                "`corr.single_source` 这条发现的代价，一个已经写得不少的主题，所有断言（claim）都只引同一个来源时出现。",
+            ),
+            f(
+                "lens.corr.single_source.action",
+                "What to do about it, addressed to that finding's actor.",
+                "该怎么办，说给这条发现的当事人听。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
     # ─────────────────────────────────────────────────────────────────────── intake
     Surface(
         id="intake.semantic",
@@ -1298,6 +1563,14 @@ SURFACES: tuple[Surface, ...] = (
                 "`rewrite_overview` 的描述：文档当前画像的四个槽位，本轮改变了它就整体替换。",
             ),
             f(
+                "compile.tool.retitle",
+                "The `retitle` description: rewrite a page's leading `# ` heading, so a page "
+                "that took the wrong name can be given the right one without touching a "
+                "claim.",
+                "`retitle` 的描述：重写一页最顶上的 `# ` 标题，让取错名字的页面可以被纠正，"
+                "而不必动任何断言（claim）。",
+            ),
+            f(
                 "compile.tool.set_fields",
                 "The `set_fields` description: frontmatter fields, minus the ones the system "
                 "and the index components own.",
@@ -1369,6 +1642,11 @@ SURFACES: tuple[Surface, ...] = (
                 "Stands in for the slot list when a `rewrite_overview` with nothing in it "
                 "removed the region instead of writing one.",
                 "当空的 `rewrite_overview` 删掉了总览区域而不是写入时，用它代替槽位清单。",
+            ),
+            f(
+                "compile.tool.retitle_result",
+                "The `retitle` reply, naming the page and the name it now carries.",
+                "`retitle` 的回复，点明是哪一页、现在叫什么。",
             ),
             f(
                 "compile.tool.set_fields_result",
@@ -2701,6 +2979,15 @@ SURFACES: tuple[Surface, ...] = (
                 "凡是用**已结卷**装配出来的候选，都用它来命名：取那一卷所归属的当前卷的"
                 "标题，并注明是哪一卷。已结卷自己的文件名就是 `a02`、正文里也没有标题，"
                 "少了这一步，挑选阶段拿到的就是一张从任何字面都看不出主体的卡。",
+            ),
+            f(
+                "canonical.volume_label",
+                "Names a CLOSED VOLUME on the read faces that LIST documents (the glance, and "
+                "`document_title` given the library): its open volume's title with the volume "
+                "number noted. A volume's own filename is `a02` and names nothing.",
+                "在**列出**文档的读取面上（一览，以及拿到整库时的 `document_title`）为**已结卷**"
+                "命名：取它所归属的当前卷的标题，并注明卷号。已结卷自己的文件名是 `a02`，"
+                "什么也没说。",
             ),
             f(
                 "recall.identity.volume_origin",
@@ -4059,6 +4346,18 @@ SURFACES: tuple[Surface, ...] = (
                 "当写入落在契约的归属模板之外时。",
             ),
             f(
+                "gate.heading_in_block",
+                "When a `# ` heading stands inside a body rather than at the top of it — the "
+                "line that used to rename a page from the middle of itself.",
+                "当 `# ` 标题落在正文中间而不是最顶上时——正是这样的一行从前会从页面内部"
+                "把一页改名。",
+            ),
+            f(
+                "gate.title_sibling_collision",
+                "When two live pages in one directory answer to one name.",
+                "当同一目录下两个活跃页面顶着同一个名字时。",
+            ),
+            f(
                 "gate.volume_closed",
                 "When a write targets a closed volume, and it names the open volume to "
                 "write to instead.",
@@ -4319,6 +4618,31 @@ SURFACES: tuple[Surface, ...] = (
                 "heading.",
                 "拒绝对系统持有的前置字段（doc_id / type / slug / title）调用 `set_fields`，"
                 "并说明 `title` 由文档的 `# ` 标题派生。",
+            ),
+            f(
+                "compile.anchor.heading_in_block",
+                "Refuses a write whose text carries a `# ` line — the page's own name, "
+                "written as content. `create_document` may still open a new body with one.",
+                "拒绝正文里带 `# ` 行的写入——那是这一页自己的名字，被当成内容写了进来。"
+                "`create_document` 仍可以用它作为新正文的开头。",
+            ),
+            f(
+                "compile.anchor.escaped_newlines",
+                "Refuses text whose line breaks arrived as the two characters `\\n`, which "
+                "would be stored as one run of characters instead of as lines.",
+                "拒绝换行以字面 `\\n` 两个字符送来的文字——那样存进去会变成一长串字符，"
+                "而不是若干行。",
+            ),
+            f(
+                "compile.anchor.long_line",
+                "Refuses text carrying a single line long enough to be a whole document — "
+                "the same accident with the escapes stripped.",
+                "拒绝里面有一行长到足以当一整篇正文的文字——同一个事故，只是转义被去掉了。",
+            ),
+            f(
+                "compile.patch.retitle_empty",
+                "Refuses a `retitle` with no name in it.",
+                "拒绝没有给出名字的 `retitle`。",
             ),
             f(
                 "compile.patch.volume_closed",
@@ -4865,6 +5189,8 @@ SURFACES: tuple[Surface, ...] = (
                 "steward.cli.episodes_open",
                 "steward.cli.family",
                 "steward.cli.definitions",
+                "steward.cli.lens_path",
+                "steward.cli.lens_at",
                 "steward.cli.canonical_ls",
                 "steward.cli.source_ls",
                 "steward.cli.source_show",
@@ -4994,6 +5320,8 @@ SURFACES: tuple[Surface, ...] = (
               "在父命令帮助、outline 帮助和生成的 CLI 参考中描述 outline。"),
             f("steward.cli.glance", "Describes glance in parent help, its own help and the rendered CLI reference.",
               "在父命令帮助、glance 帮助和生成的 CLI 参考中描述 glance。"),
+            f("steward.cli.lens", "Describes the structure lens in parent help, its own help and the rendered CLI reference.",
+              "在父命令帮助、lens 帮助和生成的 CLI 参考中描述结构透镜。"),
         ),
         kind=FRAGMENTS,
     ),

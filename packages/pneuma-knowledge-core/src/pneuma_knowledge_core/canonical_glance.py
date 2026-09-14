@@ -130,8 +130,24 @@ def section_headings(doc: CanonicalDocument) -> list[str]:
     ]
 
 
-def document_title(doc: CanonicalDocument) -> str:
-    """The document's subject line: first `# ` heading → frontmatter `title` → filename stem.
+def volume_number_label(path: str) -> str:
+    """`projects/x/a02.md` → `02`. The volume's number as it is written on disk."""
+    match = _VOLUME_FILE_RE.match(path.rsplit("/", 1)[-1])
+    return match.group(1) if match else ""
+
+
+def document_title(
+    doc: CanonicalDocument,
+    documents: Mapping[str, CanonicalDocument] | Sequence[CanonicalDocument] | None = None,
+) -> str:
+    """The document's subject line: leading `# ` heading → frontmatter `title` → filename stem.
+
+    `documents` is the library around it, and it answers for the one document that has no
+    name of its own: a CLOSED VOLUME. `projects/x/a02.md` is named `a02`, which names
+    nothing — so given the library, a volume whose open page is present is labelled
+    `"<owner title> · vol. NN"` (docs/design/structure-lens.md §6). Without the mapping the
+    function answers exactly as it always did, which is what every caller holding one
+    document keeps getting.
 
     Derived rather than stored, so it cannot disagree with the document it names — and read
     through the very function the STORED field is derived with (`compile.documents.
@@ -144,6 +160,21 @@ def document_title(doc: CanonicalDocument) -> str:
     frontmatter/filename fallback stands behind it exactly as it does for a page with no
     heading at all.
     """
+    if documents is not None:
+        by_path = (
+            dict(documents)
+            if isinstance(documents, Mapping)
+            else {other.path: other for other in documents}
+        )
+        origin = volume_origin(doc, by_path.keys())
+        owner = by_path.get(origin) if origin else None
+        number = volume_number_label(doc.path)
+        if owner is not None and number:
+            return prompt(
+                "canonical.volume_label",
+                title=document_title(owner),
+                volume=number,
+            )
     heading = derived_title(doc.body)
     if heading:
         return heading
@@ -704,6 +735,7 @@ def glance_entry(
     closed_volumes: int = 0,
     superseded: Iterable[str] = (),
     in_archive: bool = False,
+    documents: Mapping[str, CanonicalDocument] | Sequence[CanonicalDocument] | None = None,
 ) -> str:
     """One document's glance line: path, title, claim count, updated-when, volume count —
     plus, on a second line, its overview definition when the document has one.
@@ -733,7 +765,7 @@ def glance_entry(
     line = prompt(
         "recall.glance.entry",
         path=doc.path,
-        title=document_title(doc),
+        title=document_title(doc, documents),
         claims=claim_count(doc),
         tail=tail,
     )
@@ -783,6 +815,10 @@ def render_canonical_glance(
         templates = list(templates)
     blurbs = family_blurbs(packs)
     ordered = sorted(docs, key=lambda d: d.path)
+    # The whole library, so a document that borrows its name from another one (a closed
+    # volume) can be labelled from it. Volumes are collapsed out of the listing below, so
+    # this only ever answers for a caller that asked for one by another route.
+    by_path = {doc.path: doc for doc in ordered}
 
     lines: list[str] = [prompt("recall.glance.header"), prompt("recall.glance.note")]
     if not ordered:
@@ -845,6 +881,7 @@ def render_canonical_glance(
                     closed_volumes=volumes.get(doc.path, 0),
                     superseded=superseded,
                     in_archive=is_archived_path(doc.path),
+                    documents=by_path,
                 )
             )
         if len(members) > top_k:
@@ -867,6 +904,7 @@ def render_canonical_glance(
                     closed_volumes=volumes.get(doc.path, 0),
                     superseded=superseded,
                     in_archive=is_archived_path(doc.path),
+                    documents=by_path,
                 )
             )
         if len(unfiled) > top_k:
@@ -913,5 +951,6 @@ __all__ = [
     "render_outline",
     "repository_superseded",
     "section_headings",
+    "volume_number_label",
     "volume_origin",
 ]

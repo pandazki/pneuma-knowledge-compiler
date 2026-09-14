@@ -659,7 +659,7 @@ function TrailTimeline({
 
 /**
  * The live paths at which archive records stand, when this console happens to hold the
- * canonical projection (it is loaded for Canonical and the graph, and kept afterwards).
+ * canonical projection (it is loaded for Canonical, and kept afterwards).
  *
  * Deliberately NOT a fetch: recall must not pull a whole library projection to decorate a
  * badge, and a mark that is sometimes absent is honest in a way an extra request would not

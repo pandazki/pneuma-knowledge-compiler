@@ -74,6 +74,7 @@ from ...ingest import ingest_conversation
 from ...ingest_document import ingest_document, preview_document
 from ...ingest_sources import ingest_source_contract
 from ...kb_snapshots import KbSnapshot, SnapshotNotFound, SnapshotNotReady
+from ...lens import lens_report
 from ...pagination import CursorError, decode_cursor, encode_cursor
 from ...persona_profile import flatten_updates, save_owner_profile
 from ...pricing import lane_cost
@@ -2614,6 +2615,26 @@ async def get_dataset(
 ) -> dict[str, Any]:
     """Assemble canonical + PG audit into the M2 four-view dataset shape (dataset.py)."""
     return await build_dataset(_ctx(request), UserId(user_id), at=at, audit=audit)
+
+
+@router.get("/lens")
+async def get_lens(
+    user_id: str,
+    request: Request,
+    at: str | None = None,
+) -> dict[str, Any]:
+    """The structure lens over this user's canonical library at one ref (default HEAD).
+
+    A derived, model-free reading of the library's SHAPE — the counts, a score, and findings
+    each carrying its evidence, what it costs and what to do about it
+    (docs/design/structure-lens.md §3). It reads canonical and the contract's path templates,
+    writes nothing, and keeps nothing: two calls at the same ref return the same report.
+
+    `at` is any canonical ref — a commit, a tag, a frozen snapshot — so the console's compare
+    tab runs the SAME lens on both sides. Omitted means HEAD, and the report's own `ref` is
+    then empty rather than invented.
+    """
+    return (await lens_report(_ctx(request), UserId(user_id), at=at)).to_dict()
 
 
 # --------------------------------------------------------------- access statistics

@@ -69,7 +69,7 @@ from .gate import (
     run_gate,
 )
 from ..components import component_job, registered_components
-from .patch import PatchDraft, history_volume_owner
+from .patch import PatchDraft, document_title as patch_document_title, history_volume_owner
 # The round itself — the ONE part of a compile that changes with the executor, and therefore
 # the one part behind a protocol (compile/round.py). Three of these names were defined here
 # before the seam existed and are re-exported so their import sites keep working (notably
@@ -109,6 +109,13 @@ class _ConnectionArg(BaseModel):
 
     path: str = ""
     relation: str = ""
+
+
+class _RetitleArgs(BaseModel):
+    """The `retitle` payload: which page, and what it is called from now on."""
+
+    path: str
+    title: str
 
 
 class _RewriteOverviewArgs(BaseModel):
@@ -746,6 +753,12 @@ def _build_tools(
             anchors=", ".join(new) or prompt("compile.anchor.none"),
         )
 
+    def retitle(path: str, title: str) -> str:
+        doc = draft.retitle(path, title)
+        return prompt(
+            "compile.tool.retitle_result", path=path, title=patch_document_title(doc)
+        )
+
     def set_fields(path: str, fields: dict) -> str:
         doc = draft.set_fields(path, fields)
         written = ", ".join(sorted(k for k in (fields or {}) if k in doc.frontmatter))
@@ -786,6 +799,11 @@ def _build_tools(
             rewrite_overview,
             args_schema=_RewriteOverviewArgs,
             description=prompt("compile.tool.rewrite_overview"),
+        ),
+        StructuredTool.from_function(
+            retitle,
+            args_schema=_RetitleArgs,
+            description=prompt("compile.tool.retitle"),
         ),
         StructuredTool.from_function(
             set_fields, description=prompt("compile.tool.set_fields")
@@ -972,7 +990,7 @@ def build_compile_tool_face(
         for tool in tools:
             if tool.name in {
                 "create_document", "append_block", "edit_claim", "supersede_claim",
-                "rewrite_overview", "set_fields",
+                "rewrite_overview", "set_fields", "retitle",
             }:
                 tool.func = checked(tool.func)
     return tools

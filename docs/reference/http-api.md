@@ -563,8 +563,19 @@ job is waiting for the Steward.
 | POST | `/…/kb-snapshots` | freeze the whole library → **202**, copies in background; `{label}` required |
 | DELETE | `/…/kb-snapshots/{id}` | remove the frozen copy from all stores; canonical history untouched |
 | GET | `/…/dataset` | canonical + audit assembled for the UI's views (`at`, `audit`) |
+| GET | `/…/lens` | the **structure lens** over the library at one ref (`at`) — counts, score, findings |
 
 `/dataset` exists because the Library/Graph views legitimately need every document of one snapshot; the canonical adapter serves that with a single `git archive` read of the whole tree.
+
+`/lens` is the same tree read for its SHAPE instead of its contents: a derived, model-free
+report — `{ref, read_at, subjects, files, claims, edges, score, findings[], families[]}` —
+where each finding names the pages it is about, the evidence for it, what it costs and one
+recommended action with an actor (`owner` / `steward` / `mechanism`). `impact` and `action`
+are prompt-catalog keys with their fields, not sentences, so the console and `pkc lens`
+render one text through one catalog. It writes nothing and keeps nothing: the same `at`
+returns the same report, which is what lets the compare tab diff two refs by finding key.
+`at` accepts any canonical ref (a commit, a tag, a frozen snapshot); omitted means HEAD, and
+the report's own `ref` is then empty. Design authority: [structure lens](../design/structure-lens.md).
 
 ## Briefings
 

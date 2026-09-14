@@ -18,10 +18,10 @@ import { enums } from "./enums";
 import { events } from "./events";
 import { evolve } from "./evolve";
 import { gallery } from "./gallery";
-import { graph } from "./graph";
 import { history } from "./history";
 import { home } from "./home";
 import { ingest } from "./ingest";
+import { lens } from "./lens";
 import { library } from "./library";
 import { liveContext } from "./liveContext";
 import { nav } from "./nav";
@@ -56,7 +56,7 @@ export const BUNDLES = [
   liveContext,
   steward,
   library,
-  graph,
+  lens,
   history,
   home,
   evolve,
@@ -83,7 +83,7 @@ export const MESSAGES = {
     ...liveContext.zh,
     ...steward.zh,
     ...library.zh,
-    ...graph.zh,
+    ...lens.zh,
     ...history.zh,
     ...home.zh,
     ...evolve.zh,
@@ -108,7 +108,7 @@ export const MESSAGES = {
     ...liveContext.en,
     ...steward.en,
     ...library.en,
-    ...graph.en,
+    ...lens.en,
     ...history.en,
     ...home.en,
     ...evolve.en,

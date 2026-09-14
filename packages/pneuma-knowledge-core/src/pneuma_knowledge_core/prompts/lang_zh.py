@@ -2450,6 +2450,13 @@ _ZH: dict[str, str] = {
         "回答通道开头的有预算地图：在字符预算内展示每个族的头部页面——可能省略页面，并说明数量。"
         "outline 太长时，用它挑选主题；要看完整知识库，用 `outline`。"
     ),
+    "steward.cli.lens": (
+        "结构透镜：不经模型地读出文库的形状而非内容——基数、评分，以及每条都带证据、"
+        "带它让读者或检索付出什么代价、带一条建议动作的发现。它是一次审读而非裁决："
+        "它说的话不会在任何地方被强制执行，也没有任何流程替你调用它。"
+    ),
+    "steward.cli.lens_path": "只报告这一页要负责的发现（分卷由它的在用页面负责）",
+    "steward.cli.lens_at": "读取指定正本 ref 下的文库——某个提交、标签或冻结快照——而不是 HEAD",
     "steward.skill.consume": """## 阅读知识库
 
 会话开始时，第一条命令是 `pkc outline`：秒级的完整地图，每一页都在所属族下，没有 top-K
@@ -2732,6 +2739,214 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
     "steward.reference.gate_components_header": (
         "## 这里启用的组件\n\n"
         "它们各自按自己的标准审判所绑定族的文档，发现落在同一份清单里。"
+    ),
+    # ════════════════════════════════════════ 写入面从此拒绝的三种机械毛病（结构透镜 §6）
+    "compile.anchor.heading_in_block": (
+        "{op} 被拒：`# ` 开头的行是这一页的名字，而你提交的正文里有一行是（『{heading}』）。"
+        "一页的名字只由正文最顶上的那一行标题给出，别处都不算，所以这一行会从页面中间悄悄改掉"
+        "页名。把它写成普通正文或 `## ` 小节标题；要改页名，用 retitle。"
+    ),
+    "compile.anchor.escaped_newlines": (
+        "{op} 被拒：这段文字里有 {count} 处字面的 `\\n`，却没有一个真正的换行，存进去会变成一"
+        "长串字符而不是若干行。请用真正的换行；如果那本来是几条断言（claim），就分成几次调用，"
+        "一次一条。"
+    ),
+    "compile.anchor.long_line": (
+        "{op} 被拒：这段文字里有一行长达 {chars} 字符，上限是 {limit}。这么长的一行是丢了换行"
+        "的整篇正文，不是一条断言（claim）：把它拆成行，并且一条断言一个块。"
+    ),
+    "gate.heading_in_block": (
+        "有一个 `# ` 标题（『{heading}』）落在正文中间而不是最顶上，等于从页面内部给这一页改"
+        "名。删掉它——写成普通正文或 `## ` 小节——页名用 retitle 来定。"
+    ),
+    "gate.title_sibling_collision": (
+        "『{title}』已经是同一目录下活跃页面 `{other}` 的名字。一个名字压在两页上，读者和引用都"
+        "分不出指的是哪一页；给这一页起一个自己的名字。"
+    ),
+    "compile.patch.retitle_empty": (
+        "retitle 被拒：标题不能为空。一页的名字就是它最顶上的那一行标题，请给 `{path}` 一个说"
+        "得出它是关于什么的名字。"
+    ),
+    "compile.tool.retitle": (
+        "给一页改名：重写它最顶上的 `# ` 标题（没有就插入一行），让一页取错的名字可以被纠正，"
+        "而不必动任何断言（claim）。frontmatter 的 `title` 会自动跟着走。闭卷、archive/ 下的路"
+        "径和归档记录一律拒绝；已归档主题占用的名字、同一目录下活跃页面已有的名字也一样。"
+    ),
+    "compile.tool.retitle_result": "retitle：`{path}` 现在的标题是『{title}』。",
+    "canonical.volume_label": "{title} · 卷 {volume}",
+    # ═══════════════════════════════════════════════════════════ 结构透镜的发现（§4）
+    "lens.nav.dead_end.impact": (
+        "有 {count} 个主题——占全库 {share}——不指向任何页面，读者走到其中任何一个都没有下一"
+        "跳，旁边的东西从那里都到不了。"
+    ),
+    "lens.nav.dead_end.action": (
+        "顺着日常的编译轮次逐页处理这 {count} 页：把每一页链到它自己的断言（claim）本来就依赖"
+        "的那些主题——写在总览的关联里，或写在提到它们的那条断言里。"
+    ),
+    "lens.nav.arrival_blind.impact": (
+        "库里没有任何页面链到其中 {count} 个主题——占全部主题的 {share}——所以这些页面承载的"
+        "一切，只有在已经知道名字的检索里才够得着。"
+    ),
+    "lens.nav.arrival_blind.action": (
+        "给这 {count} 页各找一个读者本来会从哪儿走过来的页面：它所属项目的总览，或它的断言"
+        "（claim）该挨着的那个主题。"
+    ),
+    "lens.nav.dead_link.impact": (
+        "`{path}` 链向 `{target}`，而没有任何文档在那个路径上，读者从这里跳出去等于跳进空处。"
+    ),
+    "lens.nav.dead_link.action": (
+        "闸门现在会拒绝新写入指向不存在页面的链接；这一处请把 `{href}` 改指一个真实存在的页"
+        "面，或者把 `{target}` 建出来。"
+    ),
+    "lens.nav.hub_incomplete.impact": (
+        "总览 `{path}` 够不到自己项目的 {count} 个页面，从总览进来的读者永远不会知道它们存在。"
+    ),
+    "lens.nav.hub_incomplete.action": (
+        "在『{title}』里补上通往 {targets} 的关联。"
+    ),
+    "lens.nav.chronology_unlinked.impact": (
+        "`{path}` 记下了一串带日期的转折，却没有链到解释这些转折的 {count} 个特性页或决策页，"
+        "读者只看到「变了」，看不到「为什么」。"
+    ),
+    "lens.nav.chronology_unlinked.action": (
+        "把『{title}』的每个日期小节链到解释它的那一页：{targets}。"
+    ),
+    "lens.nav.decision_unlinked.impact": (
+        "决策页 `{path}` 不链向任何它影响的东西，被它约束的主题上因此看不到它的痕迹。"
+    ),
+    "lens.nav.decision_unlinked.action": (
+        "把『{title}』链到这个决策实际作用到的特性、项目或主题。"
+    ),
+    "lens.nav.mention_unlinked.impact": (
+        "`{path}` 提到『{mention}』{count} 次却从不链它，手里拿着这一页的读者到不了定义它的那"
+        "一页。"
+    ),
+    "lens.nav.mention_unlinked.action": (
+        "在『{title}』提到它的那些断言（claim）里，或在它的关联里，链上『{mention}』"
+        "（`{target}`）。"
+    ),
+    "lens.nav.island.impact": (
+        "`{project}` 有 {count} 个页面、{claims} 条断言（claim），外面没有任何页面够得到它，它"
+        "也够不到外面任何页面——库里的一座孤岛。"
+    ),
+    "lens.nav.island.action": (
+        "定一下 `{project}` 在布局里的位置：把它接到与它共享工作的那些主题上，或者干脆并进其中"
+        "一个。"
+    ),
+    "lens.id.title_duplicate.impact": (
+        "有 {count} 个活跃页面都叫『{title}』（{paths}），读者和检索都分不出这个名字指的是哪"
+        "一页。"
+    ),
+    "lens.id.title_duplicate.action": (
+        "决定『{title}』这个名字归哪一页，其余的各起各的名字；或者把它们合成一个主题。"
+    ),
+    "lens.id.title_child_collision.impact": (
+        "`{path}` 和它下面的 `{target}` 同名，一页和它自己的子页应着同一个名字。"
+    ),
+    "lens.id.title_child_collision.action": (
+        "两者改一个——用 retitle 改 `{path}`，让『{title}』只落在一页上；闸门现在会拒绝与同级"
+        "页面撞名的新标题。"
+    ),
+    "lens.id.title_degenerate.impact": (
+        "`{path}` 叫『{title}』，这是它在布局里的位置而不是它的主题，于是它和同族的任何一页都"
+        "没有分别。"
+    ),
+    "lens.id.title_degenerate.action": (
+        "用 retitle 给 `{path}` 换一个说得出它讲什么的名字；名字就是最顶上那行标题，改它不动任"
+        "何断言（claim）。"
+    ),
+    "lens.id.title_shared_with_hub.impact": (
+        "`{path}` 顶着它所属项目总览的名字『{title}』，一个名字压在两个不同的页面上。"
+    ),
+    "lens.id.title_shared_with_hub.action": (
+        "用 retitle 把 `{path}` 改成它实际承载的东西——这个项目的历程——把『{title}』留给 "
+        "`{target}`。"
+    ),
+    "lens.form.collapsed_body.impact": (
+        "`{path}` 有一行长达 {chars} 字符，还有 {count} 处被转义的换行，它的断言（claim）是当"
+        "作一整串文字写下去的，读者和分块器都拆不开。"
+    ),
+    "lens.form.collapsed_body.action": (
+        "写入面现在会拒绝这样的文字；这一处请把 `{path}` 那一长串拆开，一条断言（claim）一个"
+        "块，用真正的换行。"
+    ),
+    "lens.form.stray_heading.impact": (
+        "`{path}` 第 {line} 行有一个 `# ` 标题（『{heading}』），从前正是这样从正文中间把一页"
+        "改了名。"
+    ),
+    "lens.form.stray_heading.action": (
+        "写入面现在会拒绝块内出现 `# ` 行；把 `{path}` 里的这一行删掉，页名用 retitle 来定。"
+    ),
+    "lens.form.unanchored_citation.impact": (
+        "`{path}` 有 {count} 行带着引用却没有锚，这些证据只是能翻到的文字，永远进不了断言"
+        "（claim）索引。"
+    ),
+    "lens.form.unanchored_citation.action": (
+        "把 `{path}` 上这 {count} 行改用 append_block 写成断言（claim），系统会给它上锚。"
+    ),
+    "lens.form.overview_restates.impact": (
+        "`{path}` 总览里的 `{slot}` 一字不差地重复了它自己账本里的一条断言（claim），这个头部"
+        "没说出任何账本没说过的话。"
+    ),
+    "lens.form.overview_restates.action": (
+        "把『{title}』的 `{slot}` 重写成它本该是的东西——对账本的一次解读——或者干脆去掉这一"
+        "格。"
+    ),
+    "lens.form.legacy_sections.impact": (
+        "`{path}` 既有总览头部，又还留着 {count} 个讲同样四件事的旧小节（{sections}），同一幅"
+        "画面在一页里立了两遍。"
+    ),
+    "lens.form.legacy_sections.action": (
+        "把 {sections} 还在说的东西并进『{title}』的总览，账本只留断言（claim）。"
+    ),
+    "lens.form.definition_empty.impact": (
+        "`{path}` 的 definition 里只有引用，本该一句话说清这是什么的那一行什么也没说。"
+    ),
+    "lens.form.definition_empty.action": (
+        "重写 `{path}` 的总览，用文字写出 definition；引用跟在这句话后面，而不是顶替它。"
+    ),
+    "lens.form.unordered_chronology.impact": (
+        "`{path}` 的 {count} 个日期小节没有按时间往前走（{first}），这一页读起来是编译的顺序，"
+        "不是事情发生的顺序。"
+    ),
+    "lens.form.unordered_chronology.action": (
+        "把『{title}』的日期小节改成升序，一个日期一个小节；第一处乱序是 {first}。"
+    ),
+    "lens.conc.catch_all.impact": (
+        "`{path}` 占了全库 {share} 的断言（claim）——是均分的 {ratio} 倍——一页成了「别处放不"
+        "下就放这里」的地方。"
+    ),
+    "lens.conc.catch_all.action": (
+        "定一下『{title}』到底是为什么而设的，把那 {count} 条不属于它的断言（claim）各自安置"
+        "到自己的页面上。"
+    ),
+    "lens.bal.family_heavy.impact": (
+        "`{family}` 占页面的 {pages}、却占断言（claim）的 {share}，全库的重量压在一类主题上。"
+    ),
+    "lens.bal.family_heavy.action": (
+        "定一下这些材料是否本就该落在 `{family}`，还是契约欠那些因为没有去处才堆到这里的材料"
+        "一个族。"
+    ),
+    "lens.bal.family_empty.impact": (
+        "契约声明了 `{family}`，却从来没有一页归到那里，一个每次编译都摆在面前的族等于没有。"
+    ),
+    "lens.bal.family_empty.action": (
+        "定一下 `{family}` 是不是还该期待——它的材料还没到——还是契约不该再声明它。"
+    ),
+    "lens.bal.session_shaped.impact": (
+        "`{path}` 有 {share} 的断言（claim）是带日期、只引一个来源的条目（共 {count} 条），这"
+        "是一份会话流水的形状，不是一个主题的形状。"
+    ),
+    "lens.bal.session_shaped.action": (
+        "问一句『{title}』究竟是什么：若是项目，那 {count} 条会话条目该作证据而不是断言"
+        "（claim）；若是流水，它就是材料，不是主题。"
+    ),
+    "lens.corr.single_source.impact": (
+        "`{path}` 的 {count} 条断言（claim）全都只引 `{source_id}`，整个主题压在对它的同一份"
+        "陈述上。"
+    ),
+    "lens.corr.single_source.action": (
+        "用别的材料为『{title}』做旁证，或者在它的头部说清 `{source_id}` 就是全部证据。"
     ),
 }
 

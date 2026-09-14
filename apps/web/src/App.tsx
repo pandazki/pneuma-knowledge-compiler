@@ -24,7 +24,7 @@ const LiveContextView = lazy(() => import("./views/live_context/LiveContextView"
 const StewardView = lazy(() => import("./views/steward/StewardView"));
 const ConsultationsView = lazy(() => import("./views/consultations/ConsultationsView"));
 const LibraryView = lazy(() => import("./views/library/LibraryView"));
-const GraphView = lazy(() => import("./views/graph/GraphView"));
+const LensView = lazy(() => import("./views/lens/LensView"));
 const HistoryView = lazy(() => import("./views/history/HistoryView"));
 const EvolveView = lazy(() => import("./views/evolve/EvolveView"));
 const EngineConsoleView = lazy(() => import("./views/engine_console/EngineConsoleView"));
@@ -43,7 +43,7 @@ const VIEWS: Record<ViewName, ComponentType> = {
   steward: StewardView,
   consultations: ConsultationsView,
   library: LibraryView,
-  graph: GraphView,
+  lens: LensView,
   history: HistoryView,
   evolve: EvolveView,
   engine_console: EngineConsoleView,

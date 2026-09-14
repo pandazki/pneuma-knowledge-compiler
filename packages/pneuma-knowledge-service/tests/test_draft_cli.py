@@ -1018,3 +1018,46 @@ async def test_the_door_answers_the_same_way_whichever_command_meets_it(
     monkeypatch.chdir(tmp_path)
     assert await _pkc(monkeypatch, h.rt, ["draft", "abandon"]) == 2
     _dirty_refusal(capsys.readouterr().err)
+
+
+# ───────────────────────────────────────────────────── the page's name, as a write verb
+
+
+def test_retitle_takes_the_page_and_its_new_name_from_argv():
+    """Both arguments positional, like every other draft verb's page — and the title beside
+    it, because a title is one short line rather than a paragraph in a file."""
+    args = build_parser().parse_args(["draft", "retitle", LEGACY, "程野的页面"])
+    assert _tool_call(args) == ("retitle", {"path": LEGACY, "title": "程野的页面"})
+
+
+async def test_retitle_writes_the_page_its_name_and_commits_it():
+    """The round trip: a page whose leading heading is wrong is given the right one, nothing
+    else about it moves, and the committed file carries the name."""
+    h = await harness([source()], base=legacy_base())
+    await draft_cmd.cmd_open(h.rt, h.job_id)
+    h.clear()
+    code = await draft_cmd.run_tool(h.rt, "retitle", {"path": LEGACY, "title": "程野"})
+    assert code == draft_cmd.EXIT_OK, h.err()
+    assert "程野" in h.out()
+
+    assert await draft_cmd.cmd_finish(h.rt) == draft_cmd.EXIT_OK, h.err()
+    committed = h.store.commits[-1][LEGACY]
+    frontmatter, body = parse_document(committed)
+    assert body.splitlines()[0] == "# 程野"
+    assert frontmatter["title"] == "程野"
+    # The claim it already held is untouched: a name is not a claim, and retitle reads no
+    # part of the body below the heading.
+    assert "- 旧的一条。[cite: src-old ¶0] <!-- c:bb22 -->" in body
+
+
+async def test_retitle_refuses_a_closed_volume_by_name():
+    """A closed volume is frozen history and has no name of its own — it is labelled from the
+    page it was cut out of, so there is nothing here to rename (structure-lens §6)."""
+    h = await harness([source()], base=legacy_base())
+    await draft_cmd.cmd_open(h.rt, h.job_id)
+    h.clear()
+    code = await draft_cmd.run_tool(
+        h.rt, "retitle", {"path": "memory/people/legacy/a01.md", "title": "旧卷"}
+    )
+    assert code == draft_cmd.EXIT_REFUSED
+    assert "a01.md" in h.err() and LEGACY in h.err()
