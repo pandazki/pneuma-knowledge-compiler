@@ -80,7 +80,6 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(function 
         className={cn(
           "w-full resize-none rounded-2 border bg-surface px-3 py-2 text-14 leading-[1.75] text-ink",
           "transition-colors duration-120 ease-out",
-          "focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2",
           error ? "border-danger" : "border-line-2 hover:not-focus-visible:border-ink-3",
           disabled && "opacity-45",
           autoRows && "overflow-y-auto",

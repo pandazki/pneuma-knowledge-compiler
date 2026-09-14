@@ -36,6 +36,8 @@ React 18 + Zustand + Radix + Tailwind v4。没有 react-router：`src/App.tsx` �
 | 演化 | evolve（草稿评审：理由、文件 diff、消失锚点、采纳/丢弃） |
 | 卷末 | components（设计系统画廊） |
 
+仅 Owner 可见的 `steward` 视图是与编译这座库的编码代理的对话：它的散文按 Markdown 流式渲染，输入框收图片（粘贴、拖入，或点附件按钮——png/jpeg/webp/gif，一条消息最多 4 张、每张不超过 5 MiB），图片以 data URL 随消息发出，并作为缩略图留在你自己的气泡里。
+
 ## 设计规则
 
 设计权威是 [`DESIGN.zh-CN.md`](DESIGN.zh-CN.md)；它的可执行形态在两个文件——[`src/styles/tokens.css`](src/styles/tokens.css)（所有颜色只住这里；组件零 hex/rgb 字面量；派生色只用 `color-mix`）和 [`src/index.css`](src/index.css)（阅读排版、分区滚动约定、原生控件重置）。速览版：

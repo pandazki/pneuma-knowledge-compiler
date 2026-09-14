@@ -206,7 +206,6 @@ function DayField({
         "h-7 rounded-1 border border-line-2 bg-surface px-1.5 text-12 text-ink",
         "transition-colors duration-120 ease-out",
         "hover:not-focus:border-ink-3",
-        "focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-1",
       )}
     />
   );
@@ -234,7 +233,6 @@ function Chip({
       className={cn(
         "inline-flex items-baseline gap-1 rounded-2 border px-2 py-0.5 text-12",
         "transition-colors duration-120 ease-out",
-        "focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-1",
         selected
           ? "border-accent bg-accent-soft text-ink"
           : "border-line-2 text-ink-2 hover:border-ink-3 hover:bg-hover",

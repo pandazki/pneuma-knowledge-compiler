@@ -11,6 +11,11 @@ process speaking NDJSON in both directions. What this module knows that nothing 
 * **there is no turn id.** A user turn written while another is in flight would race it, so
   the SESSION queues instead (`steward_session.py`), and this adapter simply refuses to
   arm a second turn: `busy` is the whole of what it can offer.
+* **a turn's images ride the message, not the disk.** The streaming input is the Anthropic
+  message shape, so an attachment is a `{"type": "image", "source": {"type": "base64", …}}`
+  block beside the text — verified against this CLI, which answered a question about a
+  pasted image. A turn with no images keeps the plain-string content it has always had, so
+  nothing about the existing path changes byte for byte.
 * **an approval request should not arrive at all** under `bypassPermissions`. If one does it
   is declined — explicitly, in the protocol's own `control_response` shape — and surfaced, so
   the Owner sees a stopped step instead of a hang.
@@ -21,9 +26,10 @@ broadcast. No I/O, no asyncio — which is what lets the adapter tests replay a 
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
-from typing import Any
+from typing import Any, Sequence
 
 from .steward_events import (
     UNKNOWN_FRAME,
@@ -102,6 +108,9 @@ class ClaudeStreamAdapter:
     #: Named on the manifest so a console can say which protocol it is watching.
     protocol = "stream-json"
 
+    #: Claude Code's streaming input is the Anthropic message shape, which carries images.
+    accepts_images = True
+
     def __init__(self, **_: Any) -> None:
         # Claude needs neither the project nor the model here: the working directory and the
         # model ride the argv the manifest describes. The keywords are accepted and ignored
@@ -131,11 +140,31 @@ class ClaudeStreamAdapter:
     def start(self) -> None:
         """Claude needs no handshake: the process is ready when it is spawned."""
 
-    def user_turn(self, text: str) -> None:
-        """Write one user turn, as the one NDJSON line the CLI's streaming input accepts."""
+    def user_turn(self, text: str, images: Sequence[Any] = ()) -> None:
+        """Write one user turn, as the one NDJSON line the CLI's streaming input accepts.
+
+        `images` are the session's decoded attachments; Claude takes their bytes inline, so
+        the paths the session wrote them to are not named here.
+        """
+        content: Any = text
+        if images:
+            # Images first, then the text — the order a person pastes them in.
+            content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image.mime,
+                        "data": base64.b64encode(image.data).decode("ascii"),
+                    },
+                }
+                for image in images
+            ]
+            if text:
+                content.append({"type": "text", "text": text})
         frame = {
             "type": "user",
-            "message": {"role": "user", "content": text},
+            "message": {"role": "user", "content": content},
             "parent_tool_use_id": None,
         }
         if self._session_id:

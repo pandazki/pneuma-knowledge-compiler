@@ -51,7 +51,7 @@ export const gallery = defineMessages({
     "gallery.button.withIcon": "带图标",
     "gallery.button.settings": "设置",
     "gallery.button.compiling": "编译中",
-    "gallery.button.focusHint": "Tab 聚焦任意按钮：accent 2px outline + 2px offset。",
+    "gallery.button.focusHint": "Tab 聚焦任意按钮：1px accent 发丝线画在框内，加一层很淡的 accent 底。",
 
     "gallery.text.value": "校样文字",
     "gallery.text.titleLabel": "标题",
@@ -196,7 +196,8 @@ export const gallery = defineMessages({
     "gallery.button.withIcon": "With icon",
     "gallery.button.settings": "Settings",
     "gallery.button.compiling": "Compiling",
-    "gallery.button.focusHint": "Tab to any button: a 2px accent outline, offset by 2px.",
+    "gallery.button.focusHint":
+      "Tab to any button: a 1px accent hairline inside the box, over a faint accent ground.",
 
     "gallery.text.value": "Proof copy",
     "gallery.text.titleLabel": "Title",

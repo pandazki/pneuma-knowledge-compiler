@@ -27,7 +27,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(
         className={cn(
           "flex h-9 items-center gap-2 rounded-2 border border-line-2 bg-surface px-3",
           "transition-colors duration-120 ease-out",
-          "focus-within:outline-2 focus-within:outline-accent focus-within:outline-offset-2",
+          "field-surface",
           "hover:not-focus-within:border-ink-3",
           disabled && "opacity-45",
           wrapperClassName,

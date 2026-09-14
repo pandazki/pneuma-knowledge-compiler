@@ -39,10 +39,23 @@ export type StewardFrame =
   | { type: "error"; detail: string }
   | { type: "ping" };
 
+/**
+ * One image the Owner attached to a turn. `dataUrl` is the pasted bytes, unaltered: the
+ * console neither re-encodes nor uploads anything — what the thumbnail shows and what the
+ * socket carries are the same bytes.
+ */
+export interface StewardImage {
+  name: string;
+  mime: string;
+  dataUrl: string;
+}
+
 export interface OwnerItem {
   kind: "owner";
   id: string;
   text: string;
+  /** What travelled with the message, shown in the Owner's own bubble. */
+  images: StewardImage[];
   /** Held behind a turn in flight, and told so. Never steered, never resent. */
   queued: boolean;
 }
@@ -269,12 +282,96 @@ function findStep(items: StewardItem[], stepId: string): number {
 }
 
 /** The Owner's own turn, appended locally the moment it is sent (the socket never echoes it). */
-export function ownerSaid(state: StewardState, text: string): StewardState {
+export function ownerSaid(
+  state: StewardState,
+  text: string,
+  images: readonly StewardImage[] = [],
+): StewardState {
   return {
     ...state,
     seq: state.seq + 1,
-    items: [...state.items, { kind: "owner", id: `o${state.seq + 1}`, text, queued: false }],
+    items: [
+      ...state.items,
+      { kind: "owner", id: `o${state.seq + 1}`, text, images: [...images], queued: false },
+    ],
   };
+}
+
+/* --------------------------------------------------------------------- The composer's rules */
+
+/**
+ * Will a message sent RIGHT NOW be held behind the turn in flight?
+ *
+ * The composer says so before the Owner presses send, rather than after — the marker on a
+ * sent message (`OwnerItem.queued`) is the receipt, this predicate is the warning. Both are
+ * the same one fact: the harness takes one turn at a time, and nothing here steers a turn
+ * that is already running. An attachment with no text is a message too.
+ */
+export function willQueue(state: StewardState, draft: string, images = 0): boolean {
+  const hasMessage = draft.trim() !== "" || images > 0;
+  return state.busy && !state.exited && hasMessage;
+}
+
+/** The image types the composer takes. Anything else is refused by name, never silently. */
+export const IMAGE_MIMES: readonly string[] = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+/** At most four per message. */
+export const MAX_IMAGES = 4;
+/** At most 5 MiB each. */
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** What the composer knows about a candidate file before any of its bytes are read. */
+export interface ImageCandidate {
+  name: string;
+  mime: string;
+  size: number;
+}
+
+export type ImageRefusal = "type" | "size" | "count";
+
+export interface ImageRejection {
+  name: string;
+  reason: ImageRefusal;
+}
+
+export interface ImageAdmission {
+  /** Indices into the candidate list, in the order given. */
+  accepted: number[];
+  rejected: ImageRejection[];
+}
+
+/**
+ * Which of these files may be attached, and why the rest may not.
+ *
+ * Pure, and decided on the FILE DESCRIPTOR alone — type, size, and how many are already
+ * held — so nothing is read into memory before it is known to be admissible, and the node
+ * tests can assert every refusal without a browser. A refusal carries a reason key, not a
+ * sentence: this module never imports the dictionary (DESIGN.md §4.4).
+ */
+export function admitImages(
+  held: number,
+  candidates: readonly ImageCandidate[],
+): ImageAdmission {
+  const accepted: number[] = [];
+  const rejected: ImageRejection[] = [];
+  let room = Math.max(0, MAX_IMAGES - held);
+  candidates.forEach((candidate, index) => {
+    const name = candidate.name || "";
+    if (!IMAGE_MIMES.includes(candidate.mime)) {
+      rejected.push({ name, reason: "type" });
+      return;
+    }
+    if (candidate.size > MAX_IMAGE_BYTES) {
+      rejected.push({ name, reason: "size" });
+      return;
+    }
+    if (room === 0) {
+      rejected.push({ name, reason: "count" });
+      return;
+    }
+    room -= 1;
+    accepted.push(index);
+  });
+  return { accepted, rejected };
 }
 
 /** Acknowledge the invalidations the caller has acted on. */

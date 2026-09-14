@@ -60,7 +60,6 @@ export function Slider({
           className={cn(
             "block size-3.5 rounded-full border border-line-2 bg-raised",
             "transition-colors duration-120 hover:border-accent",
-            "focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2",
             "disabled:opacity-45",
           )}
           aria-label={rest["aria-label"]}

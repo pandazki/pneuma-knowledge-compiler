@@ -22,11 +22,20 @@ export const steward = defineMessages({
     "steward.status.session": "会话 {id}",
 
     "steward.compose.placeholder": "跟管家说点什么，比如「这周进来了什么，招标那块有没有互相矛盾的地方？」",
+    "steward.compose.label": "给管家的消息",
     "steward.compose.send": "发送",
-    "steward.compose.busy": "它正在做事——现在发出的消息会排队，等这一轮结束再送进去。",
     "steward.compose.hint": "Enter 发送，Shift+Enter 换行",
+    "steward.compose.working": "管家正在处理…",
+    "steward.compose.queueing": "将排队，这一轮结束后发送",
+    "steward.compose.attach": "附上图片",
+    "steward.compose.removeImage": "移除 {name}",
+    "steward.compose.pastedImage": "粘贴的图片",
+    "steward.compose.refused.type": "{name} 不是 PNG / JPEG / WebP / GIF，没有附上。",
+    "steward.compose.refused.size": "{name} 超过 {size} MiB，没有附上。",
+    "steward.compose.refused.count": "一条消息最多 {max} 张图片，{name} 没有附上。",
 
     "steward.item.owner": "你",
+    "steward.item.openImage": "查看 {name} 原图",
     "steward.item.queued": "已排队 · 等当前这一轮结束",
     "steward.item.running": "运行中…",
     "steward.item.exit": "退出码 {code}",
@@ -66,12 +75,21 @@ export const steward = defineMessages({
 
     "steward.compose.placeholder":
       "Tell the Steward something — “what came in this week, and is anything about the tender contradictory?”",
+    "steward.compose.label": "Message to the Steward",
     "steward.compose.send": "Send",
-    "steward.compose.busy":
-      "It is working. A message sent now is queued and goes in when this turn ends.",
     "steward.compose.hint": "Enter sends, Shift+Enter for a new line",
+    "steward.compose.working": "Steward is working…",
+    "steward.compose.queueing": "Queued until this turn ends",
+    "steward.compose.attach": "Attach images",
+    "steward.compose.removeImage": "Remove {name}",
+    "steward.compose.pastedImage": "pasted image",
+    "steward.compose.refused.type": "{name} is not a PNG, JPEG, WebP or GIF — not attached.",
+    "steward.compose.refused.size": "{name} is over {size} MiB — not attached.",
+    "steward.compose.refused.count":
+      "At most {max} images per message — {name} was not attached.",
 
     "steward.item.owner": "You",
+    "steward.item.openImage": "Open {name} full size",
     "steward.item.queued": "queued · waiting for this turn to end",
     "steward.item.running": "running…",
     "steward.item.exit": "exit {code}",

@@ -52,6 +52,9 @@ export function Tabs({ value, onChange, tabs, className, contentClassName, ...re
         <RadixTabs.Content
           key={tab.value}
           value={tab.value}
+          // The panel is focusable so the keyboard can reach its content; a focus mark around a
+          // whole page region would be noise, and this is the one deliberate exception to the
+          // global standard (DESIGN.md §4.1).
           className={cn("outline-none", contentClassName ?? "pt-4")}
         >
           {tab.panel}

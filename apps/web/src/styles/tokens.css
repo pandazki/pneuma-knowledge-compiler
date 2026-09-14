@@ -28,6 +28,10 @@
   /* Derived (color-mix, no new hex) */
   --accent-soft: color-mix(in srgb, var(--accent) 10%, var(--bg)); /* selected ground */
   --accent-line: color-mix(in srgb, var(--accent) 35%, var(--bg)); /* selected border */
+  /* The focus ground. Same strength as --accent-soft but left TRANSPARENT, so it can be
+     laid over whatever ground the focused element already has (a primary button's accent,
+     a field's surface, a ghost button's nothing) instead of replacing it. */
+  --accent-tint: color-mix(in srgb, var(--accent) 10%, transparent);
   --hover: color-mix(in srgb, var(--ink) 4%, transparent); /* hover ground (overlay) */
   --active: color-mix(in srgb, var(--ink) 7%, transparent);
   --ok-soft: color-mix(in srgb, var(--ok) 10%, var(--bg));
@@ -85,6 +89,7 @@
 
   --accent-soft: color-mix(in srgb, var(--accent) 12%, var(--bg));
   --accent-line: color-mix(in srgb, var(--accent) 35%, var(--bg));
+  --accent-tint: color-mix(in srgb, var(--accent) 12%, transparent);
   --hover: color-mix(in srgb, var(--ink) 5%, transparent);
   --active: color-mix(in srgb, var(--ink) 9%, transparent);
   --ok-soft: color-mix(in srgb, var(--ok) 12%, var(--bg));

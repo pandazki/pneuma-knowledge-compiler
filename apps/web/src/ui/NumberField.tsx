@@ -71,7 +71,7 @@ export function NumberField({
         className={cn(
           "flex h-9 items-stretch rounded-2 border bg-surface",
           "transition-colors duration-120 ease-out",
-          "focus-within:outline-2 focus-within:outline-accent focus-within:outline-offset-2",
+          "field-surface",
           error ? "border-danger" : "border-line-2 hover:not-focus-within:border-ink-3",
           disabled && "opacity-45",
         )}
