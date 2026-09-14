@@ -1,11 +1,12 @@
 /**
  * The canonical link index: who points at whom, and the sentence that says why.
  *
- * The STRUCTURE LENS itself — the findings, the score, the levels — is derived in core and
- * read over `GET /v1/users/{uid}/lens` (docs/design/structure-lens.md §3): the console
- * computes none of it, so the number the Owner sees is the number a Steward running
- * `pkc lens` sees. What stays here is the one thing a report cannot carry: the per-document
- * NEIGHBOURHOOD the Canonical view reads, whose rows are claim sentences rather than ids.
+ * The STRUCTURE LENS itself — the six dimensions and their bands — and the CHECK's findings
+ * are derived in core and read over `GET /v1/users/{uid}/lens` and `GET /review`
+ * (docs/design/structure-lens.md §3, §4): the console computes none of either, so the reading
+ * the Owner sees is the reading a Steward running `pkc lens` gets. What stays here is the one
+ * thing neither can carry: the per-document NEIGHBOURHOOD the Canonical view reads, whose rows
+ * are claim sentences rather than ids.
  *
  * Two rules run through everything here:
  *
@@ -368,48 +369,6 @@ export function volumeFamily(index: LinkIndex, path: string): VolumePage[] | nul
       current: volume === path,
     })),
   ];
-}
-
-/* ---------------------------- what a groom actually added, between two snapshots */
-
-/**
- * The one reading the Compare tab still computes on the client, and the reason it does:
- * a new edge without the claim that wrote it says nothing, and only the canonical
- * projection carries that sentence. The lens report counts edges; this names them.
- */
-export interface EdgeDiffRow {
-  fromPath: string;
-  fromTitle: string;
-  toPath: string;
-  toTitle: string;
-  toDocumentId: string | null;
-  /** the claim that created the edge — a new edge is only meaningful with its sentence */
-  sentence: string;
-}
-
-/** Edges present after and absent before, each carrying the sentence that made it. */
-export function newEdges(before: LinkIndex, after: LinkIndex): EdgeDiffRow[] {
-  const had = new Set<string>();
-  for (const [from, rows] of before.outgoing) {
-    for (const row of rows) had.add(`${from}\u0000${row.path}`);
-  }
-  const out: EdgeDiffRow[] = [];
-  for (const [from, rows] of after.outgoing) {
-    for (const row of rows) {
-      if (had.has(`${from}\u0000${row.path}`)) continue;
-      out.push({
-        fromPath: from,
-        fromTitle: after.unitByPath.get(from)?.title ?? from,
-        toPath: row.path,
-        toTitle: row.title,
-        toDocumentId: row.documentId,
-        sentence: row.sentence,
-      });
-    }
-  }
-  return out.sort(
-    (a, b) => a.fromPath.localeCompare(b.fromPath) || a.toPath.localeCompare(b.toPath),
-  );
 }
 
 /* -------------------------------------------------- the retired canvas's deep links */

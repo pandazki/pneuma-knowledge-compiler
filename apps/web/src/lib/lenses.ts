@@ -60,6 +60,7 @@ export const VIEW_LENSES: Record<ViewName, readonly Lens[]> = {
   library: EVERY_LENS,
   process: OWNER_ONLY,
   history: OWNER_ONLY,
+  review: OWNER_ONLY,
   lens: OWNER_ONLY,
   evolve: OWNER_ONLY,
   engine_console: OWNER_ONLY,

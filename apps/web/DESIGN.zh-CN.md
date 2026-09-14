@@ -111,19 +111,19 @@ Web 字体在 `index.css` 里按 unicode-range 分片引入，浏览器只下载
 
 ## 3. 信息架构
 
-hash 路由就是 deep link 契约（`lib/hash.ts`）：12 个视图加 selection 编码。导航按一本书的目录组织——桌面为目录轨，移动端收进 Drawer。§ 编号、顺序与分组住在 `components/TocNav.tsx` 的 `TOC`，词句住在 `i18n/nav.ts`：编号是结构，标签是文案。
+hash 路由就是 deep link 契约（`lib/hash.ts`）：每个视图名加 selection 编码。导航按一本书的目录组织——桌面为目录轨，移动端收进 Drawer。§ 编号、顺序与分组住在 `components/TocNav.tsx` 的 `TOC`，词句住在 `i18n/nav.ts`：编号是结构，标签是文案。
 
 | 章 | § | 视图（route） | 做什么 |
 |---|---|---|---|
 | 卷首 | 01 | `overview` | 为什么这是一个**编译器** |
-| 原料篇 | 02 / 03 | `sources` / `ingest` | 读进来的东西；导入并看它的计划 |
-| 工序篇 | 04 | `process` | 编译 job 与状态 |
-| 取用篇 | 05 / 06 / 07 | `recall` / `ask` / `live_context` | 三条检索 lane、briefing、即时建议 |
-| 正典篇 | 08 / 09 / 10 | `library` / `lens` / `history` | canonical 文档、结构透镜、版本 |
-| 演化篇 | 11 | `evolve` | 待评审的 schema 草案 |
-| 卷末 | 12 | `profile` | 当前租户的画像 |
+| 来源篇 | 02 / 03 | `sources` / `ingest` | 读进来的东西；导入并看它的计划 |
+| 工序篇 | 04 / 04b | `process` / `steward` | 编译 job 与状态；与写这座库的智能体的会话 |
+| 取用篇 | 05 / 06 / 07 / 08 | `recall` / `ask` / `live_context` / `consultations` | 三条检索 lane、briefing、即时建议，以及它们答过什么的记录 |
+| 正典篇 | 09 / 10 / 10b / 11 | `library` / `lens` / `review` / `history` | canonical 文档、结构透镜、质检、版本 |
+| 演化篇 | 12 / 13 | `evolve` / `engine_console` | 待评审的 schema 草案；编译生命周期的地图 |
+| 卷末 | 14 | `profile` | 当前租户的画像 |
 
-`#/components` 是隐藏的第 13 条路由（primitive 陈列），不进目录。
+`#/components` 是隐藏路由（primitive 陈列），不进目录。
 
 顶栏贯穿所有视图：字标、移动端目录按钮，右侧是 UserPicker（租户）、SnapshotPicker（当前 HEAD / 可问答的冻结快照 / canonical 提交仅浏览）、LocaleToggle 与 ThemeToggle。选中快照期间，内容栏顶部出现档案戳横幅，所有写操作控件禁用（§4.3）。
 
@@ -206,7 +206,9 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：12 个视图加 selectio
 - **ask** — briefing 构建（query、来源多选、字符预算 NumberField），然后是连续的 serif 问答线程，带引用脚注与逐轮用量。点击引用打开 `SourceSpanSheet`。
 - **live_context** — 一个视图里两条链路：一次性 SSE（工作流窗口、focus/kind、min-confidence Slider → 存活卡片 + `GateLedger`）与长连接 WS（连接态、config、turn 追加、flush、`want_more`）。卡片是标题 + serif 正文 + trigger + confidence 数字，不是仪表。
 - **library** — 左为文档树；右为选中文档的版样：serif 正文、mono claim 锚点、脚注引用、flag 作页边注。选中 claim deep-link 到 `#/library/claim/…`。顺藤摸瓜发生在邻域卡（§4.2）里。归档被从目录里折出来，收进左栏底部一个默认折叠的分区（`lib/archive.ts`，只认 `archive/` 前缀）——已归档的文档照样能打开，并在页眉挂一枚徽标；owner 视角下页眉的动作打开归档提议对话框（`views/archive/`），页面抬头的「归档」则打开当前归档清单。
-- **lens** — **结构透镜**：从外面读整座库，由服务里一个派生的、无模型的阅读器给出报告（docs/design/structure-lens.md）。控制台自己不算任何一个数——这正是要点：这里的数就是 Steward 跑 `pkc lens` 看到的数。两个 tab。**本次读数**以结构分（没有任何未决发现点到的主体占全部主体的比例）开场，紧跟着那句说明它不是成绩的话，然后是**先做这三件事**——取排序最靠前的三个**透镜**各自的第一条，一个透镜一条，免得三座孤岛把重名主体和畸形页挤出榜外。每条先说它让人付出什么（句子由报告带来，两种语言都已渲染好，控制台不留一份措辞副本），其下是动作、面向谁（一个词）、它涉及的页（点进文档，超过 12 页折叠为「另 N 条」）与依据；再往下是同一批发现按层级重列——原则 / 漂移 / 形制——折叠在各自的条数后面。**时间对比**在两个 ref 上各读一次报告并相减：结构分与基数，然后是发现的去向（已解决 / 新出现 / 仍未决，按 key 匹配，所以「仍未决」指同一页上的同一处），新增内链及写下它的那句话是按钮后的第二次读取——那句话只在正本投影里，两份投影很贵。这是一个纯阅读面：页面上没有任何把发现递给谁的动作（设计文档 §9 把那件事留到以后）。前身 `#/graph` 重定向到这里，老 `#/graph/node/<id>` 链接解析到该节点代表的文档（或来源）。
+- **lens** — **结构透镜**：从外面读整座库，由服务里一个派生的、无模型的阅读器给出读数（docs/design/structure-lens.zh-CN.md §4）。控制台自己不算任何一个数——这正是要点：这里的读数就是 Steward 跑 `pkc lens` 得到的读数。六节，一个维度一节：可走性、堆积、知识与流水、活性、类型与结构、供需。每节先给**档位**（一个词：通畅／稀疏／断裂，均衡／偏斜／塌陷……），用中性墨色——档位是读数不是状态；随后是阅读尺寸的**判词**、一张带移动的**指标**小表（本次／上次／Δ，缺数以破折号示之）、**方向**（该拉哪根杠杆：契约条款、一次演化、一次 groom、一轮质检——从不是某一页），以及依据。对照读数由一个选择器决定；不选则什么都不发，由服务端自己取 HEAD 的父提交，于是控制台不可能和 `pkc lens` 在「上一次是哪一次」上分歧。没有分数、没有发现、没有页面清单：一条发现属于能看见它的最低层，质检有自己的面。判词与方向随读数而来、两种语言都已渲染好，控制台不留副本；维度标题、档位词与指标标签是控制台自己的 chrome，按运行时字符串查表，没见过的就以自己的名字显示。前身 `#/graph` 重定向到这里，老 `#/graph/node/<id>` 链接解析到该节点代表的文档（或来源）。
+- **review** — **质检**（docs/design/structure-lens.zh-CN.md §3）：三层中的中间一层，站在页面上、对着契约能看出来、也能用一轮自己的 round 修掉的问题——枢纽把自家的页留成走不到的、某个主体被提了二十次却从不链接、同一个标题存在两次，以及门禁如今在写入处拒收、但早已落盘的存量实例。按**页**分组，因为活是这么干的：打开一篇文档，把关于它的都改完，而不是一张平铺清单把人来回赶回同一个文件四次。同一页内保持报告自己的顺序（存量在判断之前——写入期的毛病是无歧义的），每行是那条发现的句子、mono 的 id、类别、修它的动作、它另外牵涉的页与依据。页首按类别数出条数，旁边是 ref 与读取时间。页面上唯一的动作是那一**轮**质检：Owner 入队的正本道作业，回传作业号与队列状态，并给一条进 `process` 的路。除此之外，这一页不把任何发现递给任何人。
+
 - **history** — snapshot / job / patch 三类记录的统一账页（mono ref、时间、changed paths、sources consumed、lineage）。patch 展开为 escalations、flag counts 与 claims trace；snapshot 行可经 SnapshotPicker 以只读态打开。
 - **evolve** — 三个面：演化时间线（状态即站点的形状与语义色）、任务详情（proposal 依据、pack 草案全文、会消失的 anchors、changed-file diff、adopt/drop）、schema 轴（族与 path template 随时间累积）。409 单飞冲突以 `Callout` 呈现。`#/evolve/evolve-task/<id>` 落在详情上。
 - **profile** — 当前租户的画像：身份加一张编译契约会读的字段定义表，以及全部由 primitives 搭的编辑表单。AI 生成只属于「新建画像」onboarding（一句话 → 草稿 → 用户确认）；已有画像不显示生成入口。

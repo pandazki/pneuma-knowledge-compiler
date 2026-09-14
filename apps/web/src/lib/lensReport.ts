@@ -1,85 +1,94 @@
 /**
- * The structure lens's report, as the console receives it.
+ * The two model-free readings the service derives over the whole canonical library, as the
+ * console receives them (docs/design/structure-lens.md §5).
  *
- * `GET /v1/users/{uid}/lens?at=<ref>` returns a reading of the whole canonical library taken
- * from OUTSIDE it (docs/design/structure-lens.md §3): base counts, a score, and findings —
- * each one addressed to somebody, carrying its evidence, what it costs and what to do. The
- * console computes nothing of its own here; it parses, groups and renders.
+ * They are different instruments and the design keeps them apart, so this module keeps them
+ * apart too. **The check** (`GET /review`, §3) is the insider's list: page-level findings a
+ * Steward can repair in a round of its own, each with its evidence, what it costs and the
+ * verb that fixes it. **The lens** (`GET /lens`, §4) is the god's-eye: six dimensions, each
+ * with a band, a statement, a direction and a few metrics carrying their movement since the
+ * previous reading. A finding belongs to the lowest tier that can see it, so the lens lists
+ * no findings at all and the check reads no dimension.
  *
- * Three things this module is careful about, because the report crosses a wire:
+ * Three things this module is careful about, because both readings cross a wire:
  *
- * 1. EVERY FIELD DEGRADES. A report missing `families`, a finding missing `evidence`, a level
- *    or actor the client has never heard of — none of those may blank the page. Unknown level
- *    and actor strings survive as themselves and are rendered as themselves.
- * 2. THE SENTENCES ARE THE CATALOG'S, not the console's. The service sends each `impact` and
- *    `action` already rendered in both packs (`text.en`, `text.zh`) beside the key and fields
- *    it came from (§3.2). The console picks its locale's and keeps NO copy: one catalog, one
- *    wording, every face — so an application that rewords a key through the overlay seam
- *    changes what the console shows too, without a release.
- * 3. `decision` IS RESERVED. This version's lens is a pure reading face: nothing in the
- *    console pushes a finding at the Steward and no decline exists to record, so the field is
- *    typed and always null (§9). The one defensive branch that renders it costs a line.
+ * 1. EVERY FIELD DEGRADES. A report missing `findings`, a finding missing `evidence`, a band
+ *    or dimension id the client has never heard of — none of those may blank the page.
+ *    Unknown strings survive as themselves and are rendered as themselves.
+ * 2. THE SENTENCES ARE THE CATALOGUE'S, not the console's. The service sends each `impact`,
+ *    `action`, `statement` and `direction` already rendered in both packs (`text.en`,
+ *    `text.zh`, §5.2) beside the key and fields it came from. The console picks its locale's
+ *    and keeps NO copy: one wording, every face — so an application that rewords a key
+ *    through the overlay seam changes what the console shows too, without a release.
+ * 3. NOTHING IS RE-DERIVED HERE. No band, no threshold, no score (the score of the old view
+ *    is gone, §4.3). The console parses, orders and renders; the numbers are the numbers
+ *    `pkc lens` and `pkc library review` print.
  *
- * Import-free by design, so it transpiles standalone for its test, and language-free: it
- * returns keys and numbers, the view owns every word.
+ * Runtime-import-free by design, so it transpiles standalone for its test, and — apart from
+ * the reader's locale — language-free: it returns keys and numbers, the view owns the words.
  */
+import type { Locale } from "./i18n";
 
-/** §3.1 — the three levels, widened so an unknown one renders rather than disappears. */
-export type LensLevel = "principle" | "drift" | "shape" | string;
-
-/** Who the finding is addressed to. Same widening, same reason. */
-export type LensActor = "steward" | "owner" | "mechanism" | string;
-
-/** The order the levels are read in: §3.4, principle before drift before shape. */
-export const LENS_LEVELS: readonly LensLevel[] = ["principle", "drift", "shape"];
+/* ------------------------------------------------------------------ shared shapes */
 
 /**
- * One sentence from the prompt catalog: the key and fields it was rendered from, and the
+ * One sentence from the prompt catalogue: the key and fields it was rendered from, and the
  * rendering itself in both packs. `text` is what a reader sees; `key` and `fields` are what
- * a degraded report still has to say something with.
+ * a degraded reading still has to say something with.
  */
-export interface LensText {
+export interface CatalogText {
   key: string;
   fields: Record<string, string | number>;
   text: { en: string; zh: string };
 }
 
-/** A kept decline, when the mechanism that records one exists (§9). Always null in v1. */
-export interface LensDecision {
-  reason: string;
-  decided_at: string;
-  ref: string;
+/**
+ * A catalogue sentence, in the reader's language.
+ *
+ * Two fallbacks, in order, so a reading from an older or degraded service never renders a
+ * blank line: the other language, then the key with its fields spelled out.
+ */
+export function catalogText(locale: Locale, sentence: CatalogText): string {
+  const { en, zh } = sentence.text;
+  const mine = locale === "zh" ? zh : en;
+  const other = locale === "zh" ? en : zh;
+  if (mine) return mine;
+  if (other) return other;
+  if (!sentence.key) return "";
+  const fields = Object.entries(sentence.fields)
+    .map(([name, value]) => `${name}=${value}`)
+    .join(" · ");
+  return fields ? `${sentence.key} · ${fields}` : sentence.key;
 }
 
-export interface LensFinding {
-  /** stable id: `<lens>:<path or family>:<evidence hash>` — same evidence, same key */
+/* --------------------------------------------------------------- tier two: the check */
+
+/**
+ * What kind of fault a finding is. `legacy` is an instance of a tier-one fault written
+ * before the hook that now refuses it; `judgement` is a contract expectation no hook can
+ * decide (§3.1). Widened, so a kind this build has never heard of renders rather than
+ * disappears.
+ */
+export type CheckKind = "judgement" | "legacy" | string;
+
+export interface CheckFinding {
+  /** stable id: `<id>:<path or scope>:<evidence hash>` — same evidence, same key */
   key: string;
-  /** the lens id (§4), e.g. `nav.dead_end` */
-  lens: string;
-  level: LensLevel;
-  actor: LensActor;
-  /** the subjects it is about (open-page paths; a volume is named by its page) */
+  /** the check id (§3.1), e.g. `nav.hub_incomplete`, or the legacy id of a tier-one fault */
+  id: string;
+  kind: CheckKind;
+  /** the pages it is about (open-page paths; a volume is named by its page) */
   paths: string[];
   /** the other paths involved: missing link targets, the twin page, … */
   targets: string[];
-  /** short verbatim strings or counts */
+  /** verbatim strings from the library only — a path, a title, a heading, a date, an href */
   evidence: string[];
-  impact: LensText;
-  action: LensText;
-  /** 0–1, the share of the base it touches */
-  weight: number;
-  decision: LensDecision | null;
+  impact: CatalogText;
+  /** names the repairing verb when there is one */
+  action: CatalogText;
 }
 
-/** One row of the balance table (§3). */
-export interface LensFamilyRow {
-  name: string;
-  pages: number;
-  claims: number;
-  share: number;
-}
-
-export interface LensReport {
+export interface CheckReport {
   /** the canonical ref the report was read at */
   ref: string;
   read_at: string;
@@ -87,10 +96,64 @@ export interface LensReport {
   files: number;
   claims: number;
   edges: number;
-  /** 0–100 (§3.3): one number to watch between snapshots, not a grade */
-  score: number;
-  findings: LensFinding[];
-  families: LensFamilyRow[];
+  findings: CheckFinding[];
+}
+
+/* ------------------------------------------------------------- tier three: the lens */
+
+/** The six dimensions of §4.2, widened for the same reason every other id is. */
+export type LensDimensionId =
+  | "walkability"
+  | "shape"
+  | "knowledge_vs_log"
+  | "liveness"
+  | "type_structure"
+  | "demand_supply"
+  | string;
+
+/** The order the lens is read in — §4.2's table, top to bottom. */
+export const LENS_DIMENSIONS: readonly LensDimensionId[] = [
+  "walkability",
+  "shape",
+  "knowledge_vs_log",
+  "liveness",
+  "type_structure",
+  "demand_supply",
+];
+
+/**
+ * One metric and its movement. `previous` and `delta` are null when the reading has no
+ * previous reading to stand against — which is the ordinary state of a library's first
+ * lens, not an error.
+ */
+export interface LensMetric {
+  name: string;
+  value: number | null;
+  previous: number | null;
+  delta: number | null;
+}
+
+export interface LensDimension {
+  id: LensDimensionId;
+  /** the band id chosen by the lens's own named thresholds; never recomputed here */
+  band: string;
+  statement: CatalogText;
+  direction: CatalogText;
+  metrics: LensMetric[];
+  /** verbatim strings: the lead subject's path, an island's directory, … */
+  evidence: string[];
+}
+
+export interface LensReading {
+  ref: string;
+  read_at: string;
+  /** the ref the movement is measured against; null when there was none to read */
+  previous_ref: string | null;
+  subjects: number;
+  files: number;
+  claims: number;
+  edges: number;
+  dimensions: LensDimension[];
 }
 
 /* ------------------------------------------------------------------------ parsing */
@@ -103,16 +166,21 @@ function num(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/** A number that is allowed to be absent — a metric with no previous reading behind it. */
+function numOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function strings(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
 /**
- * A catalog sentence. A field that is neither a string nor a finite number (an array of
+ * A catalogue sentence. A field that is neither a string nor a finite number (an array of
  * paths, say) is flattened rather than dropped: the fields are what the last-resort rendering
  * has to work with, and `[object Object]` in it is worse than the list spelled out.
  */
-function text(value: unknown): LensText {
+function text(value: unknown): CatalogText {
   const raw = (value ?? {}) as { key?: unknown; fields?: unknown; text?: unknown };
   const fields: Record<string, string | number> = {};
   const given = (raw.fields ?? {}) as Record<string, unknown>;
@@ -133,37 +201,23 @@ function text(value: unknown): LensText {
   };
 }
 
-function decision(value: unknown): LensDecision | null {
-  if (value == null || typeof value !== "object") return null;
-  const raw = value as Record<string, unknown>;
-  return {
-    reason: str(raw.reason),
-    decided_at: str(raw.decided_at),
-    ref: str(raw.ref),
-  };
-}
-
-function finding(value: unknown): LensFinding {
+function checkFinding(value: unknown): CheckFinding {
   const raw = (value ?? {}) as Record<string, unknown>;
   return {
     key: str(raw.key),
-    lens: str(raw.lens),
-    level: str(raw.level),
-    actor: str(raw.actor),
+    id: str(raw.id),
+    kind: str(raw.kind),
     paths: strings(raw.paths),
     targets: strings(raw.targets),
     evidence: strings(raw.evidence),
     impact: text(raw.impact),
     action: text(raw.action),
-    weight: num(raw.weight),
-    decision: decision(raw.decision),
   };
 }
 
-/** The wire shape, made safe to render. Every absent field becomes its empty reading. */
-export function parseLensReport(value: unknown): LensReport {
+/** The check's wire shape, made safe to render. Every absent field becomes its empty reading. */
+export function parseCheckReport(value: unknown): CheckReport {
   const raw = (value ?? {}) as Record<string, unknown>;
-  const families = Array.isArray(raw.families) ? raw.families : [];
   return {
     ref: str(raw.ref),
     read_at: str(raw.read_at),
@@ -171,111 +225,121 @@ export function parseLensReport(value: unknown): LensReport {
     files: num(raw.files),
     claims: num(raw.claims),
     edges: num(raw.edges),
-    score: num(raw.score),
-    findings: Array.isArray(raw.findings) ? raw.findings.map(finding) : [],
-    families: families.map((row) => {
-      const family = (row ?? {}) as Record<string, unknown>;
-      return {
-        name: str(family.name),
-        pages: num(family.pages),
-        claims: num(family.claims),
-        share: num(family.share),
-      };
-    }),
+    findings: Array.isArray(raw.findings) ? raw.findings.map(checkFinding) : [],
   };
 }
 
-/* ----------------------------------------------------------------------- grouping */
-
-export interface LensGroup {
-  level: LensLevel;
-  findings: LensFinding[];
-}
-
 /**
- * The findings by level, in §3.4's order, with any level the client has never heard of kept
- * at the end rather than silently dropped. Order WITHIN a level is the report's own — the
- * service already sorted by weight, lens id and path, and a second opinion here would be the
- * console computing something.
+ * One metric. `delta` is the service's when it sent one, and otherwise the subtraction the
+ * two numbers already imply — a reading that carries `previous` but no `delta` should not
+ * render a movement column of dashes beside two numbers that plainly moved.
  */
-export function groupByLevel(findings: readonly LensFinding[]): LensGroup[] {
-  const groups = new Map<LensLevel, LensFinding[]>();
-  for (const level of LENS_LEVELS) groups.set(level, []);
-  for (const item of findings) {
-    const bucket = groups.get(item.level);
-    if (bucket) bucket.push(item);
-    else groups.set(item.level, [item]);
-  }
-  return [...groups].map(([level, list]) => ({ level, findings: list }));
-}
-
-/**
- * The headline: the first finding of each of the `count` highest-ranked LENSES (§3.4).
- *
- * One per lens id, in report order. The first three findings outright would be the wrong
- * three whenever one lens fires repeatedly — a library with three islands led with three
- * identical island sentences and pushed the duplicated subject and the malformed page off
- * the list entirely. "Three things to do first" has to mean three different things.
- */
-export function headline(findings: readonly LensFinding[], count = 3): LensFinding[] {
-  const seen = new Set<string>();
-  const out: LensFinding[] = [];
-  for (const finding of findings) {
-    if (seen.has(finding.lens)) continue;
-    seen.add(finding.lens);
-    out.push(finding);
-    if (out.length === count) break;
-  }
-  return out;
-}
-
-/* ------------------------------------------------------------------ two snapshots */
-
-export interface LensCountDelta {
-  metric: "score" | "subjects" | "files" | "claims" | "edges";
-  before: number;
-  after: number;
-  delta: number;
-}
-
-const DELTA_METRICS: LensCountDelta["metric"][] = [
-  "score",
-  "subjects",
-  "files",
-  "claims",
-  "edges",
-];
-
-export interface LensComparison {
-  counts: LensCountDelta[];
-  /** open before, gone after — the round answered them */
-  resolved: LensFinding[];
-  /** absent before, open after */
-  added: LensFinding[];
-  /** the same key on both sides: nothing moved */
-  stillOpen: LensFinding[];
-}
-
-/**
- * Two reports, subtracted.
- *
- * Findings are matched by KEY, which hashes the evidence (§3): a page that still holds the
- * same fault keeps its key and reads as still open, and a page whose fault changed shape
- * reports the old key resolved and a new one added — which is the honest reading, because the
- * question being asked about it is now a different question.
- */
-export function compareReports(before: LensReport, after: LensReport): LensComparison {
-  const beforeKeys = new Map(before.findings.map((f) => [f.key, f]));
-  const afterKeys = new Set(after.findings.map((f) => f.key));
+function metric(value: unknown): LensMetric {
+  const raw = (value ?? {}) as Record<string, unknown>;
+  const current = numOrNull(raw.value);
+  const previous = numOrNull(raw.previous);
+  const given = numOrNull(raw.delta);
   return {
-    counts: DELTA_METRICS.map((metric) => ({
-      metric,
-      before: before[metric],
-      after: after[metric],
-      delta: after[metric] - before[metric],
-    })),
-    resolved: before.findings.filter((f) => !afterKeys.has(f.key)),
-    added: after.findings.filter((f) => !beforeKeys.has(f.key)),
-    stillOpen: after.findings.filter((f) => beforeKeys.has(f.key)),
+    name: str(raw.name),
+    value: current,
+    previous,
+    delta: given ?? (current != null && previous != null ? current - previous : null),
   };
+}
+
+function dimension(value: unknown): LensDimension {
+  const raw = (value ?? {}) as Record<string, unknown>;
+  return {
+    id: str(raw.id),
+    band: str(raw.band),
+    statement: text(raw.statement),
+    direction: text(raw.direction),
+    metrics: Array.isArray(raw.metrics) ? raw.metrics.map(metric) : [],
+    evidence: strings(raw.evidence),
+  };
+}
+
+/** The lens's wire shape, made safe to render. */
+export function parseLensReading(value: unknown): LensReading {
+  const raw = (value ?? {}) as Record<string, unknown>;
+  return {
+    ref: str(raw.ref),
+    read_at: str(raw.read_at),
+    previous_ref: typeof raw.previous_ref === "string" && raw.previous_ref ? raw.previous_ref : null,
+    subjects: num(raw.subjects),
+    files: num(raw.files),
+    claims: num(raw.claims),
+    edges: num(raw.edges),
+    dimensions: Array.isArray(raw.dimensions) ? raw.dimensions.map(dimension) : [],
+  };
+}
+
+/* ----------------------------------------------------------------------- ordering */
+
+export interface CheckPage {
+  /** the page the findings are about; empty when a finding names no page at all */
+  path: string;
+  findings: CheckFinding[];
+}
+
+/**
+ * The check's findings grouped under the page they are about (§3.3).
+ *
+ * A finding is filed under its FIRST path, which is the page the Steward opens to repair it;
+ * the rest of its paths stay on the row as the pages it also touches. A finding that names no
+ * page at all — a library-wide reading — keeps a group of its own under the empty path rather
+ * than being dropped.
+ *
+ * Order is the report's own, twice over: the pages appear in the order the report first names
+ * them, and within a page the findings keep their given order — which is already legacy
+ * before judgement, then by id and path (§5.1). A second opinion here would be the console
+ * computing something, and the console computes nothing about this reading.
+ */
+export function groupByPage(findings: readonly CheckFinding[]): CheckPage[] {
+  const pages = new Map<string, CheckFinding[]>();
+  for (const item of findings) {
+    const path = item.paths[0] ?? "";
+    const bucket = pages.get(path);
+    if (bucket) bucket.push(item);
+    else pages.set(path, [item]);
+  }
+  return [...pages].map(([path, list]) => ({ path, findings: list }));
+}
+
+/** How many findings of each kind the report holds, for the header (§3.3). */
+export function countByKind(findings: readonly CheckFinding[]): Record<CheckKind, number> {
+  const counts: Record<string, number> = {};
+  for (const item of findings) counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+  return counts;
+}
+
+/**
+ * The six dimensions in §4.2's order, with any dimension this build has never heard of kept
+ * at the end rather than silently dropped, and a dimension the service did not send simply
+ * absent — the console renders what came, never a placeholder for what did not.
+ */
+export function orderDimensions(dimensions: readonly LensDimension[]): LensDimension[] {
+  const rank = new Map(LENS_DIMENSIONS.map((id, i) => [id, i]));
+  return [...dimensions].sort((a, b) => {
+    const ra = rank.get(a.id) ?? LENS_DIMENSIONS.length;
+    const rb = rank.get(b.id) ?? LENS_DIMENSIONS.length;
+    return ra === rb ? 0 : ra - rb;
+  });
+}
+
+/* -------------------------------------------------------------- the previous reading */
+
+/**
+ * The picker value that asks for no particular previous ref.
+ *
+ * It is not "no comparison": with the parameter omitted the service reads HEAD's parent
+ * itself (§4.3). The console deliberately does not compute that parent — if it did, the
+ * console and `pkc lens` could disagree about what "previous" means on a library whose HEAD
+ * has two of them.
+ */
+export const PREVIOUS_AUTO = "__auto__";
+
+/** What to put in `previous=`, or null to leave the parameter off and let the service choose. */
+export function previousParam(choice: string): string | null {
+  return choice === PREVIOUS_AUTO || !choice ? null : choice;
 }

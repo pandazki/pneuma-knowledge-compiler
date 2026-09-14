@@ -1,12 +1,14 @@
 /**
- * The structure lens's report, as the console receives it.
+ * The two model-free readings the console receives: the check's report (`GET /review`) and the
+ * structure lens's reading (`GET /lens`).
  *
- * The findings, the score and the order are derived in core (docs/design/structure-lens.md
- * §3), so nothing here re-derives any of them. What is asserted is what the console is
- * actually responsible for: that a report which crossed a wire renders rather than blanking
- * the page, that the levels group in §3.4's order with an unknown one kept, and that two
- * reports subtract by finding KEY — which is what makes "still open" mean the same fault on
- * the same page and not merely the same lens firing twice.
+ * The findings, the bands, the metrics and their order are derived in core
+ * (docs/design/structure-lens.md §3, §4), so nothing here re-derives any of them. What is
+ * asserted is what the console is actually responsible for: that a reading which crossed a wire
+ * renders rather than blanking the page, that the check's findings group under the page a
+ * Steward would open while keeping the report's own order (legacy before judgement), that the
+ * six dimensions read in §4.2's order with an unknown one kept at the end, and that the console
+ * never invents which commit "previous" means.
  */
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -21,35 +23,39 @@ const transformed = await transformWithEsbuild(sourceText, sourceUrl.pathname, {
   target: "es2022",
 });
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(transformed.code).toString("base64")}`;
-const { compareReports, groupByLevel, headline, parseLensReport } = await import(moduleUrl);
+const {
+  LENS_DIMENSIONS,
+  PREVIOUS_AUTO,
+  catalogText,
+  countByKind,
+  groupByPage,
+  orderDimensions,
+  parseCheckReport,
+  parseLensReading,
+  previousParam,
+} = await import(moduleUrl);
 
-/** One finding, spelled as the service spells it. */
-function finding(key, lens, level, extra = {}) {
+/** One catalogue sentence, spelled as the service spells it. */
+function sentence(key) {
+  return { key, fields: {}, text: { en: `en ${key}`, zh: `zh ${key}` } };
+}
+
+/** One check finding, spelled as the service spells it. */
+function finding(key, id, kind, paths, extra = {}) {
   return {
     key,
-    lens,
-    level,
-    actor: level === "principle" ? "owner" : level === "shape" ? "mechanism" : "steward",
-    paths: [`memory/topics/${lens.replace(/\W/g, "-")}.md`],
+    id,
+    kind,
+    paths,
     targets: [],
     evidence: ["1 occurrence"],
-    impact: {
-      key: `lens.${lens}.impact`,
-      fields: {},
-      text: { en: `what ${lens} costs`, zh: `${lens} 的代价` },
-    },
-    action: {
-      key: `lens.${lens}.action`,
-      fields: {},
-      text: { en: `what to do about ${lens}`, zh: `${lens} 该怎么办` },
-    },
-    weight: 0.1,
-    decision: null,
+    impact: sentence(`lens.${id}.impact`),
+    action: sentence(`lens.${id}.action`),
     ...extra,
   };
 }
 
-function report(findings, counts = {}) {
+function checkReport(findings, extra = {}) {
   return {
     ref: "0f1e2d3c4b5a",
     read_at: "2026-09-14T08:00:00Z",
@@ -57,179 +63,206 @@ function report(findings, counts = {}) {
     files: 14,
     claims: 100,
     edges: 20,
-    score: 80,
     findings,
-    families: [{ name: "memory/topics/{slug}.md", pages: 6, claims: 40, share: 0.4 }],
-    ...counts,
+    ...extra,
   };
 }
 
-/* ------------------------------------------------------------------------ parsing */
+/** One lens dimension, spelled as the service spells it. */
+function dimension(id, band, metrics = [], extra = {}) {
+  return {
+    id,
+    band,
+    statement: sentence(`lens.${id}.statement.${band}`),
+    direction: sentence(`lens.${id}.direction.${band}`),
+    metrics,
+    evidence: [],
+    ...extra,
+  };
+}
 
-test("a report that arrived half-written still renders: every absent field reads empty", () => {
-  const parsed = parseLensReport({ ref: "abc", score: 61 });
+/* ------------------------------------------------------------------ the check report */
+
+test("a check report that arrived half-written still renders: every absent field reads empty", () => {
+  const parsed = parseCheckReport({ ref: "abc", claims: 7 });
   assert.equal(parsed.ref, "abc");
-  assert.equal(parsed.score, 61);
+  assert.equal(parsed.claims, 7);
   assert.equal(parsed.read_at, "");
   assert.deepEqual(parsed.findings, []);
-  assert.deepEqual(parsed.families, []);
-  assert.equal(parsed.claims, 0);
+  assert.equal(parsed.subjects, 0);
   // Not merely "does not throw": a null body is a report with nothing in it, not a crash.
-  assert.deepEqual(parseLensReport(null).findings, []);
+  assert.deepEqual(parseCheckReport(null).findings, []);
 });
 
-test("a sentence arrives rendered in both packs, beside the key it came from", () => {
-  const [parsed] = parseLensReport({
+test("a finding missing everything but its key still renders as a row", () => {
+  const [parsed] = parseCheckReport({ findings: [{ key: "k" }] }).findings;
+  assert.equal(parsed.key, "k");
+  assert.equal(parsed.id, "");
+  assert.equal(parsed.kind, "");
+  assert.deepEqual(parsed.paths, []);
+  assert.deepEqual(parsed.evidence, []);
+  assert.deepEqual(parsed.impact.text, { en: "", zh: "" });
+});
+
+test("a finding's fields survive the wire in a shape a last-resort rendering can use", () => {
+  const [parsed] = parseCheckReport({
     findings: [
       {
         key: "k",
-        lens: "nav.hub_incomplete",
-        level: "drift",
         impact: {
           key: "lens.nav.hub_incomplete.impact",
-          fields: { targets: ["a.md", "b.md"], count: 2 },
-          text: { en: "The hub leaves out two of its own pages.", zh: "族首页漏掉了自己的两页。" },
+          // An array field is flattened rather than dropped: "[object Object]" in a fallback
+          // line is worse than the list spelled out.
+          fields: { missing: ["a.md", "b.md"], count: 2, nested: { deep: true } },
+          text: { en: "three pages are unreachable", zh: "有三页走不到" },
         },
       },
     ],
   }).findings;
-  // The rendering is what a reader sees; the key and fields are what a DEGRADED report has
-  // left to say something with, so both survive parsing.
-  assert.equal(parsed.impact.text.en, "The hub leaves out two of its own pages.");
-  assert.equal(parsed.impact.text.zh, "族首页漏掉了自己的两页。");
-  assert.equal(parsed.impact.fields.targets, "a.md, b.md");
+  assert.equal(parsed.impact.fields.missing, "a.md, b.md");
   assert.equal(parsed.impact.fields.count, 2);
-  // A finding with no action still has an action object, so the row never reads `undefined`.
-  assert.deepEqual(parsed.action, { key: "", fields: {}, text: { en: "", zh: "" } });
-  assert.equal(parsed.decision, null);
+  assert.equal(typeof parsed.impact.fields.nested, "string");
 });
 
-test("a report from a service that sends no rendered text still parses to empty strings", () => {
-  // The view's own fallback ladder (other language, then key · fields) needs these present
-  // rather than undefined; a missing `text` must not make the row throw.
-  const [parsed] = parseLensReport({
-    findings: [{ key: "k", lens: "nav.island", level: "principle", impact: { key: "lens.nav.island.impact" } }],
-  }).findings;
-  assert.deepEqual(parsed.impact.text, { en: "", zh: "" });
-  assert.deepEqual(parsed.impact.fields, {});
+test("an unknown finding kind survives as itself rather than being dropped or renamed", () => {
+  const report = parseCheckReport(checkReport([finding("k", "nav.dead_link", "prophecy", ["a.md"])]));
+  assert.equal(report.findings[0].kind, "prophecy");
+  assert.deepEqual(countByKind(report.findings), { prophecy: 1 });
 });
 
-test("a level or actor this build never heard of survives as itself", () => {
-  const parsed = parseLensReport({
-    findings: [{ key: "k", lens: "new.lens", level: "posture", actor: "librarian" }],
-  });
-  assert.equal(parsed.findings[0].level, "posture");
-  assert.equal(parsed.findings[0].actor, "librarian");
+test("findings group under the page a Steward would open, in the report's own order", () => {
+  // The report orders legacy first (a hook fault is unambiguous), then judgement.
+  const report = checkReport([
+    finding("k1", "form.stray_heading", "legacy", ["topics/alpha.md"]),
+    finding("k2", "form.collapsed_body", "legacy", ["topics/beta.md"]),
+    finding("k3", "nav.hub_incomplete", "judgement", ["topics/alpha.md", "topics/beta.md"]),
+    finding("k4", "id.title_duplicate", "judgement", []),
+  ]);
+  const pages = groupByPage(parseCheckReport(report).findings);
+  assert.deepEqual(
+    pages.map((page) => [page.path, page.findings.map((f) => f.key)]),
+    [
+      // alpha first because the report named it first; its judgement item follows its legacy
+      // one, which is the order the report gave and not a second sort of the console's.
+      ["topics/alpha.md", ["k1", "k3"]],
+      ["topics/beta.md", ["k2"]],
+      // A finding about no page in particular keeps a group of its own rather than vanishing.
+      ["", ["k4"]],
+    ],
+  );
 });
 
-/* ----------------------------------------------------------------------- grouping */
+test("a finding is filed under its first path only — the rest are pages it also touches", () => {
+  const pages = groupByPage([finding("k", "nav.hub_incomplete", "judgement", ["hub.md", "child.md"])]);
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0].path, "hub.md");
+  assert.deepEqual(pages[0].findings[0].paths, ["hub.md", "child.md"]);
+});
 
-test("levels group principle before drift before shape, and an unknown level is kept last", () => {
-  const groups = groupByLevel([
-    finding("a", "form.stray_heading", "shape"),
-    finding("b", "nav.island", "principle"),
-    finding("c", "nav.dead_end", "drift"),
-    finding("d", "x.y", "posture"),
+test("the header counts each kind the report actually carried", () => {
+  const findings = parseCheckReport(
+    checkReport([
+      finding("k1", "form.stray_heading", "legacy", ["a.md"]),
+      finding("k2", "form.collapsed_body", "legacy", ["b.md"]),
+      finding("k3", "nav.dead_link", "judgement", ["c.md"]),
+    ]),
+  ).findings;
+  assert.deepEqual(countByKind(findings), { legacy: 2, judgement: 1 });
+  assert.deepEqual(countByKind([]), {});
+});
+
+/* ------------------------------------------------------------------ the lens reading */
+
+test("a lens reading that arrived half-written still renders: every absent field reads empty", () => {
+  const parsed = parseLensReading({ ref: "abc" });
+  assert.equal(parsed.ref, "abc");
+  assert.equal(parsed.previous_ref, null);
+  assert.deepEqual(parsed.dimensions, []);
+  assert.equal(parsed.files, 0);
+  assert.deepEqual(parseLensReading(null).dimensions, []);
+});
+
+test("a metric with no previous reading behind it reads as absent, not as zero", () => {
+  const [dim] = parseLensReading({
+    dimensions: [dimension("walkability", "thin", [{ name: "dead_end_share", value: 0.21 }])],
+  }).dimensions;
+  const [metric] = dim.metrics;
+  assert.equal(metric.value, 0.21);
+  assert.equal(metric.previous, null);
+  // Null rather than 0: a movement of zero and no movement to speak of are different readings,
+  // and a delta column of "0" would claim the library held still.
+  assert.equal(metric.delta, null);
+});
+
+test("a delta the service did not send is the subtraction the two numbers already imply", () => {
+  const [dim] = parseLensReading({
+    dimensions: [
+      dimension("liveness", "settling", [
+        { name: "rollovers", value: 5, previous: 3 },
+        // An explicit delta is the service's own and is never second-guessed here.
+        { name: "edits_per_100", value: 2, previous: 1, delta: 9 },
+      ]),
+    ],
+  }).dimensions;
+  assert.equal(dim.metrics[0].delta, 2);
+  assert.equal(dim.metrics[1].delta, 9);
+});
+
+test("the six dimensions read in the design's order, and an unknown one is kept at the end", () => {
+  assert.deepEqual(LENS_DIMENSIONS, [
+    "walkability",
+    "shape",
+    "knowledge_vs_log",
+    "liveness",
+    "type_structure",
+    "demand_supply",
+  ]);
+  const ordered = orderDimensions([
+    dimension("weather", "fine"),
+    dimension("demand_supply", "unread"),
+    dimension("walkability", "open"),
   ]);
   assert.deepEqual(
-    groups.map((g) => g.level),
-    ["principle", "drift", "shape", "posture"],
+    ordered.map((d) => d.id),
+    ["walkability", "demand_supply", "weather"],
   );
-  assert.deepEqual(groups[0].findings.map((f) => f.key), ["b"]);
-  assert.deepEqual(groups[3].findings.map((f) => f.key), ["d"]);
-  // A level with nothing in it is a group that says so, not a missing section.
-  assert.deepEqual(groupByLevel([]).map((g) => g.findings.length), [0, 0, 0]);
 });
 
-test("the order within a level is the report's own — the console re-sorts nothing", () => {
-  const given = [
-    finding("a", "nav.dead_end", "drift", { weight: 0.01 }),
-    finding("b", "nav.island", "drift", { weight: 0.9 }),
-  ];
-  assert.deepEqual(groupByLevel(given)[1].findings.map((f) => f.key), ["a", "b"]);
-  assert.deepEqual(headline(given, 3).map((f) => f.key), ["a", "b"]);
-  assert.equal(headline(given, 1).length, 1);
+test("a reading carrying fewer than six dimensions renders the ones it has", () => {
+  const reading = parseLensReading({ dimensions: [dimension("shape", "even")] });
+  assert.equal(orderDimensions(reading.dimensions).length, 1);
 });
 
-/* ----------------------------------------------------------------------- headline */
+/* --------------------------------------------------------------- the previous reading */
 
-test("the headline is one finding per lens: three things, not one thing three times", () => {
-  // A real library with three islands led with three identical island sentences and pushed
-  // the duplicated subject and the malformed page off the list entirely (§3.4).
-  const given = [
-    finding("i1", "nav.island", "principle"),
-    finding("i2", "nav.island", "principle"),
-    finding("i3", "nav.island", "principle"),
-    finding("d1", "id.title_duplicate", "principle"),
-    finding("s1", "form.stray_heading", "shape"),
-    finding("s2", "form.stray_heading", "shape"),
-    finding("c1", "conc.catch_all", "principle"),
-  ];
-  assert.deepEqual(headline(given).map((f) => f.key), ["i1", "d1", "s1"]);
-  // Report order decides which of a lens's findings leads, and which lenses make the cut.
-  assert.deepEqual(headline(given, 4).map((f) => f.lens), [
-    "nav.island",
-    "id.title_duplicate",
-    "form.stray_heading",
-    "conc.catch_all",
-  ]);
+test("the previous ref defaults to the service's own reading of it, not to a ref of ours", () => {
+  // The console does not compute HEAD's parent. If it did, the console and `pkc lens` could
+  // disagree about what "previous" means on a library whose HEAD has two of them.
+  assert.equal(previousParam(PREVIOUS_AUTO), null);
+  assert.equal(previousParam(""), null);
+  assert.equal(previousParam("0f1e2d3c4b5a"), "0f1e2d3c4b5a");
 });
 
-test("a report with fewer lenses than the headline wants gives what it has", () => {
-  const given = [finding("a", "nav.island", "principle"), finding("b", "nav.island", "principle")];
-  assert.deepEqual(headline(given).map((f) => f.key), ["a"]);
-  assert.deepEqual(headline([]), []);
+test("the reading says which ref it actually stood against, and null when there was none", () => {
+  assert.equal(parseLensReading({ previous_ref: "abc123" }).previous_ref, "abc123");
+  assert.equal(parseLensReading({ previous_ref: "" }).previous_ref, null);
+  assert.equal(parseLensReading({ previous_ref: 7 }).previous_ref, null);
 });
 
-/* --------------------------------------------------------------------- comparing */
+/* ------------------------------------------------------------------ catalogue sentences */
 
-test("two reports subtract by finding key: resolved, new, still open", () => {
-  const before = report([
-    finding("nav.island:work/x:aa", "nav.island", "principle"),
-    finding("nav.dead_end:memory/a:bb", "nav.dead_end", "drift"),
-  ]);
-  const after = report(
-    [
-      finding("nav.dead_end:memory/a:bb", "nav.dead_end", "drift"),
-      finding("id.title_duplicate:memory/b:cc", "id.title_duplicate", "principle"),
-    ],
-    { score: 88, claims: 140, subjects: 15 },
+test("a sentence is the reader's language, then the other, then the key spelled out", () => {
+  const both = { key: "k", fields: {}, text: { en: "English", zh: "中文" } };
+  assert.equal(catalogText("zh", both), "中文");
+  assert.equal(catalogText("en", both), "English");
+
+  // One pack empty: the other language beats a blank line.
+  assert.equal(catalogText("zh", { key: "k", fields: {}, text: { en: "English", zh: "" } }), "English");
+
+  // Neither: the key with its fields, which is what a degraded reading still has to say.
+  assert.equal(
+    catalogText("en", { key: "lens.shape.statement", fields: { lead: "alpha.md", share: 42 }, text: { en: "", zh: "" } }),
+    "lens.shape.statement · lead=alpha.md · share=42",
   );
-  const diff = compareReports(before, after);
-  assert.deepEqual(diff.resolved.map((f) => f.key), ["nav.island:work/x:aa"]);
-  assert.deepEqual(diff.added.map((f) => f.key), ["id.title_duplicate:memory/b:cc"]);
-  assert.deepEqual(diff.stillOpen.map((f) => f.key), ["nav.dead_end:memory/a:bb"]);
-
-  const by = (metric) => diff.counts.find((row) => row.metric === metric);
-  assert.equal(by("score").delta, 8);
-  assert.equal(by("claims").delta, 40);
-  assert.equal(by("subjects").before, 12);
-  assert.equal(by("edges").delta, 0);
-  assert.deepEqual(diff.counts.map((row) => row.metric), [
-    "score",
-    "subjects",
-    "files",
-    "claims",
-    "edges",
-  ]);
-});
-
-test("the same lens on the same page with different evidence is a new question, not the old one", () => {
-  // The key hashes the evidence, so a page whose fault CHANGED reports the old finding
-  // resolved and a new one open — which is the honest reading of what happened to it.
-  const before = report([finding("conc.catch_all:work/x:aa", "conc.catch_all", "principle")]);
-  const after = report([finding("conc.catch_all:work/x:zz", "conc.catch_all", "principle")]);
-  const diff = compareReports(before, after);
-  assert.equal(diff.stillOpen.length, 0);
-  assert.equal(diff.resolved.length, 1);
-  assert.equal(diff.added.length, 1);
-});
-
-test("a round that changed nothing reports nothing moved", () => {
-  const same = report([finding("k", "nav.dead_end", "drift")]);
-  const diff = compareReports(same, same);
-  assert.deepEqual(diff.resolved, []);
-  assert.deepEqual(diff.added, []);
-  assert.equal(diff.stillOpen.length, 1);
-  assert.ok(diff.counts.every((row) => row.delta === 0));
+  assert.equal(catalogText("en", { key: "", fields: {}, text: { en: "", zh: "" } }), "");
 });

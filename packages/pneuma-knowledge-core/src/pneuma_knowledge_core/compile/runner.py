@@ -58,6 +58,7 @@ from ..ports.canonical_store import CanonicalStore
 from ..prompts import prompt, prompt_overlay_hash
 from ..skill.contract import render_system_contract
 from ..skill.version import SkillVersion
+from .anchor_ops import dated_section_spans
 from .documents import Connection, Overview, render_document
 from .overview import OVERVIEW_BUDGET_CHARS, OVERVIEW_REQUIRED_AFTER_CLAIMS
 from .gate import (
@@ -116,6 +117,13 @@ class _RetitleArgs(BaseModel):
 
     path: str
     title: str
+
+
+class _ReorderChronologyArgs(BaseModel):
+    """The `reorder_chronology` payload: which page. There is nothing to choose — the order
+    is the dates', and the verb moves whole sections into it."""
+
+    path: str
 
 
 class _RewriteOverviewArgs(BaseModel):
@@ -759,6 +767,17 @@ def _build_tools(
             "compile.tool.retitle_result", path=path, title=patch_document_title(doc)
         )
 
+    def reorder_chronology(path: str) -> str:
+        doc = draft.reorder_chronology(path)
+        dates = [date for date, _, _ in dated_section_spans(doc.body.split("\n"))]
+        return prompt(
+            "compile.tool.reorder_chronology_result",
+            path=path,
+            count=len(dates),
+            first=dates[0] if dates else "",
+            last=dates[-1] if dates else "",
+        )
+
     def set_fields(path: str, fields: dict) -> str:
         doc = draft.set_fields(path, fields)
         written = ", ".join(sorted(k for k in (fields or {}) if k in doc.frontmatter))
@@ -804,6 +823,11 @@ def _build_tools(
             retitle,
             args_schema=_RetitleArgs,
             description=prompt("compile.tool.retitle"),
+        ),
+        StructuredTool.from_function(
+            reorder_chronology,
+            args_schema=_ReorderChronologyArgs,
+            description=prompt("compile.tool.reorder_chronology"),
         ),
         StructuredTool.from_function(
             set_fields, description=prompt("compile.tool.set_fields")
@@ -990,7 +1014,7 @@ def build_compile_tool_face(
         for tool in tools:
             if tool.name in {
                 "create_document", "append_block", "edit_claim", "supersede_claim",
-                "rewrite_overview", "set_fields", "retitle",
+                "rewrite_overview", "set_fields", "retitle", "reorder_chronology",
             }:
                 tool.func = checked(tool.func)
     return tools

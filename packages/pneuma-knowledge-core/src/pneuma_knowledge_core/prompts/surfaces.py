@@ -227,6 +227,8 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("compile.worker.", "Compile retrieval reply", "编译检索回复"),
     ("compile.", "Compile contract", "编译契约"),
     ("contract.rule.", "Version contract clause", "版本契约条款"),
+    ("check.", "Structure check", "结构体检"),
+    ("lens.", "Structure lens", "结构透镜"),
     ("gate.groom.", "Rollover gate", "归档闸门"),
     ("gate.evolve.", "Evolve gate", "演进闸门"),
     ("gate.", "Compile gate", "编译闸门"),
@@ -409,267 +411,403 @@ _ANSWER_STYLE = (
 
 
 SURFACES: tuple[Surface, ...] = (
-    # ───────────────────────────────────────────────────────────────── the structure lens
+    # ───────────────────────────────────────────── the check: one finding per page
     Surface(
-        id="steward.lens",
+        id="steward.check",
         group="steward",
-        title_en="Structure lens findings",
-        title_zh="结构透镜的发现",
+        title_en="Structure check findings",
+        title_zh="结构体检的发现",
         summary_en=(
-            "The two sentences every structure-lens finding carries: what it COSTS a reader "
-            "or a retrieval, and what to DO about it — the second addressed to the finding's "
-            "actor (the Steward for a drift, the Owner for a principle, the mechanism itself "
-            "for a shape fault the write face now refuses). The lens is derived and "
-            "model-free; these are the words a person or a coding-agent Steward reads out of "
-            "`pkc lens` and out of the console, which is why they are catalog keys and not "
-            "sentences inside the lens module."
+            "Tier two of the structure report: one finding per page, each carrying two "
+            "sentences — what it COSTS a reader or a retrieval, and the verb that repairs "
+            "it (`retitle`, `reorder_chronology`, an ordinary edit). The check is derived "
+            "and model-free, and the same finding is read in a terminal, in the console, "
+            "by a review round and in another language, which is why these are catalog "
+            "keys rather than sentences inside the check module."
         ),
         summary_zh=(
-            "结构透镜每条发现都带的两句话：它让读者或检索付出什么代价，以及该怎么办——后一句"
-            "说给这条发现的当事人听（漂移归 Steward，原则归所有者，写入面从此会拒绝的形状问题"
-            "归机制本身）。透镜是派生的、不调模型；这些字是人或编码代理 Steward 从 `pkc lens` "
-            "和控制台里读到的，所以它们是目录键，而不是写死在透镜模块里的句子。"
+            "结构报告的第二层：一页一页的发现，每条两句话——它让读者或检索付出什么代价，"
+            "以及修好它的那个动词（retitle、reorder_chronology，或一次普通编辑）。体检是"
+            "派生的、不调模型；同一条发现会在终端、控制台、一轮 review 和另一种语言里被"
+            "读到，所以它们是目录键，而不是写死在体检模块里的句子。"
         ),
         segments=(
             f(
-                "lens.nav.dead_end.impact",
-                "What the `nav.dead_end` finding COSTS, shown when a subject links to nothing.",
-                "`nav.dead_end` 这条发现的代价，某个主题不指向任何页面时出现。",
+                "check.form.stray_heading.impact",
+                "Shown when a `# ` heading stands somewhere other than the top of a body.",
+                "`# ` 标题出现在正文顶端以外的地方时出现。",
             ),
             f(
-                "lens.nav.dead_end.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.form.stray_heading.action",
+                "The repair: remove the line, and name the page with retitle instead.",
+                "修复动作：删掉这一行，页名改用 retitle 来定。",
             ),
             f(
-                "lens.nav.arrival_blind.impact",
-                "What the `nav.arrival_blind` finding COSTS, shown when nothing links to a subject.",
-                "`nav.arrival_blind` 这条发现的代价，没有任何页面链到某个主题时出现。",
+                "check.form.collapsed_body.impact",
+                "Shown when a body has a line long enough to be a document, or line breaks that arrived escaped.",
+                "正文里有一行长到可以当一篇文档，或换行以转义形式送达时出现。",
             ),
             f(
-                "lens.nav.arrival_blind.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.form.collapsed_body.action",
+                "The repair: split the run into one block per claim, with real line breaks.",
+                "修复动作：把那一长串拆成一条断言（claim）一个块，用真正的换行。",
             ),
             f(
-                "lens.nav.dead_link.impact",
-                "What the `nav.dead_link` finding COSTS, shown when a link resolves to a path no document has.",
-                "`nav.dead_link` 这条发现的代价，链接解析到没有任何文档的路径时出现。",
+                "check.id.title_degenerate.impact",
+                "Shown when a title names a family role or a project slug rather than a subject.",
+                "标题说的是族角色或项目 slug 而不是主题时出现。",
             ),
             f(
-                "lens.nav.dead_link.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.id.title_degenerate.action",
+                "The repair: retitle the page with a name that says what it is about.",
+                "修复动作：用 retitle 换一个说得出它讲什么的名字。",
             ),
             f(
-                "lens.nav.hub_incomplete.impact",
-                "What the `nav.hub_incomplete` finding COSTS, shown when a family hub does not reach every page of its own project.",
-                "`nav.hub_incomplete` 这条发现的代价，族总览够不到自己项目的每一页时出现。",
+                "check.id.title_shared_with_hub.impact",
+                "Shown when a chronology carries the name of its own project's overview.",
+                "历程页顶着所属项目总览的名字时出现。",
             ),
             f(
-                "lens.nav.hub_incomplete.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.id.title_shared_with_hub.action",
+                "The repair: retitle the chronology and leave the shared name to the overview.",
+                "修复动作：用 retitle 改历程页，把那个名字留给总览。",
             ),
             f(
-                "lens.nav.chronology_unlinked.impact",
-                "What the `nav.chronology_unlinked` finding COSTS, shown when a chronology with dated sections reaches none of its project's feature or decision pages.",
-                "`nav.chronology_unlinked` 这条发现的代价，带日期小节的历程页够不到本项目任何特性页或决策页时出现。",
+                "check.id.title_child_collision.impact",
+                "Shown when a page and a page below it in its own directory carry one name.",
+                "一页和它目录下更深处的一页同名时出现。",
             ),
             f(
-                "lens.nav.chronology_unlinked.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.id.title_child_collision.action",
+                "The repair: retitle one of the two, so the name falls on one page only.",
+                "修复动作：两者改一个，让这个名字只落在一页上。",
             ),
             f(
-                "lens.nav.decision_unlinked.impact",
-                "What the `nav.decision_unlinked` finding COSTS, shown when a decision page has no outbound link.",
-                "`nav.decision_unlinked` 这条发现的代价，决策页没有任何出向链接时出现。",
+                "check.form.unordered_chronology.impact",
+                "Shown when a chronology's dated sections do not ascend, or repeat a date.",
+                "历程页的日期小节不升序，或有重复日期时出现。",
             ),
             f(
-                "lens.nav.decision_unlinked.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.form.unordered_chronology.action",
+                "The repair: reorder_chronology, which moves whole sections and touches no claim.",
+                "修复动作：reorder_chronology，整个小节移动，不碰任何断言（claim）。",
             ),
             f(
-                "lens.nav.mention_unlinked.impact",
-                "What the `nav.mention_unlinked` finding COSTS, shown when a page names another subject's title over and over and never links it.",
-                "`nav.mention_unlinked` 这条发现的代价，一页反复提到另一个主题的标题却从不链它时出现。",
+                "check.form.overview_restates.impact",
+                "Shown when an overview slot repeats one of the page's own ledger claims word for word.",
+                "总览的某一格一字不差地重复了本页账本里的一条断言（claim）时出现。",
             ),
             f(
-                "lens.nav.mention_unlinked.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.form.overview_restates.action",
+                "The repair: rewrite that slot as a reading of the ledger, or drop the slot.",
+                "修复动作：把那一格重写成对账本的解读，或者干脆去掉这一格。",
             ),
             f(
-                "lens.nav.island.impact",
-                "What the `nav.island` finding COSTS, shown when a whole project directory neither reaches nor is reached from outside itself.",
-                "`nav.island` 这条发现的代价，整个项目目录既够不到外面、外面也够不到它时出现。",
+                "check.form.definition_empty.impact",
+                "Shown when a definition slot holds references and no prose.",
+                "definition 一格里只有指代、没有文字时出现。",
             ),
             f(
-                "lens.nav.island.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.form.definition_empty.action",
+                "The repair: rewrite the overview with the definition written in words.",
+                "修复动作：重写总览，用文字写出 definition。",
             ),
             f(
-                "lens.id.title_duplicate.impact",
-                "What the `id.title_duplicate` finding COSTS, shown when two live subjects normalize to one title.",
-                "`id.title_duplicate` 这条发现的代价，两个活跃主题的标题归一化后相同时出现。",
+                "check.form.unanchored_citation.impact",
+                "Shown when a ledger line carries a citation with no anchor on its block.",
+                "账本里某一行带引用、所在块却没有锚时出现。",
             ),
             f(
-                "lens.id.title_duplicate.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.form.unanchored_citation.action",
+                "The repair: write those lines through append_block, which anchors them.",
+                "修复动作：这些行改用 append_block 写，系统会给它们上锚。",
             ),
             f(
-                "lens.id.title_child_collision.impact",
-                "What the `id.title_child_collision` finding COSTS, shown when a page and a page below it in its own directory carry one name.",
-                "`id.title_child_collision` 这条发现的代价，一页和它目录下更深处的一页同名时出现。",
+                "check.nav.hub_incomplete.impact",
+                "Shown when a project overview does not reach every page of its own project.",
+                "项目总览够不到自己项目的每一页时出现。",
             ),
             f(
-                "lens.id.title_child_collision.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.nav.hub_incomplete.action",
+                "The repair: an ordinary edit adding the missing connections to the overview.",
+                "修复动作：一次普通编辑，在总览里补上缺掉的关联。",
             ),
             f(
-                "lens.id.title_degenerate.impact",
-                "What the `id.title_degenerate` finding COSTS, shown when a title is empty, names a family role, or repeats the project slug.",
-                "`id.title_degenerate` 这条发现的代价，标题为空、只说出族角色，或重复项目 slug 时出现。",
+                "check.nav.chronology_unlinked.impact",
+                "Shown when a chronology with dated sections reaches none of its project's feature or decision pages.",
+                "带日期小节的历程页够不到本项目任何特性页或决策页时出现。",
             ),
             f(
-                "lens.id.title_degenerate.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.nav.chronology_unlinked.action",
+                "The repair: link each dated section to the page that explains it.",
+                "修复动作：把每个日期小节链到解释它的那一页。",
             ),
             f(
-                "lens.id.title_shared_with_hub.impact",
-                "What the `id.title_shared_with_hub` finding COSTS, shown when a chronology carries its project overview's name.",
-                "`id.title_shared_with_hub` 这条发现的代价，历程页顶着所属项目总览的名字时出现。",
+                "check.nav.decision_unlinked.impact",
+                "Shown when a decision page carries no outbound link at all.",
+                "决策页没有任何出向链接时出现。",
             ),
             f(
-                "lens.id.title_shared_with_hub.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.nav.decision_unlinked.action",
+                "The repair: link the decision to what it actually applies to.",
+                "修复动作：把这个决策链到它实际作用到的东西上。",
             ),
             f(
-                "lens.form.collapsed_body.impact",
-                "What the `form.collapsed_body` finding COSTS, shown when a body has a line long enough to be a document, or line breaks that arrived escaped.",
-                "`form.collapsed_body` 这条发现的代价，正文里有一行长到可以当一篇文档，或换行以转义形式送达时出现。",
+                "check.nav.mention_unlinked.impact",
+                "Shown when a page names another subject's title over and over and never links it.",
+                "一页反复提到另一个主题的标题却从不链它时出现。",
             ),
             f(
-                "lens.form.collapsed_body.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.nav.mention_unlinked.action",
+                "The repair: link the named subject from the claims that name it.",
+                "修复动作：在提到它的那些断言（claim）里链上那个主题。",
             ),
             f(
-                "lens.form.stray_heading.impact",
-                "What the `form.stray_heading` finding COSTS, shown when a `# ` heading stands somewhere other than the top of a body.",
-                "`form.stray_heading` 这条发现的代价，`# ` 标题出现在正文顶端以外的地方时出现。",
+                "check.nav.dead_link.impact",
+                "Shown when a link resolves to a path no document has.",
+                "链接解析到没有任何文档的路径时出现。",
             ),
             f(
-                "lens.form.stray_heading.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.nav.dead_link.action",
+                "The repair: point the link at a page that exists, or create the missing one.",
+                "修复动作：把链接改指真实存在的页面，或把缺掉的那一页建出来。",
             ),
             f(
-                "lens.form.unanchored_citation.impact",
-                "What the `form.unanchored_citation` finding COSTS, shown when a ledger line carries a citation with no anchor on its block.",
-                "`form.unanchored_citation` 这条发现的代价，账本里某一行带引用、所在块却没有锚时出现。",
+                "check.id.title_duplicate.impact",
+                "Shown when two live subjects in different directories normalize to one title.",
+                "不同目录下两个活跃主题的标题归一化后相同时出现。",
             ),
             f(
-                "lens.form.unanchored_citation.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.id.title_duplicate.action",
+                "The repair: decide which page keeps the name, or merge them into one subject.",
+                "修复动作：决定名字归哪一页，或者把它们合成一个主题。",
             ),
             f(
-                "lens.form.overview_restates.impact",
-                "What the `form.overview_restates` finding COSTS, shown when an overview slot repeats one of the page's own ledger claims word for word.",
-                "`form.overview_restates` 这条发现的代价，总览的某一格一字不差地重复了本页账本里的一条断言（claim）时出现。",
+                "check.corr.single_source.impact",
+                "Shown when every claim of a well-developed subject cites one source.",
+                "一个已经写得不少的主题，所有断言（claim）都只引同一个来源时出现。",
             ),
             f(
-                "lens.form.overview_restates.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.corr.single_source.action",
+                "The repair: corroborate from other material, or say so in the page's head.",
+                "修复动作：用别的材料做旁证，或者在头部说清证据就这一份。",
             ),
             f(
-                "lens.form.legacy_sections.impact",
-                "What the `form.legacy_sections` finding COSTS, shown when a page with an overview head still carries the four slot names as `## ` sections.",
-                "`form.legacy_sections` 这条发现的代价，已有总览头部的页面仍带着四个槽位名的 `## ` 小节时出现。",
+                "check.form.legacy_sections.impact",
+                "Shown when a page with an overview head still carries the four slot names as `## ` sections.",
+                "已有总览头部的页面仍带着四个槽位名的 `## ` 小节时出现。",
             ),
             f(
-                "lens.form.legacy_sections.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "check.form.legacy_sections.action",
+                "The repair: fold what those sections still say into the overview.",
+                "修复动作：把那些小节还在说的东西并进总览。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    # ──────────────────────────────────── the structure lens: six dimensions, one band each
+    Surface(
+        id="steward.lens",
+        group="steward",
+        title_en="Structure lens bands",
+        title_zh="结构透镜的档位",
+        summary_en=(
+            "Tier three of the structure report: six dimensions — walkability, shape, "
+            "knowledge against log, liveness, type structure, demand against supply — each "
+            "landing in one of three bands. A band carries a STATEMENT, what an outside "
+            "reader sees on taking the whole library at once, and a DIRECTION, the lever "
+            "that reading implies: a contract clause, an evolve, a groom, a review round. "
+            "Never a page — a lens that named one would be a check item that had climbed a "
+            "tier. The thresholds behind each band are constants of the lens module and are "
+            "deliberately not repeated in these sentences."
+        ),
+        summary_zh=(
+            "结构报告的第三层：六个维度——可走性、形状、知识与流水、活性、类型结构、需求与"
+            "供给——每个维度落在三个档位之一。每个档位带一句判语：外来读者把整座库一眼看"
+            "去看到什么；再带一句方向：这一眼指向哪个杠杆——契约条款、一次 evolve、一次 "
+            "groom、一轮 review。从不点名某一页——点名了就是一条爬错层的体检发现。档位背"
+            "后的阈值是透镜模块自己的常量，这些句子刻意不复述它们。"
+        ),
+        segments=(
+            f(
+                "lens.walkability.open.statement",
+                "Rendered when walkability lands in the `open` band — few dead ends, few unreachable subjects, one connected body.",
+                "可走性落在 `open` 档时渲染：断头少、没人能走到的主题少，且连成一整块。",
             ),
             f(
-                "lens.form.definition_empty.impact",
-                "What the `form.definition_empty` finding COSTS, shown when a definition slot holds references and no prose.",
-                "`form.definition_empty` 这条发现的代价，definition 一格里只有引用、没有文字时出现。",
+                "lens.walkability.open.direction",
+                "The lever that band implies — here none: the contract clause already in force holds.",
+                "这个档位指向的杠杆——此处为无：契约里已经在起作用的那条条款照旧。",
             ),
             f(
-                "lens.form.definition_empty.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "lens.walkability.thin.statement",
+                "Rendered when walkability lands in the `thin` band — the library is looked up more easily than walked.",
+                "可走性落在 `thin` 档时渲染：这座库好查不好走。",
             ),
             f(
-                "lens.form.unordered_chronology.impact",
-                "What the `form.unordered_chronology` finding COSTS, shown when a chronology's dated sections do not ascend, or repeat a date.",
-                "`form.unordered_chronology` 这条发现的代价，历程页的日期小节不升序，或有重复日期时出现。",
+                "lens.walkability.thin.direction",
+                "The lever that band implies: a review round, or the family's own clause in the contract.",
+                "这个档位指向的杠杆：一轮 review，或契约里这个族自己的条款。",
             ),
             f(
-                "lens.form.unordered_chronology.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "lens.walkability.broken.statement",
+                "Rendered when walkability lands in the `broken` band — the library does not hold together as a body.",
+                "可走性落在 `broken` 档时渲染：这座库作为一个整体没有连起来。",
             ),
             f(
-                "lens.conc.catch_all.impact",
-                "What the `conc.catch_all` finding COSTS, shown when one subject holds a share of the claims that no even split explains.",
-                "`conc.catch_all` 这条发现的代价，某一个主题占的断言（claim）份额无法用均分解释时出现。",
+                "lens.walkability.broken.direction",
+                "The lever that band implies: a contract clause on what every page owes its neighbours.",
+                "这个档位指向的杠杆：在契约里定下每一页欠邻居什么。",
             ),
             f(
-                "lens.conc.catch_all.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "lens.shape.even.statement",
+                "Rendered when shape lands in the `even` band — knowledge is spread rather than piled.",
+                "形状落在 `even` 档时渲染：知识是铺开的，不是堆起来的。",
             ),
             f(
-                "lens.bal.family_heavy.impact",
-                "What the `bal.family_heavy` finding COSTS, shown when one family carries a claim share far past its page share.",
-                "`bal.family_heavy` 这条发现的代价，某个族占的断言（claim）份额远超它占的页面份额时出现。",
+                "lens.shape.even.direction",
+                "The lever that band implies — none; the shape moves when the material does.",
+                "这个档位指向的杠杆——无；形状随材料而变。",
             ),
             f(
-                "lens.bal.family_heavy.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "lens.shape.leaning.statement",
+                "Rendered when shape lands in the `leaning` band — one subject and one family carry a disproportionate share.",
+                "形状落在 `leaning` 档时渲染：一个主题和一个族占了失衡的份额。",
             ),
             f(
-                "lens.bal.family_empty.impact",
-                "What the `bal.family_empty` finding COSTS, shown when the contract declares a family that has never held a page.",
-                "`bal.family_empty` 这条发现的代价，契约声明的族从来没有归入过任何页面时出现。",
+                "lens.shape.leaning.direction",
+                "The lever that band implies: an evolve if the pile wants a family of its own, a groom if it is one page grown thick.",
+                "这个档位指向的杠杆：堆起来的东西想要一个自己的族就用 evolve，只是一页长厚了就用 groom。",
             ),
             f(
-                "lens.bal.family_empty.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "lens.shape.collapsing.statement",
+                "Rendered when shape lands in the `collapsing` band — one subject has become where everything goes.",
+                "形状落在 `collapsing` 档时渲染：一个主题成了什么都往里放的地方。",
             ),
             f(
-                "lens.bal.session_shaped.impact",
-                "What the `bal.session_shaped` finding COSTS, shown when most of a subject's claims are dated single-source entries.",
-                "`bal.session_shaped` 这条发现的代价，某个主题大部分断言（claim）都是带日期、只引一个来源的条目时出现。",
+                "lens.shape.collapsing.direction",
+                "The lever that band implies: an evolve opening the families the contract should expect.",
+                "这个档位指向的杠杆：一次 evolve，把契约本该期待的那些族开出来。",
             ),
             f(
-                "lens.bal.session_shaped.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "lens.knowledge_vs_log.knowledge.statement",
+                "Rendered when the library reads as knowledge about subjects rather than as session narration.",
+                "这座库读起来是关于主题的知识、而不是会话流水时渲染。",
             ),
             f(
-                "lens.corr.single_source.impact",
-                "What the `corr.single_source` finding COSTS, shown when every claim of a well-developed subject cites one source.",
-                "`corr.single_source` 这条发现的代价，一个已经写得不少的主题，所有断言（claim）都只引同一个来源时出现。",
+                "lens.knowledge_vs_log.knowledge.direction",
+                "The lever that band implies — none; the contract's standing instruction is already holding.",
+                "这个档位指向的杠杆——无；契约里那条长期指令已经在起作用。",
             ),
             f(
-                "lens.corr.single_source.action",
-                "What to do about it, addressed to that finding's actor.",
-                "该怎么办，说给这条发现的当事人听。",
+                "lens.knowledge_vs_log.mixed.statement",
+                "Rendered when a good part of the claims are dated single-source entries.",
+                "相当一部分断言（claim）是带日期、只引一个来源的条目时渲染。",
+            ),
+            f(
+                "lens.knowledge_vs_log.mixed.direction",
+                "The lever that band implies: the contract deciding which of the two this library is for.",
+                "这个档位指向的杠杆：由契约定下这座库到底为哪一种而设。",
+            ),
+            f(
+                "lens.knowledge_vs_log.log.statement",
+                "Rendered when the library reads as a log: most claims are dated single-source entries.",
+                "这座库读起来是一本流水账时渲染：大多数断言（claim）是带日期、只引一个来源的条目。",
+            ),
+            f(
+                "lens.knowledge_vs_log.log.direction",
+                "The lever that band implies: the contract, plus a review round over the pages that stand.",
+                "这个档位指向的杠杆：契约，外加一轮 review 过一遍已经立着的页面。",
+            ),
+            f(
+                "lens.liveness.living.statement",
+                "Rendered when supersessions, overview heads and closed volumes show a library correcting itself.",
+                "取代、总览头部和结卷合起来显示这座库在自我纠正时渲染。",
+            ),
+            f(
+                "lens.liveness.living.direction",
+                "The lever that band implies — none; supersession is already the channel for what changed.",
+                "这个档位指向的杠杆——无；取代已经是「世界变了」的通道。",
+            ),
+            f(
+                "lens.liveness.settling.statement",
+                "Rendered when corrections still happen but have slowed, with heads on most developed subjects.",
+                "纠正还在发生但已放缓、多数成型主题带着头部时渲染。",
+            ),
+            f(
+                "lens.liveness.settling.direction",
+                "The lever that band implies: watch the intake, not any one page.",
+                "这个档位指向的杠杆：盯住接收口，而不是某一页。",
+            ),
+            f(
+                "lens.liveness.still.statement",
+                "Rendered when almost nothing in the library has ever been superseded.",
+                "这座库里几乎没有东西被取代过时渲染。",
+            ),
+            f(
+                "lens.liveness.still.direction",
+                "The lever that band implies: the contract's rule on a changed fact — or the admission that this is a dead collection.",
+                "这个档位指向的杠杆：契约里关于「事实变了」的那条规则——或者承认这只是一份存底。",
+            ),
+            f(
+                "lens.type_structure.aligned.statement",
+                "Rendered when what is arriving fits the families the contract declared for it.",
+                "进来的东西与契约为它声明的族相合时渲染。",
+            ),
+            f(
+                "lens.type_structure.aligned.direction",
+                "The lever that band implies — none; an evolve would have nothing to weigh.",
+                "这个档位指向的杠杆——无；一次 evolve 现在没有什么可掂量。",
+            ),
+            f(
+                "lens.type_structure.strained.statement",
+                "Rendered when some of what arrives implies a structure the contract does not declare.",
+                "进来的东西里有一部分暗示着契约并未声明的结构时渲染。",
+            ),
+            f(
+                "lens.type_structure.strained.direction",
+                "The lever that band implies: hold the reading for the next evolve, since one reading is not a trend.",
+                "这个档位指向的杠杆：把读数留到下一次 evolve，因为一次读数还不算趋势。",
+            ),
+            f(
+                "lens.type_structure.misfiled.statement",
+                "Rendered when a whole kind of knowledge is being filed somewhere that is not its own.",
+                "整整一类知识都被放到了不属于它的地方时渲染。",
+            ),
+            f(
+                "lens.type_structure.misfiled.direction",
+                "The lever that band implies: an evolve proposing the families implied and retiring the ones nothing reached.",
+                "这个档位指向的杠杆：一次 evolve，把暗示出的族提出来，把没有东西落进去的退掉。",
+            ),
+            f(
+                "lens.demand_supply.matched.statement",
+                "Rendered when the asking, read off the kept consultation records, matches what the library holds.",
+                "从留存的咨询记录读出的提问与这座库所装的大致相当时渲染。",
+            ),
+            f(
+                "lens.demand_supply.matched.direction",
+                "The lever that band implies — none; read it again when the asking changes.",
+                "这个档位指向的杠杆——无；等提问变了再读一次。",
+            ),
+            f(
+                "lens.demand_supply.skewed.statement",
+                "Rendered when the asking concentrates where the claims are not, or is answered citing nothing.",
+                "提问集中在断言（claim）不在的地方，或回答什么也没引用时渲染。",
+            ),
+            f(
+                "lens.demand_supply.skewed.direction",
+                "The lever that band implies: the intake and the contract, never a single page.",
+                "这个档位指向的杠杆：接收口和契约，绝不是某一页。",
+            ),
+            f(
+                "lens.demand_supply.unread.statement",
+                "Rendered when no consultation has ever reached this library, so demand cannot be read.",
+                "还没有任何咨询到达过这座库、因而读不出需求时渲染。",
+            ),
+            f(
+                "lens.demand_supply.unread.direction",
+                "The lever that band implies: none until the library is used.",
+                "这个档位指向的杠杆：在它被用起来之前没有。",
             ),
         ),
         kind=FRAGMENTS,
@@ -1571,6 +1709,13 @@ SURFACES: tuple[Surface, ...] = (
                 "而不必动任何断言（claim）。",
             ),
             f(
+                "compile.tool.reorder_chronology",
+                "The `reorder_chronology` description: put a page's dated sections in "
+                "ascending order, whole sections moving and no claim touched.",
+                "`reorder_chronology` 的描述：把一页的日期小节排成升序，移动的是整个小节，"
+                "不碰任何断言（claim）。",
+            ),
+            f(
                 "compile.tool.set_fields",
                 "The `set_fields` description: frontmatter fields, minus the ones the system "
                 "and the index components own.",
@@ -1647,6 +1792,11 @@ SURFACES: tuple[Surface, ...] = (
                 "compile.tool.retitle_result",
                 "The `retitle` reply, naming the page and the name it now carries.",
                 "`retitle` 的回复，点明是哪一页、现在叫什么。",
+            ),
+            f(
+                "compile.tool.reorder_chronology_result",
+                "The `reorder_chronology` reply, naming the span the page now runs across.",
+                "`reorder_chronology` 的回复，点明这一页现在从哪个日期排到哪个日期。",
             ),
             f(
                 "compile.tool.set_fields_result",
@@ -4358,6 +4508,33 @@ SURFACES: tuple[Surface, ...] = (
                 "当同一目录下两个活跃页面顶着同一个名字时。",
             ),
             f(
+                "gate.title_degenerate",
+                "When a title names a place in the layout — a family role, a project slug — "
+                "rather than the subject of the page.",
+                "当标题说的是它在布局里的位置（族角色、项目 slug）而不是这一页的主题时。",
+            ),
+            f(
+                "gate.title_shared_with_hub",
+                "When a page takes the name of its own project's overview, which says what "
+                "the project IS rather than what happened to it.",
+                "当一页顶着自己项目总览的名字时——总览说的是这个项目是什么，而不是它经历了"
+                "什么。",
+            ),
+            f(
+                "gate.overview_restates",
+                "When a slot of the overview repeats one of this page's own ledger claims "
+                "word for word, spending the head's budget on what the ledger already said.",
+                "当总览的某一格一字不差地重复了本页账本里的一条断言（claim），把头部的额度"
+                "花在账本已经说过的话上时。",
+            ),
+            f(
+                "gate.definition_empty",
+                "When the `definition` block holds only references and citations, so the one "
+                "line that says what the subject IS says nothing.",
+                "当 `definition` 块里只有指代和引用，本该说清这个主题是什么的那一行什么也没"
+                "说时。",
+            ),
+            f(
                 "gate.volume_closed",
                 "When a write targets a closed volume, and it names the open volume to "
                 "write to instead.",
@@ -4643,6 +4820,13 @@ SURFACES: tuple[Surface, ...] = (
                 "compile.patch.retitle_empty",
                 "Refuses a `retitle` with no name in it.",
                 "拒绝没有给出名字的 `retitle`。",
+            ),
+            f(
+                "compile.patch.reorder_not_dated",
+                "Refuses a `reorder_chronology` on a page with fewer than two dated sections "
+                "— sections that are not dates have no order to be put in.",
+                "拒绝对日期小节不足两个的页面执行 `reorder_chronology`——小节不是日期，"
+                "就没有先后可排。",
             ),
             f(
                 "compile.patch.volume_closed",
@@ -4932,6 +5116,7 @@ SURFACES: tuple[Surface, ...] = (
             f("steward.episodes.finished", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
             f("steward.unattended.episodes_task", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
             f('steward.unattended.evolve_task', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
+            f("steward.review.task", "Heads the review round's task, under the check report the round is about.", "置于自查轮任务的报告之下，说明这一轮要做什么。"),
             f('steward.evolve.packs', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
             f('steward.evolve.unnamed_drop', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
             f('steward.evolve.proposal_required', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
@@ -5155,6 +5340,8 @@ SURFACES: tuple[Surface, ...] = (
                 "steward.cli.episodes_propose",
                 "steward.cli.canonical_history",
                 "steward.cli.jobs",
+                "steward.cli.jobs_enqueue",
+                "steward.cli.jobs_enqueue_kind",
                 "steward.cli.jobs_requeue",
                 "steward.cli.jobs_requeue_description",
                 "steward.cli.jobs_requeue_status",
@@ -5170,6 +5357,7 @@ SURFACES: tuple[Surface, ...] = (
                 "steward.cli.evolve_ls",
                 "steward.cli.evolve_show",
                 "steward.cli.library_check",
+                "steward.cli.library_review",
                 "steward.cli.owner_say",
                 "steward.cli.config_set",
                 "steward.cli.profile_show",
@@ -5189,8 +5377,10 @@ SURFACES: tuple[Surface, ...] = (
                 "steward.cli.episodes_open",
                 "steward.cli.family",
                 "steward.cli.definitions",
-                "steward.cli.lens_path",
+                "steward.cli.review_path",
+                "steward.cli.review_at",
                 "steward.cli.lens_at",
+                "steward.cli.lens_previous",
                 "steward.cli.canonical_ls",
                 "steward.cli.source_ls",
                 "steward.cli.source_show",

@@ -350,8 +350,8 @@ test("the source-kind families both cover the projection's kinds", () => {
 test("count-like placeholders are grouped, and index-like ones are left alone", () => {
   // One policy for every number a message carries: what a page prints inside a sentence and
   // what it prints beside it (`fmtCount`) go through the same function.
-  assert.equal(translate("en", "lens.group.count", { count: 5832 }).includes("5,832"), true);
-  assert.equal(translate("zh", "lens.group.count", { count: 5832 }).includes("5,832"), true);
+  assert.equal(translate("en", "review.page.count", { count: 5832 }).includes("5,832"), true);
+  assert.equal(translate("zh", "review.page.count", { count: 5832 }).includes("5,832"), true);
   // A block index, a year, a version and an id are not cardinal counts: "¶1,238" is wrong.
   assert.equal(translate("en", "sources.exactSpan.title", { block: 1238 }), "b1238 · exact source span");
   assert.equal(translate("en", "common.pagination.page", { current: 2, total: 7 }), "Page 2 of 7");

@@ -27,10 +27,15 @@ from ..domain.ids import DocumentId, extract_anchors
 from ..prompts import prompt
 from .anchor_ops import (
     AnchorToolError,
+    DATE_HEADING_RE,
+    _heading_title,
     append_block_text,
     assign_document_anchors,
+    dated_section_spans,
     edit_claim_text,
     insert_block_verbatim,
+    insert_dated_block_text,
+    reorder_dated_sections,
     refuse_escaped_newlines,
     refuse_heading_in_block,
     refuse_text_machinery,
@@ -60,30 +65,22 @@ from .overview import (
     overview_write_problems,
 )
 from ..components import registered_components
-
-_SLUG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+# Path OWNERSHIP and the volume grammar live in `shape.families` — the leaf table every tier
+# reads, the gate included. They are re-exported here under the names this module has always
+# had, because path ownership is a write concern to every existing caller and moving the
+# question is not the same as moving the callers.
+from ..shape.families import (  # noqa: F401
+    ROLE_CHRONOLOGY,
+    VOLUME_FILE_RE as _VOLUME_FILE_RE,
+    path_allowed,
+    role_of,
+)
 
 #: Frontmatter the SYSTEM owns. `set_fields` refuses all four: a document's identity is not
 #: content the model may overwrite (discipline 1 — mechanism, not persuasion). Three of them
 #: are ASSIGNED at creation; `title` is DERIVED, re-read from the document's `# ` heading on
 #: every write, so the name in the frontmatter is the name on the page by construction.
 RESERVED_FRONTMATTER = (DOC_ID_KEY, "type", "slug", TITLE_KEY)
-
-
-def _template_regex(template: str) -> re.Pattern[str]:
-    parts = re.split(r"(\{slug\})", template)
-    body = "".join(_SLUG if p == "{slug}" else re.escape(p) for p in parts)
-    return re.compile(f"^{body}$")
-
-
-def path_allowed(path: str, path_templates: list[str]) -> bool:
-    """True iff `path` matches one of the skill's path templates (path ownership).
-
-    This is the WRITE ownership predicate: what `create_document` will accept. It deliberately
-    does NOT recognize a page's volume directory (see `history_volume_owner`) — a rollover
-    volume must be unreachable from the compile tool face.
-    """
-    return any(_template_regex(t).match(path) for t in path_templates)
 
 
 def _bare_grounding(overview: Overview) -> Overview:
@@ -106,12 +103,6 @@ def _bare_grounding(overview: Overview) -> Overview:
             for connection in overview.connections
         ),
     )
-
-
-#: A closed volume's filename inside a page's volume directory: `a01.md`, `a02.md`, …
-#: The naming itself belongs to `compile.rollover`; the GRAMMAR lives here because path
-#: ownership is one concern and must be stated in one place.
-_VOLUME_FILE_RE = re.compile(r"^a(\d{2,})\.md$")
 
 
 def history_dir(document_path: str) -> str:
@@ -607,7 +598,7 @@ class PatchDraft:
             )
         refuse_text_machinery("create_document", body)
         # A new document MAY open with its own `# ` title — that is where a page's name
-        # belongs — and may carry one nowhere else (docs/design/structure-lens.md §6).
+        # belongs — and may carry one nowhere else (docs/design/structure-lens.md §2).
         refuse_heading_in_block("create_document", body, allow_leading=True)
         refuse_escaped_newlines("create_document", body)
         doc_id = _assign_document_id(path)
@@ -637,7 +628,7 @@ class PatchDraft:
         corrected before this verb existed — every write face was claim-level, and the
         frontmatter `title` is derived and refused to `set_fields`. So a wrong name was
         permanent, and the lens that lists wrong names would have listed a fault with no
-        repair (docs/design/structure-lens.md §6).
+        repair (docs/design/structure-lens.md §2).
 
         It touches no claim: the heading line's trailing system markers are kept, the body
         below is not read, and the derived frontmatter follows the heading as it does at
@@ -890,7 +881,52 @@ class PatchDraft:
         refuse_heading_in_block("append_block", text)
         refuse_escaped_newlines("append_block", text)
         doc = self.read(path)
-        doc.body = append_block_text(doc.body, heading, text, document_path=path)
+        date = self._chronological_date(path, heading)
+        if date:
+            doc.body = insert_dated_block_text(doc.body, date, text, document_path=path)
+        else:
+            doc.body = append_block_text(doc.body, heading, text, document_path=path)
+        return doc
+
+    def _chronological_date(self, path: str, heading: str) -> str:
+        """The date this append belongs under, or `""` — the whole of the placement rule.
+
+        Two conditions, both mechanical: the page is a CHRONOLOGY by its family's role
+        (`shape.families`, the same table the gate and the check read), and the section the
+        round asked for is a DATE and nothing else. Then the section's place in the page is
+        computable, so the mechanism computes it instead of asking the model to remember
+        (docs/design/structure-lens.md §2). Every other page and every other heading keeps
+        the ordinary end-of-section append, byte for byte.
+        """
+        if role_of(path, self.path_templates) != ROLE_CHRONOLOGY:
+            return ""
+        title = _heading_title(heading)
+        return title if DATE_HEADING_RE.match(title) else ""
+
+    def reorder_chronology(self, path: str) -> DraftDoc:
+        """Put `path`'s dated sections in ascending order — a permutation, not a rewrite.
+
+        The repair verb for the pages that predate the placement rule above: a chronology
+        whose sections arrived in the order the compiles ran reads in ingest order rather
+        than in time, and until this verb existed nothing could correct it — every write face
+        was claim-level, and moving a claim is not moving a section.
+
+        Mechanical and total: whole sections move, every byte inside one is conserved, every
+        anchor stays on the claim it identifies, and no other line of the file moves. The
+        refusals are the ones every write face makes — a closed volume, an archived path, an
+        archive record — plus a page with fewer than two dated sections, where there is
+        nothing to order and a silent success would read as a repair that happened.
+        """
+        self._refuse_closed_volume(path, "reorder_chronology")
+        self._refuse_archived_path(path, "reorder_chronology")
+        self._refuse_archive_record(path, "reorder_chronology")
+        doc = self.read(path)
+        spans = dated_section_spans(doc.body.split("\n"))
+        if len(spans) < 2:
+            raise AnchorToolError(
+                prompt("compile.patch.reorder_not_dated", path=path, count=len(spans))
+            )
+        doc.body = reorder_dated_sections(doc.body)
         return doc
 
     # --- evolve-only merge channel (move / delete) ----------------------------

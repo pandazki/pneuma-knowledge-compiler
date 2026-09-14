@@ -74,7 +74,7 @@ from ...ingest import ingest_conversation
 from ...ingest_document import ingest_document, preview_document
 from ...ingest_sources import ingest_source_contract
 from ...kb_snapshots import KbSnapshot, SnapshotNotFound, SnapshotNotReady
-from ...lens import lens_report
+from ...lens import check_report, read_reading
 from ...pagination import CursorError, decode_cursor, encode_cursor
 from ...persona_profile import flatten_updates, save_owner_profile
 from ...pricing import lane_cost
@@ -2457,6 +2457,28 @@ async def post_compile(user_id: str, request: Request) -> CompileOut:
     return CompileOut(enqueued=enqueued, source_ids=source_ids)
 
 
+class ReviewJobOut(BaseModel):
+    job_id: str
+    kind: str
+
+
+@router.post("/jobs/review", response_model=ReviewJobOut)
+async def post_review_job(user_id: str, request: Request) -> ReviewJobOut:
+    """Queue one review round: the check's report, handed to the Steward as its own round.
+
+    The Owner's door and the only one (docs/design/structure-lens.md §3.2) — nothing in this
+    version schedules it. It writes canonical through the ordinary draft verbs under the
+    ordinary gate, so a frozen snapshot refuses it like every other write.
+    """
+    from ...review_service import REVIEW_JOB_KIND, enqueue_review
+
+    user = UserId(user_id)
+    assert_writable(user)
+    return ReviewJobOut(
+        job_id=await enqueue_review(_ctx(request), user), kind=REVIEW_JOB_KIND
+    )
+
+
 # ---------------------------------------------------- canonical read surface (M3b)
 
 
@@ -2617,24 +2639,49 @@ async def get_dataset(
     return await build_dataset(_ctx(request), UserId(user_id), at=at, audit=audit)
 
 
+@router.get("/review")
+async def get_review(
+    user_id: str,
+    request: Request,
+    at: str | None = None,
+) -> dict[str, Any]:
+    """The check over this user's canonical library at one ref (default HEAD).
+
+    The page-level findings a Steward can act on — the contract's expectations no write-time
+    hook can decide, plus the legacy instances of the faults a hook now refuses — each with
+    its page, its verbatim evidence, what it costs and the verb that repairs it
+    (docs/design/structure-lens.md §3). It reads canonical and the contract's path templates,
+    writes nothing, and keeps nothing: two calls at the same ref return the same report.
+
+    `at` is any canonical ref — a commit, a tag, a frozen snapshot. Omitted means HEAD, and
+    the report's own `ref` is then empty rather than invented.
+    """
+    return (await check_report(_ctx(request), UserId(user_id), at=at)).to_dict()
+
+
 @router.get("/lens")
 async def get_lens(
     user_id: str,
     request: Request,
     at: str | None = None,
+    previous: str | None = None,
 ) -> dict[str, Any]:
     """The structure lens over this user's canonical library at one ref (default HEAD).
 
-    A derived, model-free reading of the library's SHAPE — the counts, a score, and findings
-    each carrying its evidence, what it costs and what to do about it
-    (docs/design/structure-lens.md §3). It reads canonical and the contract's path templates,
-    writes nothing, and keeps nothing: two calls at the same ref return the same report.
+    A derived, model-free reading of the library's SHAPE — six dimensions, each with what it
+    sees, what that implies, and how it moved (docs/design/structure-lens.md §4). It lists no
+    pages: those are `/review`. It reads canonical, the contract's path templates, the kept
+    consultation records and the library's own write history, writes nothing, and keeps
+    nothing.
 
     `at` is any canonical ref — a commit, a tag, a frozen snapshot — so the console's compare
-    tab runs the SAME lens on both sides. Omitted means HEAD, and the report's own `ref` is
-    then empty rather than invented.
+    tab runs the SAME lens on both sides. `previous` is the reading the movement is measured
+    against: omitted means the canonical commit before `at`, and `none` asks for a reading
+    with no movement at all.
     """
-    return (await lens_report(_ctx(request), UserId(user_id), at=at)).to_dict()
+    return (
+        await read_reading(_ctx(request), UserId(user_id), at=at, previous=previous)
+    ).to_dict()
 
 
 # --------------------------------------------------------------- access statistics

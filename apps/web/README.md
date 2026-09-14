@@ -32,7 +32,7 @@ The shell carries the tenant switcher, the snapshot picker (HEAD / frozen KB sna
 | Materials | sources (catalog, galleys, L0 fetch), ingest (contracts + documents, preview-first) |
 | Process | process (trigger + job queue), history (compile timeline, per-claim diffs) |
 | Retrieval | recall (rag / fast / deep-SSE), ask (briefings), live_context (SSE + WS, gate ledger) |
-| Canon | library (documents, claim badges, citations, neighbourhood), lens (the structure lens: the report's findings + two refs compared) |
+| Canon | library (documents, claim badges, citations, neighbourhood), lens (the structure lens: six dimensions, each with its band, statement, metrics and movement), review (the check: page-level findings, and the Steward round that repairs them) |
 | Evolution | evolve (draft review: rationale, file diffs, dropped anchors, adopt/drop) |
 | Back matter | components (the design-system gallery) |
 

@@ -61,6 +61,23 @@ class FakeCanonicalStore:
     async def snapshots(self, user_id):  # noqa: ANN001
         return list(self._snapshots)
 
+    async def snapshots_page(self, user_id, *, limit: int, after_ref=None):  # noqa: ANN001
+        """The history, newest first, continued from `after_ref`'s ancestors.
+
+        The lens's default previous reading is one page of one taken through this
+        (`service/lens.py`), so a double that answered `snapshots` and not this one would
+        make every reading in these tests a reading with no movement."""
+        history = list(self._snapshots)
+        if after_ref is not None:
+            refs = [s.ref for s in history]
+            if str(after_ref) not in refs:
+                raise KeyError(f"ref not in this user's history: {after_ref}")
+            history = history[refs.index(str(after_ref)) + 1:]
+        return history[:limit], len(self._snapshots), len(history) > limit
+
+    async def written_on(self, user_id, *, prefix: str = ""):  # noqa: ANN001
+        return {}
+
     async def commit_trailer(self, user_id, ref, key: str):  # noqa: ANN001
         return self._trailers.get(ref.ref if hasattr(ref, "ref") else str(ref))
 

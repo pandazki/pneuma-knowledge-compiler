@@ -216,6 +216,13 @@ class AgentRoundRunner:
         elif rt.kind == "episodes":
             from ..cli.episodes import open_round as open_draft, cmd_finish as finish
             rt.executor_skill = rt.executor_skill or self._env().get(SKILL_HASH_ENV, "")
+        elif rt.kind == "review":
+            # Its own OPEN — the task is the check's report rather than a source's material —
+            # and the shared FINISH, because what ends a review round is the ordinary gate
+            # judging an ordinary draft. The two halves are deliberately not symmetrical.
+            from ..cli.review import open_round as open_draft
+
+            finish = cmd_finish
         else:
             open_draft, finish = open_round, cmd_finish
         code, system_text, task_text = await open_draft(rt, job_id, claim=False)

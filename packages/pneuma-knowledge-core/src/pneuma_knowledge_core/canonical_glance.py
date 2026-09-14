@@ -75,7 +75,7 @@ from dataclasses import dataclass
 from .compile.anchor_ops import block_text
 from .compile.documents import derived_title, parse_overview, strip_overview
 from .compile.overview import ANCHOR_REFERENCE_RE, DEFINITION_MAX_CHARS
-from .compile.patch import _VOLUME_FILE_RE, path_allowed
+from .shape.families import VOLUME_FILE_RE as _VOLUME_FILE_RE, path_allowed
 from .compile.rollover import volume_of
 from .compile.supersession import SUPERSEDES_MARK_RE, current_blocks, superseded_index
 from .components import registered_components
@@ -145,7 +145,7 @@ def document_title(
     `documents` is the library around it, and it answers for the one document that has no
     name of its own: a CLOSED VOLUME. `projects/x/a02.md` is named `a02`, which names
     nothing — so given the library, a volume whose open page is present is labelled
-    `"<owner title> · vol. NN"` (docs/design/structure-lens.md §6). Without the mapping the
+    `"<owner title> · vol. NN"` (docs/design/structure-lens.md §2). Without the mapping the
     function answers exactly as it always did, which is what every caller holding one
     document keeps getting.
 

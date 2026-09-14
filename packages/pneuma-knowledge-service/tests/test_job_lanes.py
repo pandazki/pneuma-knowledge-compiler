@@ -51,12 +51,13 @@ def test_every_kind_the_worker_dispatches_is_classified_with_a_reason():
     from pneuma_knowledge_service.archive_service import ARCHIVE_JOB_KIND
     from pneuma_knowledge_service.challenge_service import CHALLENGE_JOB_KIND
     from pneuma_knowledge_service.groom_service import GROOM_JOB_KIND
+    from pneuma_knowledge_service.review_service import REVIEW_JOB_KIND
     from pneuma_knowledge_service.workers.compile_worker import COMPILE_JOB_KIND
 
     dispatched = {
         COMPILE_JOB_KIND, "episodes", "evolve", "evolve_adopt", GROOM_JOB_KIND,
         ARCHIVE_JOB_KIND, RECALL_PROJECTION_JOB_KIND, RECALL_REBUILD_JOB_KIND,
-        CHALLENGE_JOB_KIND, "index",
+        CHALLENGE_JOB_KIND, REVIEW_JOB_KIND, "index",
     }
     assert dispatched == set(JOB_LANES), "a dispatched kind is in no lane, or vice versa"
     for kind in dispatched:

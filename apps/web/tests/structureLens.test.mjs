@@ -1,10 +1,10 @@
 /**
- * The canonical link index: volume merging, the sentence-carrying edges, the neighbourhood
- * a document is read with, and the new links between two snapshots.
+ * The canonical link index: volume merging, the sentence-carrying edges, and the
+ * neighbourhood a document is read with.
  *
- * The findings, the score and the levels are NOT here: the structure lens is derived in core
- * and read over `GET /v1/users/{uid}/lens`, so there is nothing client-side left to assert
- * about them (docs/design/structure-lens.md §5.1).
+ * The dimensions, the bands and the check's findings are NOT here: both readings are derived
+ * in core and read over `GET /v1/users/{uid}/lens` and `GET /review`, so there is nothing
+ * client-side left to assert about them (docs/design/structure-lens.md §5).
  *
  * The fixture is a six-subject synthetic base built out of the framework's own reference
  * vocabulary (profile / people / topics / products / experiments) — no project, no product, no
@@ -31,7 +31,6 @@ const {
   legacyNodeTarget,
   mergeVolumes,
   neighborhoodOf,
-  newEdges,
   resolvePath,
   volumeFamily,
   volumeOwner,
@@ -187,26 +186,6 @@ test("a neighbourhood reads both ways, sorted, and a volume address lands on its
   const viaVolume = neighborhoodOf(index, "work/products/atlas/a01.md");
   assert.equal(viaVolume.unit.path, "work/products/atlas.md");
   assert.equal(neighborhoodOf(index, "nowhere.md").unit, null);
-});
-
-/* --------------------------------------------------------------- between snapshots */
-
-test("a new link is reported with the sentence that made it, and an unchanged pair is not", () => {
-  const before = buildLinkIndex([PROFILE, ATLAS, ADA]);
-  const after = buildLinkIndex(DOCS);
-  const edges = newEdges(before, after);
-  assert.equal(edges.length, 1, "profile→atlas and atlas↔ada were already there");
-  assert.equal(edges[0].fromPath, "work/products/atlas.md");
-  assert.equal(edges[0].toPath, "memory/topics/tiling.md");
-  assert.match(edges[0].sentence, /tiling question/, "a new edge without its claim says nothing");
-  // The link was written in a closed volume; it is reported for the subject that owns it.
-  assert.equal(edges[0].fromTitle, "Atlas");
-});
-
-test("a snapshot that only lost subjects gained no links", () => {
-  const before = buildLinkIndex(DOCS);
-  const after = buildLinkIndex([PROFILE, ATLAS, ATLAS_V1, ADA]);
-  assert.deepEqual(newEdges(before, after), []);
 });
 
 /* ------------------------------------------------------------------- deep links */

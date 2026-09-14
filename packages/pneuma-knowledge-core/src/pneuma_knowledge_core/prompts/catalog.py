@@ -921,6 +921,23 @@ The task follows.
 """
 
 
+_STEWARD_REVIEW_TASK = """\
+## What this round is for
+
+The report above is this library read against its own contract, computed without a model.
+Repair what a round can repair through the ordinary draft verbs, under the ordinary gate:
+a missing link or a dead one with `edit-claim`, a wrong or colliding name with `retitle`,
+a chronology page whose dated sections arrive out of order with `reorder-chronology`, a
+legacy heading or a collapsed body with an edit of the block that holds it. Add no claim
+this report did not ask for: nothing here is new knowledge, and no source is open.
+
+Leave what a round cannot repair — a finding that needs the owner's judgement, evidence
+this library does not hold, or a repair that would change what a claim says — and name it
+in the brief, with the reason. A finding left and named is a finding somebody can act on;
+a finding repaired by guessing is a claim nobody can trace.
+"""
+
+
 _STEWARD_POSTURES = """\
 ## Two postures
 
@@ -3058,6 +3075,8 @@ DEFAULTS: dict[str, str] = {
     "steward.cli.episodes_propose": "closed intervals with grounded title/description; gaps and [] allowed",
     "steward.cli.canonical_history": "the supersession chains on a page — what a claim used to say",
     "steward.cli.jobs": "the queue, newest first",
+    "steward.cli.jobs_enqueue": "queue one round the owner asks for, on this library's canonical lane",
+    "steward.cli.jobs_enqueue_kind": "which round: `review` opens a draft over the whole library with the check's report as its task",
     "steward.cli.jobs_requeue": "put finished jobs back in the queue",
     "steward.cli.jobs_requeue_description": "Re-queue work that was recorded as finished without being done, and reopen the material it claimed to digest. Each selected job's payload is queued again as a new row; the compile jobs' sources lose their digested stamp, because a round that wrote nothing digested nothing. Canonical is untouched and nothing is judged here — a re-queued job is compiled and gated like any other. Only FINISHED jobs are selectable, so work still queued or in flight can never be duplicated. At least one selector is required. Exit codes: 0 ok, 1 nothing matched, 2 refused.",
     "steward.cli.jobs_requeue_status": "only jobs that ended this way",
@@ -3073,6 +3092,7 @@ DEFAULTS: dict[str, str] = {
     "steward.cli.evolve_ls": "every proposal and its state",
     "steward.cli.evolve_show": "one proposal, whole",
     "steward.cli.library_check": "the gate's predicates over the committed library — reported, never repaired; exit 4 when anything is found",
+    "steward.cli.library_review": "the check: this library read against its own contract — the page-level findings a steward can act on, each with its evidence, what it costs and the verb that repairs it. Reported, never repaired; `pkc jobs enqueue review` is what asks a round to act on it.",
     "steward.cli.owner_say": "record one owner-dialogue/v1 statement and enqueue its compile — every correction starts here, and no command changes a claim without a job. Inside the console's Steward session (and only there, where the bridge holds the transcript) the text must be a verbatim substring of something the owner typed in that session, whitespace aside; a paraphrase is refused with exit 2. A terminal session has no transcript to check against and is unchanged.",
     "steward.cli.config_set": "set semantic retrieval on or off",
     "steward.cli.profile_show": "the profile this library compiles under, and whether it is still the placeholder",
@@ -3179,17 +3199,26 @@ DEFAULTS: dict[str, str] = {
     ),
     "steward.cli.lens": (
         "The structure lens: a model-free reading of the library's SHAPE rather than its "
-        "contents — the counts, a score, and findings each carrying its evidence, what it "
-        "costs a reader or a retrieval, and one recommended action. A reading and not a "
-        "verdict: nothing it says is enforced anywhere, and nothing calls it for you."
+        "contents — six dimensions, each with what it sees, what that implies, and how it "
+        "moved since the previous reading. It lists no pages; page-level findings are "
+        "`pkc library review`. A reading and not a verdict: nothing it says is enforced "
+        "anywhere, and nothing calls it for you."
     ),
-    "steward.cli.lens_path": (
+    "steward.cli.review_path": (
         "report only the findings this page answers for (a closed volume is answered for "
         "by its open page)"
+    ),
+    "steward.cli.review_at": (
+        "read the library at this canonical ref — a commit, a tag, a frozen snapshot — "
+        "instead of HEAD"
     ),
     "steward.cli.lens_at": (
         "read the library at this canonical ref — a commit, a tag, a frozen snapshot — "
         "instead of HEAD"
+    ),
+    "steward.cli.lens_previous": (
+        "read this ref as the previous reading the movement is measured against; the "
+        "default is the commit before `--at`, and `none` asks for no movement at all"
     ),
     "steward.skill.consume": """## Reading the library
 
@@ -3508,6 +3537,7 @@ The task follows.
     "steward.skill.door": _STEWARD_DOOR,
     "steward.skill.postures": _STEWARD_POSTURES,
     "steward.unattended.task": _STEWARD_UNATTENDED_TASK,
+    "steward.review.task": _STEWARD_REVIEW_TASK,
     "steward.skill.owner_speech": _STEWARD_OWNER_SPEECH,
     "steward.skill.cannot": _STEWARD_CANNOT,
     "steward.skill.archive": _STEWARD_ARCHIVE,
@@ -3597,203 +3627,364 @@ The task follows.
     # A closed volume has no name of its own on any read face: it is a volume OF a page, and
     # its filename (`a02`) names nothing. Every face that labels a document reads this.
     "canonical.volume_label": "{title} · vol. {volume}",
-    # ══════════════════════════════════════════════════ the structure lens (§4 of its design)
+    "gate.title_degenerate": (
+        "『{title}』 names a place in the layout rather than a subject, so every page of this "
+        "family would answer to it and nothing tells a reader which page this is. Give `{path}` "
+        "a name that says what it is about — the leading `# ` heading is the name, and retitle "
+        "rewrites it without touching a claim."
+    ),
+    "gate.title_shared_with_hub": (
+        "『{title}』 is already the name of `{other}`, this project's overview. The overview "
+        "says what the project IS and this page says what happened to it; one name over the two "
+        "leaves a reader unable to tell which page they are holding. Give this one a name of "
+        "its own."
+    ),
+    "gate.overview_restates": (
+        "the `{slot}` block of the overview repeats one of this page's own ledger claims word "
+        "for word, so the head spends its budget saying what the ledger already said. Cite the "
+        "claim instead, and write the head as the reading of the ledger it is meant to be."
+    ),
+    "gate.definition_empty": (
+        "the `definition` block holds only references and citations, so the one line that says "
+        "what this subject IS says nothing. Write it in words; the references belong behind "
+        "that sentence, not instead of it."
+    ),
+    "compile.patch.reorder_not_dated": (
+        "reorder_chronology rejected: `{path}` carries {count} dated `## YYYY-MM-DD` sections "
+        "and ordering needs at least two. A page whose sections are not dates has no order to "
+        "put them in."
+    ),
+    "compile.tool.reorder_chronology": (
+        "Put a page's dated sections in ascending order. Whole `## YYYY-MM-DD` sections move: "
+        "every byte inside one is conserved, every anchor stays on its claim, and no other line "
+        "of the page moves. It is for a chronology written before the placement rule existed — "
+        "a new append already lands at its date. Closed volumes, archived paths, archive "
+        "records and pages with fewer than two dated sections are refused."
+    ),
+    "compile.tool.reorder_chronology_result": (
+        "reorder_chronology: `{path}` now runs from {first} to {last} across {count} dated "
+        "sections."
+    ),
+    # ═══════════════════════════════════════════ the check (§3 of docs/design/structure-lens.md)
     #
-    # Two sentences per lens: what the finding COSTS, and what to DO about it, the second
-    # addressed to the finding's actor — the Steward for a drift, the Owner for a principle,
-    # the mechanism for a shape fault the write face now refuses. They are catalog keys and
-    # not sentences inside the lens because the same finding is read in a terminal, in a
-    # console and in another language, and three renderings of one key cannot disagree.
-    "lens.nav.dead_end.impact": (
-        "{count} subjects — {share} of the library — link to nothing, so a reader who arrives "
-        "at any of them has no next hop and everything beside them is unreachable from there."
+    # Two sentences per item: what the finding COSTS a reader or a retrieval, and what REPAIRS
+    # it — the second naming the verb where there is one (`retitle`, `reorder_chronology`, an
+    # ordinary edit). They are catalog keys and not sentences inside the check because the same
+    # finding is read in a terminal, in a console, by a review round and in another language,
+    # and four renderings of one key cannot disagree.
+    #
+    # The LEGACY items come first: each is an instance of a fault the write face now refuses,
+    # so its action is a repair of something already written and never a rule to remember.
+    "check.form.stray_heading.impact": (
+        "`{path}` carries a `# ` heading on line {line} (『{heading}』), which is how a page "
+        "used to be renamed from the middle of its own body."
     ),
-    "lens.nav.dead_end.action": (
-        "Work through those {count} pages as ordinary rounds reach them: link each to the "
-        "subjects its own claims already depend on, from the overview's connections or from "
-        "the claim that names them."
+    "check.form.stray_heading.action": (
+        "The write face now refuses a `# ` line inside a block; remove this one from `{path}` "
+        "and set the page's name with retitle."
     ),
-    "lens.nav.arrival_blind.impact": (
-        "Nothing in the library links to {count} of its subjects — {share} of them — so "
-        "everything those pages hold is reachable only by a search that already knows the name."
-    ),
-    "lens.nav.arrival_blind.action": (
-        "Give each of those {count} pages one page a reader would arrive from: its project's "
-        "overview, or the subject its claims belong beside."
-    ),
-    "lens.nav.dead_link.impact": (
-        "`{path}` links to `{target}`, which no document has, so the hop a reader takes from "
-        "it ends nowhere."
-    ),
-    "lens.nav.dead_link.action": (
-        "The gate refuses a new link to a page that does not exist; repair this one by "
-        "pointing `{href}` at a page that does, or by creating `{target}`."
-    ),
-    "lens.nav.hub_incomplete.impact": (
-        "The overview `{path}` does not reach {count} of its own project's pages, so a reader "
-        "who starts at the hub never learns that they exist."
-    ),
-    "lens.nav.hub_incomplete.action": (
-        "Add connections from 『{title}』 to {targets}."
-    ),
-    "lens.nav.chronology_unlinked.impact": (
-        "`{path}` records dated turns without reaching any of the {count} feature or decision "
-        "pages that explain them, so a reader learns that something changed and never why."
-    ),
-    "lens.nav.chronology_unlinked.action": (
-        "Link each dated section of 『{title}』 to the page that explains it: {targets}."
-    ),
-    "lens.nav.decision_unlinked.impact": (
-        "The decision `{path}` links to nothing it affects, so the subjects it constrains "
-        "carry no trace of it."
-    ),
-    "lens.nav.decision_unlinked.action": (
-        "Link 『{title}』 to the feature, project or subject the decision applies to."
-    ),
-    "lens.nav.mention_unlinked.impact": (
-        "`{path}` names 『{mention}』 {count} times and never links it, so a reader holding "
-        "this page cannot reach the page that defines it."
-    ),
-    "lens.nav.mention_unlinked.action": (
-        "Link 『{mention}』 (`{target}`) from the claims of 『{title}』 that name it, or from "
-        "its connections."
-    ),
-    "lens.nav.island.impact": (
-        "`{project}` is {count} pages and {claims} claims that no page outside it reaches and "
-        "that reach no page outside it — a library inside the library."
-    ),
-    "lens.nav.island.action": (
-        "Decide where `{project}` belongs in the layout: connect it to the subjects it shares "
-        "work with, or fold it into one of them."
-    ),
-    "lens.id.title_duplicate.impact": (
-        "{count} live pages are called 『{title}』 ({paths}), so neither a reader nor a "
-        "retrieval can tell which of them that name means."
-    ),
-    "lens.id.title_duplicate.action": (
-        "Decide which page keeps the name 『{title}』 and give the others names of their own, "
-        "or merge them into one subject."
-    ),
-    "lens.id.title_child_collision.impact": (
-        "`{path}` carries the same name as `{target}` below it, so a page and its own child "
-        "answer to one name."
-    ),
-    "lens.id.title_child_collision.action": (
-        "Rename one of the two — retitle `{path}` so 『{title}』 names one page only; the gate "
-        "now refuses a new title that collides with a sibling."
-    ),
-    "lens.id.title_degenerate.impact": (
-        "`{path}` is called 『{title}』, which names its place in the layout rather than its "
-        "subject, so nothing distinguishes it from every other page of its family."
-    ),
-    "lens.id.title_degenerate.action": (
-        "Retitle `{path}` with a name that says what it is about; the leading heading is the "
-        "name, and rewriting it touches no claim."
-    ),
-    "lens.id.title_shared_with_hub.impact": (
-        "`{path}` carries its project overview's name 『{title}』, so one name stands over two "
-        "different pages."
-    ),
-    "lens.id.title_shared_with_hub.action": (
-        "Retitle `{path}` for what it holds — the project's history — and leave 『{title}』 to "
-        "`{target}`."
-    ),
-    "lens.form.collapsed_body.impact": (
+    "check.form.collapsed_body.impact": (
         "`{path}` has a line of {chars} characters and {count} escaped line breaks, so its "
         "claims were written as one run of text that no reader and no block walker can take "
         "apart."
     ),
-    "lens.form.collapsed_body.action": (
+    "check.form.collapsed_body.action": (
         "The write face now refuses text like this; repair `{path}` by splitting the run into "
         "one block per claim, with real line breaks."
     ),
-    "lens.form.stray_heading.impact": (
-        "`{path}` carries a `# ` heading on line {line} (『{heading}』), which is how a page "
-        "used to be renamed from the middle of its own body."
+    "check.id.title_degenerate.impact": (
+        "`{path}` is called 『{title}』, which names its place in the layout rather than its "
+        "subject, so nothing distinguishes it from every other page of its family."
     ),
-    "lens.form.stray_heading.action": (
-        "The write face now refuses a `# ` line inside a block; remove this one from `{path}` "
-        "and set the page's name with retitle."
+    "check.id.title_degenerate.action": (
+        "Retitle `{path}` with a name that says what it is about; the leading heading is the "
+        "name, and rewriting it touches no claim."
     ),
-    "lens.form.unanchored_citation.impact": (
-        "`{path}` holds {count} cited lines carrying no anchor, so that evidence is "
-        "browse-visible text which never enters the claim index."
+    "check.id.title_shared_with_hub.impact": (
+        "`{path}` carries its project overview's name 『{title}』, so one name stands over two "
+        "different pages."
     ),
-    "lens.form.unanchored_citation.action": (
-        "Write each of those {count} lines on `{path}` as a claim through append_block, which "
-        "anchors it."
+    "check.id.title_shared_with_hub.action": (
+        "Retitle `{path}` for what it holds — the project's history — and leave 『{title}』 to "
+        "`{target}`."
     ),
-    "lens.form.overview_restates.impact": (
-        "The `{slot}` slot of `{path}` repeats one of its own ledger claims word for word, so "
-        "the head says nothing the ledger had not already said."
+    "check.id.title_child_collision.impact": (
+        "`{path}` carries the same name as `{target}` below it, so a page and its own child "
+        "answer to one name."
     ),
-    "lens.form.overview_restates.action": (
-        "Rewrite the `{slot}` of 『{title}』 as the reading of the ledger it is meant to be, or "
-        "drop that slot."
+    "check.id.title_child_collision.action": (
+        "Rename one of the two — retitle `{path}` so 『{title}』 names one page only; the gate "
+        "now refuses a new title that collides with a sibling."
     ),
-    "lens.form.legacy_sections.impact": (
-        "`{path}` carries an overview head and still holds {count} older sections saying the "
-        "same four things ({sections}), so one picture stands twice in one page."
-    ),
-    "lens.form.legacy_sections.action": (
-        "Fold what {sections} still say into the overview of 『{title}』, and leave the ledger "
-        "its claims."
-    ),
-    "lens.form.definition_empty.impact": (
-        "The definition of `{path}` holds only references, so the one line that says what this "
-        "subject is says nothing."
-    ),
-    "lens.form.definition_empty.action": (
-        "Rewrite the overview of `{path}` with a definition in words; the references belong "
-        "behind that sentence, not instead of it."
-    ),
-    "lens.form.unordered_chronology.impact": (
+    "check.form.unordered_chronology.impact": (
         "The {count} dated sections of `{path}` do not run forward in time ({first}), so the "
         "page reads in the order it was compiled rather than in the order things happened."
     ),
-    "lens.form.unordered_chronology.action": (
-        "Put the dated sections of 『{title}』 in ascending order and give each date one "
-        "section; the first pair out of order is {first}."
+    "check.form.unordered_chronology.action": (
+        "Run reorder_chronology on `{path}`: whole sections move into ascending order and no "
+        "claim is touched. The first pair out of order is {first}."
     ),
-    "lens.conc.catch_all.impact": (
-        "`{path}` holds {share} of the library's claims — {ratio}× an even share — so one page "
-        "is where knowledge goes when nothing else fits."
+    "check.form.overview_restates.impact": (
+        "The `{slot}` slot of `{path}` repeats one of its own ledger claims word for word, so "
+        "the head says nothing the ledger had not already said."
     ),
-    "lens.conc.catch_all.action": (
-        "Decide what 『{title}』 is for, and give the {count} claims that are not about it "
-        "pages of their own."
+    "check.form.overview_restates.action": (
+        "Rewrite the `{slot}` of 『{title}』 as the reading of the ledger it is meant to be, or "
+        "drop that slot."
     ),
-    "lens.bal.family_heavy.impact": (
-        "`{family}` is {pages} of the pages and {share} of the claims, so the library's weight "
-        "sits in one kind of subject."
+    "check.form.definition_empty.impact": (
+        "The definition of `{path}` holds only references, so the one line that says what this "
+        "subject is says nothing."
     ),
-    "lens.bal.family_heavy.action": (
-        "Decide whether `{family}` is where this material belongs, or whether the contract "
-        "owes a family to the material that has been going there for want of one."
+    "check.form.definition_empty.action": (
+        "Rewrite the overview of `{path}` with a definition in words; the references belong "
+        "behind that sentence, not instead of it."
     ),
-    "lens.bal.family_empty.impact": (
-        "The contract declares `{family}` and no page has ever been filed there, so a family "
-        "offered to every compile means nothing."
+    "check.form.unanchored_citation.impact": (
+        "`{path}` holds {count} cited lines carrying no anchor, so that evidence is "
+        "browse-visible text which never enters the claim index."
     ),
-    "lens.bal.family_empty.action": (
-        "Decide whether `{family}` is still expected — its material has not arrived — or "
-        "whether the contract should stop declaring it."
+    "check.form.unanchored_citation.action": (
+        "Write each of those {count} lines on `{path}` as a claim through append_block, which "
+        "anchors it."
     ),
-    "lens.bal.session_shaped.impact": (
-        "{share} of `{path}`'s claims are dated single-source entries ({count} of them), which "
-        "is the shape of a log of sessions rather than of a subject."
+    # …and the JUDGEMENT items: the contract's expectations no write can decide.
+    "check.nav.hub_incomplete.impact": (
+        "The overview `{path}` does not reach {count} of its own project's pages, so a reader "
+        "who starts at the hub never learns that they exist."
     ),
-    "lens.bal.session_shaped.action": (
-        "Ask what 『{title}』 is: a project, in which case the {count} session entries belong "
-        "as evidence and not as claims — or a log, in which case it is material and not a "
-        "subject."
+    "check.nav.hub_incomplete.action": (
+        "Add connections from 『{title}』 to {targets}."
     ),
-    "lens.corr.single_source.impact": (
+    "check.nav.chronology_unlinked.impact": (
+        "`{path}` records dated turns without reaching any of the {count} feature or decision "
+        "pages that explain them, so a reader learns that something changed and never why."
+    ),
+    "check.nav.chronology_unlinked.action": (
+        "Link each dated section of 『{title}』 to the page that explains it: {targets}."
+    ),
+    "check.nav.decision_unlinked.impact": (
+        "The decision `{path}` links to nothing it affects, so the subjects it constrains "
+        "carry no trace of it."
+    ),
+    "check.nav.decision_unlinked.action": (
+        "Link 『{title}』 to the feature, project or subject the decision applies to."
+    ),
+    "check.nav.mention_unlinked.impact": (
+        "`{path}` names 『{mention}』 {count} times and never links it, so a reader holding "
+        "this page cannot reach the page that defines it."
+    ),
+    "check.nav.mention_unlinked.action": (
+        "Link 『{mention}』 (`{target}`) from the claims of 『{title}』 that name it, or from "
+        "its connections."
+    ),
+    "check.nav.dead_link.impact": (
+        "`{path}` links to `{target}`, which no document has, so the hop a reader takes from "
+        "it ends nowhere."
+    ),
+    "check.nav.dead_link.action": (
+        "The gate refuses a new link to a page that does not exist; repair this one by "
+        "pointing `{href}` at a page that does, or by creating `{target}`."
+    ),
+    "check.id.title_duplicate.impact": (
+        "{count} live pages in different directories are called 『{title}』 ({paths}), so "
+        "neither a reader nor a retrieval can tell which of them that name means."
+    ),
+    "check.id.title_duplicate.action": (
+        "Decide which page keeps the name 『{title}』 and give the others names of their own, "
+        "or merge them into one subject."
+    ),
+    "check.corr.single_source.impact": (
         "All {count} claims of `{path}` cite `{source_id}` alone, so the whole subject rests "
         "on one account of it."
     ),
-    "lens.corr.single_source.action": (
+    "check.corr.single_source.action": (
         "Corroborate 『{title}』 from other material, or say in its head that `{source_id}` is "
         "all the evidence there is."
+    ),
+    "check.form.legacy_sections.impact": (
+        "`{path}` carries an overview head and still holds {count} older sections saying the "
+        "same four things ({sections}), so one picture stands twice in one page."
+    ),
+    "check.form.legacy_sections.action": (
+        "Fold what {sections} still say into the overview of 『{title}』, and leave the ledger "
+        "its claims."
+    ),
+    # ═══════════════════════════════════ the structure lens (§4 of docs/design/structure-lens.md)
+    #
+    # Two sentences per BAND, not per page: what an outside reader sees when they take the
+    # whole library at once, and the DIRECTION that reading implies — a contract clause, an
+    # evolve, a groom, a review round. Never a page: a lens that named a page would be a check
+    # item that had climbed a tier, and the ruling is that a finding belongs to the lowest tier
+    # that can see it. The thresholds behind each band are named constants of the lens module
+    # and are deliberately not repeated in these sentences.
+    "lens.walkability.open.statement": (
+        "A reader can walk this library rather than only look things up in it: of its "
+        "{subjects} subjects, {dead_end_share} offer no next hop and {arrival_blind_share} are "
+        "reached by nothing, with {component_share} of them in one connected body."
+    ),
+    "lens.walkability.open.direction": (
+        "No lever needed here. Keep the contract's expectation that a page links the subjects "
+        "its own claims depend on; the individual links still owed are the check's list."
+    ),
+    "lens.walkability.thin.statement": (
+        "This library is looked up more easily than it is walked: {dead_ends} of {subjects} "
+        "subjects ({dead_end_share}) end without a next hop and {arrival_blind} "
+        "({arrival_blind_share}) are reached by nothing at all."
+    ),
+    "lens.walkability.thin.direction": (
+        "A review round closes links one page at a time. If the pages that end blind are a "
+        "whole family, it is that family's clause in the contract that owes a sentence about "
+        "what a page of it links."
+    ),
+    "lens.walkability.broken.statement": (
+        "As a body this library does not hold together: {dead_end_share} of its {subjects} "
+        "subjects lead nowhere, {arrival_blind_share} are reached by nothing, only "
+        "{component_share} of them sit in one connected piece, and {islands} projects stand "
+        "entirely apart from the rest."
+    ),
+    "lens.walkability.broken.direction": (
+        "Reachability at this scale is not one page's fault. Decide in the contract what every "
+        "page owes its neighbours — a hub that reaches its own pages, a claim that links what "
+        "it rests on — and let a review round work through what already stands."
+    ),
+    "lens.shape.even.statement": (
+        "Knowledge is spread across this library rather than piled in it: its largest subject "
+        "『{title}』 holds {lead_share} of {claims} claims, and no family carries a share of "
+        "them out of proportion to its share of the pages."
+    ),
+    "lens.shape.even.direction": (
+        "No lever needed. The shape moves when the material does; read it again after the next "
+        "stretch of compiles."
+    ),
+    "lens.shape.leaning.statement": (
+        "The library is leaning: 『{title}』 holds {lead_share} of {claims} claims — "
+        "{lead_ratio}× an even share across {subjects} subjects — and `{family}` carries "
+        "{family_share} of them on {family_pages} of the pages."
+    ),
+    "lens.shape.leaning.direction": (
+        "Ask whether the material piling up wants a family of its own. If it does, that is an "
+        "evolve; if the pile is one page grown thick, groom and its volumes are what thin it."
+    ),
+    "lens.shape.collapsing.statement": (
+        "One subject is where knowledge goes when nothing else fits: 『{title}』 holds "
+        "{lead_share} of {claims} claims, {lead_ratio}× an even share across {subjects} "
+        "subjects."
+    ),
+    "lens.shape.collapsing.direction": (
+        "This is a structure question and not a page question: decide what the contract expects "
+        "to exist beside that subject, and let evolve open the families it names."
+    ),
+    "lens.knowledge_vs_log.knowledge.statement": (
+        "What this library holds is knowledge about subjects: {narration_share} of its "
+        "{claims} claims carry the dated single-source shape of session narration."
+    ),
+    "lens.knowledge_vs_log.knowledge.direction": (
+        "No lever needed. Keep the contract's standing instruction that a claim states what is "
+        "true of a subject rather than what happened in a session."
+    ),
+    "lens.knowledge_vs_log.mixed.statement": (
+        "A good part of this is a record of sessions: {count} of {claims} claims "
+        "({narration_share}) are dated single-source entries, and {log_subjects} subjects are "
+        "made mostly of them."
+    ),
+    "lens.knowledge_vs_log.mixed.direction": (
+        "Decide in the contract which of the two this library is for: a chronology family is "
+        "where dated turns belong, and a subject page is where what they established belongs."
+    ),
+    "lens.knowledge_vs_log.log.statement": (
+        "This reads as a log rather than as a body of knowledge: {narration_share} of {claims} "
+        "claims are dated single-source entries, and {log_subjects} subjects "
+        "({log_subject_share}) are made almost entirely of them."
+    ),
+    "lens.knowledge_vs_log.log.direction": (
+        "The contract is asking for a diary. Say in it what a claim about a subject is, and let "
+        "a review round decide which of the pages that stand are subjects and which are "
+        "material."
+    ),
+    "lens.liveness.living.statement": (
+        "This library corrects itself: {count} claims have been superseded ({per_hundred} per "
+        "100 claims), {overview_share} of its {developed} developed subjects carry a head, and "
+        "{rollovers} volumes have been closed."
+    ),
+    "lens.liveness.living.direction": (
+        "No lever needed. Supersession is doing its work as the channel for what changed; keep "
+        "the contract's instruction to supersede rather than edit when the world moved."
+    ),
+    "lens.liveness.settling.statement": (
+        "The library is settling: {count} supersessions across {claims} claims ({per_hundred} "
+        "per 100), with {overview_share} of its {developed} developed subjects carrying a head."
+    ),
+    "lens.liveness.settling.direction": (
+        "Watch whether new material still reaches the older subjects. If what arrives never "
+        "touches them, the question belongs to the contract's intake rather than to any page."
+    ),
+    "lens.liveness.still.statement": (
+        "Nothing in this library is being corrected: {count} supersessions across {claims} "
+        "claims ({per_hundred} per 100). What was written first still stands, whether or not it "
+        "still holds."
+    ),
+    "lens.liveness.still.direction": (
+        "Ask whether the material arriving is ever about what is already written. If it is, the "
+        "contract has to say that a changed fact is superseded and not appended; if it is not, "
+        "this is an archive, and reading it as a living library will keep disappointing."
+    ),
+    "lens.type_structure.aligned.statement": (
+        "The knowledge arriving fits the structure declared for it: {dated_share} of {claims} "
+        "claims are dated outside a chronology, {decision_share} of the sections are "
+        "decision-shaped outside the decisions family, and {empty_families} of {families} "
+        "declared families stand empty."
+    ),
+    "lens.type_structure.aligned.direction": (
+        "No lever needed. This is the reading an evolve would weigh, and it has nothing to "
+        "weigh yet."
+    ),
+    "lens.type_structure.strained.statement": (
+        "The declared structure is straining against what is arriving: {dated} claims are dated "
+        "outside any chronology, {decision_shaped} decision-shaped sections sit outside the "
+        "decisions family, and {empty_families} of {families} declared families have never been "
+        "filed under."
+    ),
+    "lens.type_structure.strained.direction": (
+        "Hold this reading for the next evolve: knowledge whose implied structure does not "
+        "exist is exactly what a schema proposal weighs, and one reading is not yet a trend."
+    ),
+    "lens.type_structure.misfiled.statement": (
+        "What this library is accumulating has nowhere of its own to go — {worst_share} of one "
+        "kind is filed somewhere else: {dated} dated claims outside a chronology, "
+        "{decision_shaped} decision-shaped sections outside the decisions family, and "
+        "{empty_families} of {families} families nothing was ever filed under."
+    ),
+    "lens.type_structure.misfiled.direction": (
+        "This is the evidence evolve exists for: propose the families the material implies, and "
+        "retire the declared ones nothing has ever reached."
+    ),
+    "lens.demand_supply.matched.statement": (
+        "What this library holds is close to what it is asked: {consultations} consultations "
+        "reached {consulted} of its {subjects} subjects, {gap_share} of them were answered with "
+        "nothing cited, and the most-asked family `{family}` takes {demand_share} of the asking "
+        "against {claim_share} of the claims."
+    ),
+    "lens.demand_supply.matched.direction": (
+        "No lever needed. Read it again when the asking changes; demand moves faster than a "
+        "library does."
+    ),
+    "lens.demand_supply.skewed.statement": (
+        "What people ask is not what this library holds: `{family}` takes {demand_share} of the "
+        "asking against {claim_share} of the claims, {never_consulted} of {subjects} subjects "
+        "were never consulted at all, and {count} answers ({gap_share}) cited nothing."
+    ),
+    "lens.demand_supply.skewed.direction": (
+        "Take the demand to the intake rather than to a page: the material that would answer "
+        "those questions is either not arriving or not being compiled, and the contract is "
+        "where that is decided."
+    ),
+    "lens.demand_supply.unread.statement": (
+        "Nobody has asked this library anything yet, so its {claims} claims across {subjects} "
+        "subjects have nothing to be weighed against."
+    ),
+    "lens.demand_supply.unread.direction": (
+        "No lever until it is used: what a library holds can only be judged against what it is "
+        "asked."
     ),
 }

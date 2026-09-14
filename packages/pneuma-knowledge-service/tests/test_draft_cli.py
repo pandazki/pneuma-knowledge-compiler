@@ -1030,6 +1030,21 @@ def test_retitle_takes_the_page_and_its_new_name_from_argv():
     assert _tool_call(args) == ("retitle", {"path": LEGACY, "title": "程野的页面"})
 
 
+def test_reorder_chronology_takes_the_page_and_nothing_else_from_argv():
+    """The mechanical repair verb for a chronology written before the write-time rule
+    (docs/design/structure-lens.md §2): only section ORDER moves, so the page is the whole
+    argument — there is nothing for a caller to choose."""
+    args = build_parser().parse_args(["draft", "reorder-chronology", LEGACY])
+    assert _tool_call(args) == ("reorder_chronology", {"path": LEGACY})
+
+
+def test_reorder_chronology_is_post_checked_like_every_other_write():
+    """It conserves anchors and bytes, but the page it touched is still a page the gate has
+    something to say about — a repair verb outside `WRITE_TOOLS` would be the one write in
+    the round nobody judged."""
+    assert "reorder_chronology" in draft_cmd.WRITE_TOOLS
+
+
 async def test_retitle_writes_the_page_its_name_and_commits_it():
     """The round trip: a page whose leading heading is wrong is given the right one, nothing
     else about it moves, and the committed file carries the name."""

@@ -1,291 +1,246 @@
-# The structure lens — an outside reading of the library's shape
+# The library's shape — hooks at the write, the check, and the structure lens
 
 **English** | [简体中文](structure-lens.zh-CN.md)
 
-## 1. Why
+## 1. Why, and the ruling that shapes it
 
 The Steward works inside the library, one source at a time. Every compile is a local
 decision made under the contract, and each one can be right while the sum drifts: a
 project page that quietly fills with session narration, an evolution page whose dated
 sections arrive in ingest order rather than in time, a stray heading that renames a page,
 a subject that exists twice under two spellings, a family of pages that nothing links to.
-None of these is a fabrication — every claim still cites its span — and none is visible
-from where the Steward stands. They are visible only from outside, to a reader who takes
-the whole library in at once, carries the framework's own idea of what a good, evolvable
-knowledge layout looks like, and does not care how any page came to be the way it is.
+None of these is a fabrication — every claim still cites its span. The question is who
+can see each of them, and that question sorts them into three tiers:
 
-The console's Graph view was the first attempt at that reader, and it stopped at the
-instrument: it counted dead ends and arrival-blind pages and printed the three largest
-numbers. It said nothing about what a number costs the Owner, nothing about what to do,
-and nothing reached the Steward, so the same drift continued in the next round. This
-document replaces it with the **structure lens**: a derived, model-free reader of the
-canonical library whose product is a **report** — findings, each with its evidence, its
-cost, and its recommendation — read by the Owner in the console and by anyone, the
-Steward included, at the terminal.
+- **What the write can decide** needs nobody. A heading inside a claim block, a body with
+  no real line breaks, a title equal to a sibling's, a dated section appended out of order:
+  the fault is fully visible in the bytes being written, so the mechanism refuses it or
+  normalizes it at the write and no reader ever meets it. This is the framework's first
+  discipline — mechanism over persuasion — applied to the library's shape. **Tier one:
+  hooks at the write** (§2).
+- **What the insider can find by checking** needs a checklist, not a vantage point. A page
+  that names another subject twenty times and never links it, an evolution page whose
+  turning points cite no decision, a hub that leaves three of its own pages unreachable:
+  a Steward standing at the page can see it against the contract and can repair it in a
+  round of its own. This is the library's reflection. **Tier two: the check** (§3).
+- **What only the whole shows** is what the library is becoming: whether it is walkable
+  as a body, where knowledge piles up, how much of it is a log of sessions rather than
+  knowledge about subjects, whether it ever corrects itself, whether the structure that
+  its accumulating knowledge implies exists yet, and whether what it holds is what people
+  ask it. No page shows any of this. **Tier three: the structure lens** (§4).
 
-Three rulings fix the shape:
+The ruling: **a finding belongs to the lowest tier that can see it.** A tier-one fault is
+never a check item and never a lens reading; a check item is never a lens reading. The
+lens is left with the readings that need the god's-eye, which is what it is for.
 
-- **A finding is addressed to someone and says what to do.** Every finding names the
-  pages it is about, the sentences or counts that show it, what it costs a reader or a
-  retrieval, and one recommended action with an actor: the Steward in an ordinary round,
-  the Owner as a decision, or the mechanism itself. A number with no consequence and no
-  action is not a finding.
-- **What can be decided mechanically is refused at the write, never advised.** A heading
-  inside a claim block, a body with no real line breaks, a title that would shadow a
-  sibling — the lens reports the instances a library already holds, and the gate refuses
-  new ones. Advising the model to avoid a mechanical fault is the persuasion the framework
-  forbids.
-- **How a finding reaches the Steward is designed separately, after the Owner has read
-  the report.** Putting a finding into another job's context is not a neutral act: it
-  changes what the model writes, under a bound it did not choose, about a page it may not
-  be reading. This version gives the Steward a face it can consult (`pkc lens`) and
-  nothing it cannot decline to look at. The forcing point, the kept decline record and the
-  evolve evidence are sketched in §9 as the next design, not built here.
+Everything in the three tiers is derived and model-free: computed from canonical (and,
+for one lens reading, the kept consultation records), writing nothing to canonical.
 
-The lens is derived and model-free. It reads canonical and the contract's path templates,
-writes nothing to canonical, and is computed from canonical alone; it keeps no state of
-its own in this version. It is a core module with two read faces (an HTTP route and a CLI
-command); becoming an index component is the step §9 describes.
+## 2. Tier one — hooks at the write
 
-## 2. What the lens reads
+Each hook is a gate check or a tool-face refusal in core `compile/`, in force whether or
+not anything else in this document is deployed. **Refuse** means the write comes back with
+a named violation; **normalize** means the mechanism places the bytes deterministically
+and the model never has to know the rule.
 
-- Every canonical document at one ref (HEAD by default; any ref for snapshot compare),
-  through the read-only canonical face. Archived documents are excluded from every count
-  and appear only under their own finding.
-- The active skill's `path_templates`, to know the families and to fold a closed volume
-  (`<doc>/aNN.md`) onto its open page — the same rule as `compile/patch.py::path_allowed`
-  and `history_volume_owner`. A **subject** is one open page with its volumes; claims,
-  characters and links of a volume belong to the subject.
-- **Family roles**, derived from the templates by name: a template whose last segment is
-  `overview.md` is the family hub; `evolution.md` the chronology; a directory named
-  `features`, `decisions` (or `features/{slug}.md` etc.) a child family; `owner/…` the
-  Owner's views; `memory/people`, `memory/topics` the memory families. The lens learns
-  what a contract expects of a family from these roles and from nothing else; a contract
-  with none of these names gets only the family-agnostic lenses. Roles are a table in
-  `core/lens/families.py`, not prose.
-- An **edge** is a markdown link whose href ends in `.md`, inside a claim block or in the
-  overview region, resolved against the document's directory, fragment stripped; the same
-  parser as the gate (`compile/links.py`), used through it. A volume's edges are
-  re-attributed to its subject; a subject's link to its own volume is not an edge.
-- A **claim** is one anchor in the ledger, counted as `canonical_glance.claim_count`
-  counts it: overview blocks are not claims. (The old Graph view counted them; the lens
-  agrees with core.)
+| hook | at | what |
+|---|---|---|
+| `heading_in_block` | tool face + gate | a line starting with `# ` inside `append_block`, `edit_claim`, `supersede_claim` or an overview slot is refused; `create_document` accepts `# ` only as the first non-empty body line |
+| `escaped_newlines` / `long_line` | tool face | text carrying literal `\n` with no real line break, or any line ≥ 1 000 chars, is refused |
+| leading title | serialization | `derived_title` reads only a leading `# `; a closed volume is labelled from its owner (`<owner> · vol. NN`); `title:` is YAML-quoted |
+| `title_sibling_collision` | gate | a title equal to another live page's in the same directory is refused |
+| `title_degenerate` | gate | a title that is empty, equals a family role word alone (`overview`, `evolution`, `概览`, `演进`, `项目演进`…), or equals the project slug on a page that is not the hub, is refused |
+| `title_shared_with_hub` | gate | a chronology page (`evolution.md`) titled exactly as its hub (`overview.md`) is refused |
+| chronology order | normalize | `append_block` on a chronology page under a `YYYY-MM-DD` heading lands in the existing section of that date, or opens a new section at its chronological position; the anchor is untouched. `reorder_chronology(path)` is a mechanical write verb for pages that predate the rule (anchors and bytes conserved, only section order moves) |
+| `overview_restates` | gate | an overview block whose text, stripped of citations and anchors, equals a ledger claim of the same page is refused — cite the claim instead |
+| `definition_empty` | gate | a `definition` block with no prose (references and anchors only) is refused |
+| `retitle` | write verb | rewrites the leading `# ` (inserting one when absent) so a page that took the wrong name can be renamed without touching a claim; passes the shadowed- and sibling-title checks |
 
-## 3. The report
+Family roles (hub, chronology, child families, owner views, memory) are read off the
+active `path_templates` by name — a table in core `shape/families.py` shared by all three
+tiers, never prose.
+
+Deferred to a contract that declares structure: *a page created under a project's child
+family must be linked from the project's hub in the same round.* The gate could refuse
+this today, but "the hub links its children" is the personal-projects contract's
+expectation, not the framework's, and a contract states its expectations as prose. When a
+path template can carry `hub: overview.md`, the rule becomes a hook; until then it is a
+check (§3).
+
+## 3. Tier two — the check
+
+### 3.1 What it lists
+
+The check is a list of page-level findings the Steward can act on, each with the page, the
+verbatim evidence, what it costs and what to do. Two kinds of item:
+
+- **Judgement items** — the contract's expectations no hook can decide:
+
+| id | predicate | evidence |
+|---|---|---|
+| `nav.hub_incomplete` | a hub that does not link to every page of its own subtree | the missing targets |
+| `nav.chronology_unlinked` | a chronology page with ≥ 3 dated sections and no link to any feature or decision page of its project, when such pages exist | the children |
+| `nav.decision_unlinked` | a decision page with no outbound link | — |
+| `nav.mention_unlinked` | a page whose claim text names another live subject's exact title (≥ 4 chars, not its own) ≥ 3 times and never links it | the title |
+| `nav.dead_link` | a link to a path no document has | the href |
+| `id.title_duplicate` | two live subjects with the same normalized title, in different directories | the title |
+| `corr.single_source` | a subject with ≥ 8 claims all citing one source | the source id |
+| `form.legacy_sections` | a page with an overview head that still carries `## definition\|summary\|introduction\|connections` sections | the sections |
+
+- **Legacy instances of tier-one faults** — pages written before a hook existed: a stray
+  heading, a collapsed body, a degenerate or hub-shared or child-colliding title, an
+  unordered chronology, an overview block that restates a claim, an empty definition, a
+  cited line with no anchor. The hook keeps new ones out; the check lists the old ones with
+  the verb that repairs each (`retitle`, `reorder_chronology`, an ordinary edit).
+
+The finding shape is the one in §5.1; every sentence is rendered from the prompt catalog
+in both packs.
+
+### 3.2 The review round
+
+The check reaches the Steward as **its own round**, never as a note inside another job's
+task. A `review` job (canonical lane, like `groom` and `challenge`) opens a draft over the
+whole library with no source: its task is the check's report for this library, and its
+instruction is to repair what a round can repair — links, titles, order, edits — through
+the ordinary draft verbs, under the ordinary gate, and to say in the brief what it left
+and why. It is enqueued by the Owner (`pkc jobs enqueue review`, or the console) and by
+nothing else in this version; scheduling it is a later decision.
+
+This is the insider's reflection: the Steward reading its own library against the
+contract and correcting it. It puts nothing into any other job's context.
+
+### 3.3 Faces
+
+- `GET /v1/users/{uid}/review?at=<ref>` and `pkc library review [--path] [--at] [--json]`
+  — the report; `--json` is never paged.
+- `#/review` in the console: the findings by page, the same row the lens used to show,
+  and the last review round's brief.
+
+## 4. Tier three — the structure lens
+
+### 4.1 What it reads
+
+Every canonical document at one ref, the active path templates, and — for one dimension
+— the kept consultation records and the attention component's access ledger when they
+exist. Subjects, edges and claims are computed once, by the shared `shape/` module, the
+same way for the check and the lens (a volume folds onto its page; an edge is a markdown
+link inside a claim or the overview region, through the gate's parser; a claim is a ledger
+anchor, overview blocks excluded).
+
+### 4.2 The six dimensions
+
+The lens does not list pages. It reads the library along six dimensions and says, for
+each, what it sees, what that implies, and how it moved since the previous reading. Each
+dimension has a small set of metrics, a **band** chosen by named thresholds, one rendered
+**statement** per band, and a **direction** — what the reading implies for the contract or
+for evolve — rendered from the catalog like every sentence.
+
+| id | question | metrics | band thresholds |
+|---|---|---|---|
+| `walkability` | can a reader walk this library, or only look things up by name? | edges per subject; dead-end share; arrival-blind share; share of subjects in the largest connected component; islands (projects with no edge to or from outside) | open: dead-end ≤ 15 % and arrival-blind ≤ 15 %; thin: either ≤ 40 %; broken: otherwise |
+| `shape` | where is knowledge piling up? | lead subject's share and lead ratio; each family's claim share against its page share; empty declared families; number of clusters | even: lead ≤ 10 %, no family ≥ 2× its page share; leaning: lead ≤ 20 % or one family ≥ 2×; collapsing: otherwise |
+| `knowledge_vs_log` | how much of this is knowledge about subjects, and how much a log of sessions? | share of claims that are dated, single-source narration (the session signature); share of subjects ≥ 60 % narration; share of claims per family | knowledge: narration ≤ 20 %; mixed: ≤ 50 %; log: otherwise |
+| `liveness` | does the library ever correct itself? | subjects never written since creation; supersessions per 100 claims; edits per 100 claims; rollovers; overviews rewritten after ≥ 8 claims; median days since last write per subject | living: supersessions ≥ 1 / 100 and ≤ 50 % subjects untouched; still: supersessions < 0.5 / 100 or ≥ 80 % untouched; settling: between |
+| `type_structure` | what kind of knowledge is accumulating, and does the structure it implies exist? | dated claims outside any chronology family; decision-shaped sections (`decision`/`rationale`/`scope` headings) outside the decisions family; names recurring across ≥ 3 subjects without a people page (when the people component is registered); declared families with pages vs. without | aligned: each proxy ≤ 5 % of its base; strained: any ≤ 20 %; misfiled: any above |
+| `demand_supply` | is what it holds what people ask it? | consultations per family vs claims per family; subjects consulted vs never consulted; consultations answered with no citation (gaps) | read only when consultations exist; matched: gaps ≤ 10 % and the most-asked family is within 2× of its claim share; skewed: otherwise; `unread` when there are no consultations |
+
+The thresholds are constants of the lens module, named once; the console does not repeat
+them. A dimension's statement is written to the Owner, in the register of an outside
+reader: what it sees and what it would ask, not a list of pages. The `direction` names the
+lever — a contract clause, an evolve, a groom, a review round — never a page.
+
+### 4.3 Trend
+
+A reading carries the previous reading when one exists — the previous canonical commit by
+default, any ref or frozen snapshot on request — and each dimension states its movement:
+which metrics moved, in which direction, and whether the band changed. The score of the
+old view is gone; the six bands and their movement are the whole summary.
+
+### 4.4 The lens and evolve
+
+The `type_structure` reading is exactly the evidence the design philosophy asks evolve to
+weigh — which knowledge is accumulating whose implied structure does not exist. Rendering
+it as `evolve_evidence` is the lens's one intended exit toward the library's own process,
+and it is not built in this version: it is designed with the review round's scheduling.
+
+### 4.5 Faces
+
+- `GET /v1/users/{uid}/lens?at=<ref>&previous=<ref>` and `pkc lens [--at] [--previous]
+  [--json]` — the reading.
+- `#/lens` in the console: six sections, one per dimension — the band as a word, the
+  statement, the metrics as a short table with their movement, the direction — and a
+  ref picker for the previous reading. No list of findings anywhere on the page; the
+  check has its own.
+
+## 5. Shapes
+
+### 5.1 A check finding
 
 ```
-Report
-  ref                canonical ref the report was read at
-  read_at            ISO time (derived; not part of the finding keys)
-  subjects, files, claims, edges         the base counts
-  score              0–100, §3.3
-  findings[]         Finding, ordered §3.4
-  families[]         FamilyRow (name, pages, claims, share)   for the balance table
-
 Finding
-  key          stable id: "<lens>:<path or family>:<evidence hash>" — same evidence, same key
-  lens         one of the lens ids in §4
-  level        "principle" | "drift" | "shape"
-  actor        "steward" | "owner" | "mechanism"
-  paths[]      the subjects it is about (open-page paths; a volume is named by its page)
-  targets[]    the other paths involved (missing link targets, the twin page, …)
-  evidence[]   verbatim strings from the library only — a path, a title, a heading, a
-               date, an href, a source id — ≤ 5, each ≤ 200 chars; counts and shares are
-               fields of `impact`/`action` and are spoken there, never listed bare
-  impact       {key, fields, text: {en, zh}}   what it costs — the catalog key, its
-               fields, and the sentence rendered from the catalog in both packs
-  action       {key, fields, text: {en, zh}}   what to do, addressed to `actor`
-  weight       0–1, the share of the base it touches (for ordering)
-  decision     null in this version — reserved for the Steward's kept decline (§9)
+  key          "<id>:<path or scope>:<evidence hash>" — same evidence, same key
+  id           one of §3.1, or the legacy id of a tier-one fault
+  kind         "judgement" | "legacy"
+  paths[]      the pages it is about (open-page paths)
+  targets[]    other paths involved
+  evidence[]   verbatim strings from the library only (a path, a title, a heading, a
+               date, an href, a source id); counts live in the fields
+  impact       {key, fields, text: {en, zh}}
+  action       {key, fields, text: {en, zh}}   naming the repairing verb when there is one
 ```
 
-### 3.1 Levels
+```
+CheckReport
+  ref, read_at, subjects, files, claims, edges
+  findings[]   ordered: legacy first (a hook fault is unambiguous), then judgement;
+               within a kind by id, then path
+```
 
-- **shape** — a page is malformed in a way the write mechanism should have refused. The
-  actor is `mechanism`: the gate rule that now refuses it is named, and the existing
-  instance is listed for a repair. The Steward is not asked to judge it.
-- **drift** — a page falls short of what the contract expects of its family, in a way one
-  ordinary round can fix on that page. The actor is `steward`: the action is written to
-  the Steward, and reaches it in this version only through `pkc lens` (§5.2).
-- **principle** — the library's layout is wrong in a way no single page fixes: a subject
-  duplicated across paths, a family with no pages, a project no other page reaches, a
-  catch-all page. The actor is `owner`: the console shows it as a decision the Owner
-  owns; how it becomes a Steward task is part of §9.
+### 5.2 A lens reading
 
-### 3.2 Text through the catalog
+```
+LensReading
+  ref, read_at, previous_ref
+  subjects, files, claims, edges
+  dimensions[]
+    id            one of §4.2
+    band          the band id
+    statement     {key, fields, text: {en, zh}}
+    direction     {key, fields, text: {en, zh}}
+    metrics[]     {name, value, previous, delta}      previous/delta null without a previous
+    evidence[]    verbatim strings (the lead subject's path, an island's directory, …)
+```
 
-`impact` and `action` are prompt-catalog keys (`lens.<lens>.impact`, `lens.<lens>.action`)
-with named fields. The report carries each sentence already rendered, in English from the
-catalog and in Chinese from the language pack (`text.en`, `text.zh`), so the console shows
-the sentence for its locale and keeps no copy of it; `pkc lens` prints the active pack's.
-One catalog, one wording, every face — an application that rewords a key through the
-overlay seam changes what every reader sees.
+Text through the catalog: every sentence is a prompt-catalog key with named fields,
+rendered in both packs at the source, so the console keeps no copy and an application
+that rewords a key through the overlay seam changes what every reader sees.
 
-### 3.3 Score
+## 6. Faces, summarized
 
-One number the Owner can watch between snapshots, and nothing more: **the share of
-subjects that no open finding names**, as a whole number 0–100. A subject named by any
-finding — in `paths`, whichever the level — is not clean; a principle finding names every
-page it is about. It is not a grade and it is not a weighted sum: a weighted sum over a
-library with hundreds of findings sits at zero and moves for nothing, while "how much of
-the base has nothing to fix" moves by one page each time one page is fixed. The compare
-tab shows its delta with the finding counts that moved it.
+| face | tier | read / write |
+|---|---|---|
+| gate + tool face (`compile/`) | one | write-time refusal / normalization |
+| `pkc draft retitle`, `pkc draft reorder-chronology` | one | repair verbs |
+| `GET /review`, `pkc library review`, `#/review` | two | read |
+| `review` job, `pkc jobs enqueue review` | two | the Steward's own round |
+| `GET /lens`, `pkc lens`, `#/lens` | three | read |
 
-### 3.4 Order
+No component registration, no note in any compile task, no gate rule on a finding's
+account. `#/graph` redirects to `#/lens`; `#/graph/node/<id>` resolves to its document.
 
-Principle before drift before shape; within a level by `weight` descending; then by lens
-id; then by path. The console's headline — the three things to do first — takes the first
-finding of each of the three highest-ranked **lenses**, one per lens, so three islands
-never crowd out a duplicate subject and a malformed page.
+## 7. Measuring it
 
-## 4. The lenses (v1)
+The check and the lens over a fixed library are byte-stable for a fixed ref; the eval
+suite's group D (`navigability.reachability`) agrees with the walkability metrics by
+construction (shared parser, shared volume rule). Whether the review round improves what
+the check lists is measured as any quality claim is — the same library, a reading before
+and after the round — and is not asserted here.
 
-Every lens is mechanical and model-free. A predicate named here is the whole predicate.
+## 8. Next, not built here
 
-### 4.1 Navigability
-
-| id | level | predicate | evidence |
-|---|---|---|---|
-| `nav.dead_end` | drift | subject with out-degree 0 | — |
-| `nav.arrival_blind` | drift | subject with in-degree 0 | claims it holds |
-| `nav.dead_link` | shape | a link to a path no document has | the href |
-| `nav.hub_incomplete` | drift | a family hub (`overview.md`) that does not link to every page in its own subtree (features, decisions, evolution) | the missing targets |
-| `nav.chronology_unlinked` | drift | an `evolution.md` with ≥ 3 dated sections and no link to any feature or decision page of its project, when such pages exist | count of children |
-| `nav.decision_unlinked` | drift | a `decisions/*.md` page with no outbound link | — |
-| `nav.mention_unlinked` | drift | a page whose claim text names another live subject's exact title (≥ 4 chars, not its own) N ≥ 3 times and never links it | the title, N |
-| `nav.island` | principle | a project directory none of whose pages has an edge to or from any page outside the project | pages, claims |
-
-`nav.dead_end` and `nav.arrival_blind` are each **one finding for the whole library**
-(`paths` = every subject affected, evidence = the count and the share), not one per page:
-on their own they say nothing about which link is owed, so a row per page would be a
-number repeated a hundred times. The four contract-role lenses are the ones whose action
-names a page, and they are one finding per page.
-
-### 4.2 Identity
-
-| id | level | predicate | evidence |
-|---|---|---|---|
-| `id.title_duplicate` | principle | two live subjects with the same normalized title (`normalize_title`) | both paths |
-| `id.title_child_collision` | shape | a page whose title equals the title of a page in its own subtree (the evolution page that took a decision's name) | the child path |
-| `id.title_degenerate` | drift | a title that is empty, equals its family role word alone (`演进`, `Evolution`, `项目演进`, `Overview`…), or equals the project slug | the title |
-| `id.title_shared_with_hub` | drift | an `evolution.md` whose title equals its `overview.md` title | — |
-
-### 4.3 Form
-
-| id | level | predicate | evidence |
-|---|---|---|---|
-| `form.collapsed_body` | shape | a body line ≥ 1 000 chars, or a body containing the two characters `\n` more than twice with fewer real line breaks than escaped ones | line length, count |
-| `form.stray_heading` | shape | a `# ` line that is not the first non-empty body line | line number, the heading |
-| `form.unanchored_citation` | shape | a line carrying `[cite: …]` in the ledger with no anchor in its block | count |
-| `form.overview_restates` | drift | an overview block whose text equals, byte for byte after stripping citations and anchors, a ledger claim of the same page | the slot |
-| `form.legacy_sections` | drift | a page with an overview head that still carries `## definition|summary|introduction|connections` sections below it | the sections |
-| `form.definition_empty` | shape | a `definition` block with no prose (only references / anchors) | — |
-| `form.unordered_chronology` | drift | an `evolution.md` whose `## YYYY-MM-DD` sections are not in ascending order, or repeat a date | the first inversion, repeats |
-
-### 4.4 Concentration and balance
-
-| id | level | predicate | evidence |
-|---|---|---|---|
-| `conc.catch_all` | principle | a subject holding > 20 % of claims and > 3 × the even share, or the lead over 4 × the second (≥ 5 subjects) | share, ratio |
-| `bal.family_heavy` | principle | a family with claim share ÷ page share ≥ 2 and claim share > 20 % | shares |
-| `bal.family_empty` | principle | a declared family with no page | template |
-| `bal.session_shaped` | drift | a subject ≥ 60 % of whose claims each cite exactly one source and carry a date prefix (`YYYY-MM-DD，`) — the signature of session narration filed as knowledge | share |
-
-`bal.session_shaped` is the one heuristic lens; its evidence is counted, not judged, and
-its action is a question ("is this subject a project or a log of sessions using it?")
-rather than an instruction.
-
-### 4.5 Corroboration
-
-| id | level | predicate | evidence |
-|---|---|---|---|
-| `corr.single_source` | drift | a subject with ≥ 8 claims all citing one source id | the source id |
-
-## 5. The two faces
-
-### 5.1 The console
-
-`#/lens` replaces `#/graph` (which redirects; `#/graph/node/<id>` still resolves to its
-document). One view, two tabs:
-
-- **Reading** — the score, then **the three things to do first**: the top findings by
-  §3.4, each as a sentence, its impact, its action, and its actor; then every finding
-  grouped principle / drift / shape, with the pages (click into the document) and the
-  evidence.
-- **Compare** — two refs (HEAD, any commit, any frozen snapshot); the score delta, the base
-  counts delta, findings resolved / new / still open by key, and new edges each with the
-  sentence that made it. Same lens on both sides, same templates.
-
-The report comes from the service (`GET /v1/users/{uid}/lens?at=`); the console computes
-nothing of its own, so the number the Owner sees is the number a Steward running
-`pkc lens` sees. `lib/structureLens.ts` keeps only what the Library view's neighborhood
-card needs.
-
-### 5.2 `pkc lens`
-
-`pkc lens [--path <doc>] [--json] [--at <ref>]` renders the same report at the terminal —
-the score and counts, then the findings by level with their pages, evidence, impact and
-action; `--path` narrows to one page. It is a read face like `pkc outline`: nothing calls
-it for the Steward, nothing is refused because of it, and nothing it says enters a task.
-
-## 6. What the mechanism refuses from now on
-
-These land in the core gate and tool face, independent of whether the component is
-registered. Each has a `shape` lens that lists the instances a library already holds.
-
-- `heading_in_block` — `append_block`, `edit_claim`, `supersede_claim` and every overview
-  slot refuse text containing a line that starts with `# `; `create_document` accepts a
-  `# ` line only as the first non-empty line of the body.
-- `escaped_newlines` — a body or block whose text contains the two characters `\n` while
-  holding no real line break, or any single line ≥ 1 000 characters, is refused at the
-  tool face with a message naming the fault; it is not silently accepted as one block.
-- **Title is the leading heading only.** `derived_title` reads a `# ` line only when it is
-  the first non-empty line of the body; a heading anywhere else is text. A closed volume
-  has no title of its own on any read face: the glance, the outline, the dataset and the
-  lens label it `<owner title> · vol. NN`, from its owner. A page's `title:` is written
-  YAML-quoted when it contains a character YAML would misread.
-- `retitle(path, title)` — a new write verb that rewrites the leading `# ` line (inserting
-  one when the page has none), so a page that took the wrong name can be given the right
-  one without touching a claim; it passes the gate's shadowed-title checks like
-  `create_document`, and the gate refuses a title equal to a live sibling's. It is the
-  repair for the pages the `id.title_child_collision` and `form.stray_heading` lenses list.
-
-Existing closed volumes stay byte-identical: their stray headings are reported and their
-titles are read from their owner, which is all the repair they need.
-
-## 7. Faces
-
-- `GET /v1/users/{uid}/lens?at=<ref>` → `Report` (JSON, the shape in §3).
-- `pkc lens [--path <doc>] [--json] [--at <ref>]` — the report, or one page's findings.
-- The thresholds in §4 are constants of the lens module, named once, and the console does
-  not repeat them. No setting, no table, no component registration in this version.
-
-## 8. Measuring it
-
-Same discipline as every component: the report over a fixed library is byte-stable for a
-fixed ref; the eval suite's group D (`navigability.reachability`) and the lens agree on
-dead ends and arrival-blind pages by construction (they share the parser and the volume
-rule). Whether the notes change what the Steward writes is measured as any quality claim
-is — same harness, with and without the component — and is not asserted here.
-
-## 9. Next: reaching the Steward (not built here)
-
-The report is worth little if the same drift continues in the next round, and the
-framework's answer to "the model reliably does what is enforced and verified" is a
-forcing point, not a note. But a finding placed into a compile task is a change to what
-the Steward writes, and it has to be designed with the same care as a contract clause:
-which findings may enter a task at all, in what words, under what bound, and what the
-Steward's answer is recorded as. The shape under consideration, to be decided once the
-Owner has read this version's report against a real library:
-
-- the lens becomes an index component (`lens`), with `outline_tail` carrying at most one
-  bounded line for a page with an open drift finding;
-- a forcing point at the gate for pages the round wrote — satisfy the finding or decline
-  it with a reason — mirroring the people component's `alias_undecided`, with the decline
-  a **kept record** (`component_lens_decisions`), which is where the `decision` field
-  reserved in §3 is filled;
-- the principle findings as `evolve_evidence`, in the console's own wording;
-- a Hand-to-Steward act in the console that prefills, and never sends, a brief.
-
-None of this is in the current version; a Steward sees the report only by asking for it.
-
+- The review round on a schedule, or after N compiles, once its unattended behaviour has
+  been watched on a real library.
+- `type_structure` as `evolve_evidence`.
+- A contract seam for structural expectations (`hub:` on a path template), which turns
+  the hub-links-its-children check into a hook.
+- The people-name proxy of `type_structure` when the people component is not registered.

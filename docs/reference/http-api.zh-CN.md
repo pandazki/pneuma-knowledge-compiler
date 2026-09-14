@@ -360,18 +360,35 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 | POST | `/…/kb-snapshots` | 冻结整座文库 → **202**，后台复制；`{label}` 必填 |
 | DELETE | `/…/kb-snapshots/{id}` | 从各存储清除冻结副本；正本历史不动 |
 | GET | `/…/dataset` | 正本 + 审计装配成界面的多视图数据（`at`、`audit`） |
-| GET | `/…/lens` | 某个 ref 下整座文库的**结构透镜**（`at`）——基数、评分、发现 |
+| GET | `/…/review` | 某个 ref 下整座文库的**自查**（`at`）——Steward 可以动手处理的页级发现 |
+| GET | `/…/lens` | 某个 ref 下整座文库的**结构透镜**（`at`、`previous`）——六个维度及其变化 |
+| POST | `/…/jobs/review` | 排入一轮**自查轮**——把自查报告作为任务交给 Steward 自己的一轮 |
 
 `/dataset` 之所以存在，是因为文库/图谱视图合法地需要一个快照下的全部文档；正本适配器用一次 `git archive` 整树读出来供给它。
 
-`/lens` 读的是同一棵树，但读的是它的**形状**而不是内容：一份派生的、不经模型的报告——
-`{ref, read_at, subjects, files, claims, edges, score, findings[], families[]}`——每条发现都
-指明它关于哪些页面、证据是什么、代价是什么，以及一条带责任人（`owner` / `steward` /
-`mechanism`）的建议动作。`impact` 与 `action` 是提示词目录的 key 加字段，而不是成句的文本，
-所以控制台和 `pkc lens` 渲染的是同一份文案的同一个目录。它不写入任何东西，也不保存任何东西：
-同一个 `at` 返回同一份报告，比较标签页正是据此按发现 key 对比两个 ref。`at` 接受任意正本 ref
-（提交、标签、冻结快照）；不给则为 HEAD，此时报告自身的 `ref` 为空。设计权威：
-[结构透镜](../design/structure-lens.zh-CN.md)。
+`/review` 与 `/lens` 读的是同一棵树，但读的是它的**形状**而不是内容：两者都是派生的、不经模型
+的，都不写入也不保存任何东西，因此同一个 `at` 返回同一份内容。它们的区别在于一次形状审读可以
+关于什么，而这个区分是一条裁定而非排版：**一条发现归属于能看见它的最低层**。
+
+`/review` 是自查：`{ref, read_at, subjects, files, claims, edges, findings[]}`，每条发现带
+`id`、`kind`（`judgement`——写入时钩子无法判定的契约期待；`legacy`——钩子如今会拒绝的缺陷的
+历史实例）、它关于哪些页面、逐字证据、代价（`impact`）以及修复它的动词（`action`）。
+`impact` 与 `action` 是提示词目录的 key 加字段，在源头以两种语言包渲染，所以控制台和
+`pkc library review` 渲染的是同一份文案的同一个目录。同样的证据得到同样的 `key`，两个 ref 正是
+据此对比。
+
+`/lens` 是只有整体才显现的审读：`{ref, read_at, previous_ref, subjects, files, claims,
+edges, dimensions[]}`，六个维度（`walkability`、`shape`、`knowledge_vs_log`、`liveness`、
+`type_structure`、`demand_supply`），每个带 `band`、一句 `statement`、一句 `direction`、它的
+`metrics[]`（`{name, value, previous, delta}`）和 `evidence[]`。它不列页面；页面归 `/review`。
+`previous` 是用于比较变化的上一次审读——不给则为 `at` 之前的那个正本提交，写 `none` 表示不比较。
+
+`POST /jobs/review` 排入真正对自查**动手**的那一轮（正本车道，`review` 种类）：对整个文库开一份
+无来源的草稿，任务就是那份报告，修复走普通草稿动词、过普通闸门。返回 `{job_id, kind}`。这是
+Owner 的入口，也是唯一入口——本版本没有任何东西会自动调度它。
+
+两个读取接口的 `at` 都接受任意正本 ref（提交、标签、冻结快照）；不给则为 HEAD，此时返回体自身的
+`ref` 为空。设计权威：[结构透镜](../design/structure-lens.zh-CN.md)。
 
 ## Briefing
 

@@ -1,9 +1,9 @@
 """Edges and claims, counted the way the rest of the framework counts them.
 
 There is exactly one link grammar in this repository (`compile/links.py`) and exactly one
-claim count (`canonical_glance.claim_count`), and the lens uses both rather than restating
+claim count (`canonical_glance.claim_count`), and every tier uses both rather than restating
 either. That is not tidiness: the eval suite's reachability group and the lens are supposed
-to agree on dead ends by construction (docs/design/structure-lens.md §8), and two parsers
+to agree on dead ends by construction (docs/design/structure-lens.md §7), and two parsers
 of one grammar agree only by luck.
 
 What this module adds is the SUBJECT fold. A closed volume's links and claims belong to the
@@ -41,7 +41,7 @@ class Edge:
 def _link_regions(body: str) -> list[str]:
     """The text an edge may be written in: the overview region, and each anchored claim.
 
-    §2's rule, applied literally. A heading, an unanchored paragraph or a stray note is not
+    §4.1's rule, applied literally. A heading, an unanchored paragraph or a stray note is not
     a claim, so a link there is not knowledge pointing anywhere — it is text nobody cited.
     """
     ledger = strip_overview(body)

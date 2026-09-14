@@ -75,7 +75,7 @@ def derived_title(body: str) -> str:
     (`canonical_glance.document_title`), so the stored field and the derived display name
     agree by construction instead of by discipline.
 
-    LEADING, and only leading (docs/design/structure-lens.md §6). This used to read the first
+    LEADING, and only leading (docs/design/structure-lens.md §2). This used to read the first
     `# ` line anywhere in the body, which meant a heading typed in the middle of an append
     renamed the page — silently, in every outline, glance and retrieval card, with nothing in
     the diff saying a name had changed. A page is named by the heading at the top of it; a

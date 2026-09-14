@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 
@@ -67,6 +68,24 @@ def resolve_tenant(explicit: str | None = None) -> str:
 #: exactly when the Owner is setting the deployment up.
 NO_L2_GROUPS = frozenset({"profile", "lens"})
 
+#: The same rule for a command that is one SUBCOMMAND of a family whose other subcommands do
+#: reach L2: `(group, command)`. `pkc library review` computes the check over canonical and
+#: the contract's templates and nothing else, while `pkc library check` runs the gate's
+#: predicates, which a component may extend into the vector index.
+NO_L2_COMMANDS = frozenset({("library", "review")})
+
+
+def needs_semantic(args: argparse.Namespace) -> bool:
+    """Does THIS invocation need the L2 half of the deployment built for it?
+
+    Asked of the parsed command rather than of the group alone, because a family's
+    subcommands do not all read the same layers (`NO_L2_COMMANDS`).
+    """
+    group = getattr(args, "group", "")
+    if group in NO_L2_GROUPS:
+        return False
+    return (group, getattr(args, "command", "") or "") not in NO_L2_COMMANDS
+
 #: `pkc draft <name>` → the catalog key its description and `--help` come from.
 TOOL_HELP = {
     "list-documents": "compile.tool.list_documents",
@@ -78,6 +97,7 @@ TOOL_HELP = {
     "rewrite-overview": "compile.tool.rewrite_overview",
     "set-fields": "compile.tool.set_fields",
     "retitle": "compile.tool.retitle",
+    "reorder-chronology": "compile.tool.reorder_chronology",
     "search-knowledge": "compile.tool.search_knowledge",
     "search-source": "compile.tool.search_source",
     "finish": "compile.tool.finish_compile",
@@ -182,6 +202,12 @@ def build_parser(component_tools=()) -> argparse.ArgumentParser:
     p = sub.add_parser("retitle", help=_tool_help("retitle"))
     p.add_argument("path")
     p.add_argument("title")
+
+    # The mechanical repair verb for a chronology page written before the write-time rule
+    # existed (docs/design/structure-lens.md §2): only section ORDER moves — anchors and bytes
+    # are conserved — so it takes the page and nothing else.
+    p = sub.add_parser("reorder-chronology", help=_tool_help("reorder-chronology"))
+    p.add_argument("path")
 
     for name in ("search-knowledge", "search-source"):
         p = sub.add_parser(name, help=_tool_help(name))
@@ -321,8 +347,10 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
     # (docs/design/structure-lens.md §5.2).
     description = prompt("steward.cli.lens")
     p = _jsonable(top.add_parser("lens", help=description, description=description))
-    p.add_argument("--path", metavar="DOC", help=prompt("steward.cli.lens_path"))
     p.add_argument("--at", metavar="REF", help=prompt("steward.cli.lens_at"))
+    # No `--path`: the lens reads the library as a whole, and the page-level findings it used
+    # to carry are `pkc library review` (docs/design/structure-lens.md §1, the tier ruling).
+    p.add_argument("--previous", metavar="REF", help=prompt("steward.cli.lens_previous"))
 
     canonical = top.add_parser("canonical", help=prompt("steward.cli.canonical"))
     csub = canonical.add_subparsers(dest="command", required=True)
@@ -406,6 +434,12 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
                    help=prompt("steward.cli.jobs_requeue_dry_run"))
     r.add_argument("--job", dest="jobs", action="append", default=None, metavar="JOB_ID",
                    help=prompt("steward.cli.jobs_requeue_job"))
+    # The other write under `jobs`, and the only door the review round has: the Owner asks
+    # for one, nothing else in this version does (docs/design/structure-lens.md §3.2).
+    e = jsub.add_parser("enqueue", help=prompt("steward.cli.jobs_enqueue"))
+    e.add_argument("kind", choices=("review",), help=prompt("steward.cli.jobs_enqueue_kind"))
+    e.add_argument("--json", dest="as_json", action="store_true",
+                   default=argparse.SUPPRESS, help=prompt("steward.read.json_paging"))
     # `SUPPRESS` rather than `False`: `--json` already exists on the parent, and a
     # subparser default would silently un-set it for anyone who typed it before the verb.
     r.add_argument("--json", dest="as_json", action="store_true",
@@ -463,6 +497,13 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
             help=prompt("steward.cli.library_check"),
         )
     )
+    # The CHECK (docs/design/structure-lens.md §3.3): the contract's expectations no write-time
+    # hook can decide, plus the legacy instances of the faults a hook now refuses. A reading,
+    # like `check` beside it — `pkc jobs enqueue review` is what asks a round to act on it.
+    description = prompt("steward.cli.library_review")
+    p = _jsonable(lsub.add_parser("review", help=description, description=description))
+    p.add_argument("--path", metavar="DOC", help=prompt("steward.cli.review_path"))
+    p.add_argument("--at", metavar="REF", help=prompt("steward.cli.review_at"))
 
 
 def _add_write_commands(top) -> None:  # noqa: ANN001
@@ -697,6 +738,8 @@ def _tool_call(args: argparse.Namespace, component_tools=()) -> tuple[str, dict]
         }
     if command == "retitle":
         return "retitle", {"path": args.path, "title": args.title}
+    if command == "reorder-chronology":
+        return "reorder_chronology", {"path": args.path}
     if command in ("search-knowledge", "search-source"):
         return command.replace("-", "_"), {"query": args.query}
     for tool in component_tools:
@@ -821,6 +864,16 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
             values["file"] = args.file or "-"
         return await evolve_cmd.run_command(rt, verb, **values)
 
+    if group == "jobs" and command == "enqueue":
+        from ..review_service import enqueue_review
+
+        job_id = await enqueue_review(ctx, user)
+        if as_json:
+            print(json.dumps({"job_id": job_id, "kind": args.kind}), file=out)
+        else:
+            print(f"queued {args.kind} job {job_id}", file=out)
+        return draft_cmd.EXIT_OK
+
     if group == "jobs" and command == "requeue":
         from . import jobs as jobs_cmd
 
@@ -856,7 +909,9 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
         if group == "lens":
             from . import lens as lens_cmd
 
-            return await lens_cmd.cmd_lens(rt, path=args.path or "", at=args.at or "")
+            return await lens_cmd.cmd_lens(
+                rt, at=args.at or "", previous=getattr(args, "previous", None),
+            )
         if group == "canonical":
             if command == "ls":
                 return await read_cmd.cmd_canonical_ls(
@@ -928,6 +983,18 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
         )
 
     if group == "library":
+        if command == "review":
+            from . import lens as lens_cmd
+
+            rt = read_cmd.ReadRuntime(
+                user_id=user, ctx=ctx, as_json=as_json, out=out, err=err,
+                page=getattr(args, "page", 1),
+                page_chars=getattr(args, "page_chars", read_cmd.PAGE_CHARS),
+                all_pages=bool(getattr(args, "all_pages", False)),
+            )
+            return await lens_cmd.cmd_library_review(
+                rt, path=args.path or "", at=args.at or ""
+            )
         return await check_cmd.cmd_library_check(
             ctx, user, as_json=as_json, out=out, err=err
         )
@@ -1163,7 +1230,7 @@ async def _run(args: argparse.Namespace, component_tools, parser_for) -> int:
         settings,
         probe_agent=False,
         probe_embedding=False,
-        semantic=args.group not in NO_L2_GROUPS,
+        semantic=needs_semantic(args),
         application_name=f"pkc-cli:{args.group}",
     )
     try:

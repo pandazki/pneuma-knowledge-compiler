@@ -563,19 +563,41 @@ job is waiting for the Steward.
 | POST | `/…/kb-snapshots` | freeze the whole library → **202**, copies in background; `{label}` required |
 | DELETE | `/…/kb-snapshots/{id}` | remove the frozen copy from all stores; canonical history untouched |
 | GET | `/…/dataset` | canonical + audit assembled for the UI's views (`at`, `audit`) |
-| GET | `/…/lens` | the **structure lens** over the library at one ref (`at`) — counts, score, findings |
+| GET | `/…/review` | the **check** over the library at one ref (`at`) — the page-level findings a Steward can act on |
+| GET | `/…/lens` | the **structure lens** over the library at one ref (`at`, `previous`) — six dimensions and their movement |
+| POST | `/…/jobs/review` | queue one **review round** — the check's report, handed to the Steward as its own round |
 
 `/dataset` exists because the Library/Graph views legitimately need every document of one snapshot; the canonical adapter serves that with a single `git archive` read of the whole tree.
 
-`/lens` is the same tree read for its SHAPE instead of its contents: a derived, model-free
-report — `{ref, read_at, subjects, files, claims, edges, score, findings[], families[]}` —
-where each finding names the pages it is about, the evidence for it, what it costs and one
-recommended action with an actor (`owner` / `steward` / `mechanism`). `impact` and `action`
-are prompt-catalog keys with their fields, not sentences, so the console and `pkc lens`
-render one text through one catalog. It writes nothing and keeps nothing: the same `at`
-returns the same report, which is what lets the compare tab diff two refs by finding key.
-`at` accepts any canonical ref (a commit, a tag, a frozen snapshot); omitted means HEAD, and
-the report's own `ref` is then empty. Design authority: [structure lens](../design/structure-lens.md).
+`/review` and `/lens` read the same tree for its SHAPE instead of its contents — both
+derived, both model-free, both writing and keeping nothing, so the same `at` returns the same
+body. They differ in what a reading of that shape can be ABOUT, and the split is a ruling
+rather than a layout: a finding belongs to the lowest tier that can see it.
+
+`/review` is the check: `{ref, read_at, subjects, files, claims, edges, findings[]}`, where
+each finding carries its `id`, its `kind` (`judgement` — the contract's expectation no
+write-time hook can decide; `legacy` — an instance of a fault a hook now refuses), the pages
+it is about, its verbatim evidence, what it costs (`impact`) and the verb that repairs it
+(`action`). `impact` and `action` are prompt-catalog keys with their fields, rendered in both
+packs at the source, so the console and `pkc library review` render one text through one
+catalog. `key` is stable for the same evidence, which is what lets two refs be diffed by it.
+
+`/lens` is the reading only the whole library shows: `{ref, read_at, previous_ref, subjects,
+files, claims, edges, dimensions[]}` over six dimensions (`walkability`, `shape`,
+`knowledge_vs_log`, `liveness`, `type_structure`, `demand_supply`), each with its `band`, a
+`statement`, a `direction`, its `metrics[]` (`{name, value, previous, delta}`) and its
+`evidence[]`. It lists no pages: those are `/review`. `previous` is the reading the movement
+is measured against — omitted means the canonical commit before `at`, `none` asks for no
+movement at all.
+
+`POST /jobs/review` queues the round that ACTS on the check (canonical lane, `review` kind):
+a draft over the whole library with no source, whose task is that report and whose repairs go
+through the ordinary draft verbs under the ordinary gate. `{job_id, kind}`. The Owner's door
+and the only one — nothing in this version schedules it.
+
+Both reads accept any canonical ref for `at` (a commit, a tag, a frozen snapshot); omitted
+means HEAD, and the body's own `ref` is then empty. Design authority:
+[structure lens](../design/structure-lens.md).
 
 ## Briefings
 

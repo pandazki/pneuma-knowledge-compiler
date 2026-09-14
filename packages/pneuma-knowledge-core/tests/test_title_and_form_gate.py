@@ -324,3 +324,321 @@ def test_retitle_is_in_the_compile_tool_face_with_a_typed_argument_schema():
     assert "Atlas of currents" in tools["retitle"].func(
         path="memory/topics/atlas.md", title="Atlas of currents"
     )
+
+
+# ─────────────────────────────── a name that says where the page sits, not what it is
+
+#: A contract that declares the family roles, so the gate can read them (shape/families.py).
+PROJECT_TEMPLATES = [
+    "projects/{slug}/overview.md",
+    "projects/{slug}/evolution.md",
+    "projects/{slug}/features/{slug}.md",
+    "memory/topics/{slug}.md",
+]
+
+
+def project_draft(*docs: CanonicalDocument) -> PatchDraft:
+    return PatchDraft.from_canonical(list(docs), PROJECT_TEMPLATES)
+
+
+def a_project(hub_title="Aurora", chronology_title="Aurora timeline"):
+    return (
+        canonical(
+            "projects/aurora/overview.md",
+            f"# {hub_title}\n\n## What\n\nIt exists. [cite: s01 ¶0-1] <!-- c:a1111111 -->",
+            title=hub_title,
+        ),
+        canonical(
+            "projects/aurora/evolution.md",
+            f"# {chronology_title}\n\n## 2026-01-04\n\nIt began. <!-- c:a2222222 -->",
+            title=chronology_title,
+        ),
+    )
+
+
+def test_the_gate_refuses_a_title_that_names_the_family_role_instead_of_the_subject():
+    from pneuma_knowledge_core.compile.gate import check_title_degenerate
+
+    hub, chronology = a_project()
+    draft = project_draft(hub, chronology)
+    assert (
+        check_title_degenerate(
+            draft.documents(), draft.base_documents(), path_templates=PROJECT_TEMPLATES
+        )
+        == []
+    )
+    draft.retitle("projects/aurora/evolution.md", "Evolution")
+    violations = check_title_degenerate(
+        draft.documents(), draft.base_documents(), path_templates=PROJECT_TEMPLATES
+    )
+    assert [v.kind for v in violations] == ["title_degenerate"]
+    assert "Evolution" in violations[0].detail and "retitle" in violations[0].detail
+
+
+def test_the_gate_refuses_the_project_slug_on_a_page_that_is_not_the_hub():
+    from pneuma_knowledge_core.compile.gate import check_title_degenerate
+
+    hub, chronology = a_project()
+    draft = project_draft(hub, chronology)
+    draft.retitle("projects/aurora/evolution.md", "aurora")
+    assert [
+        v.kind
+        for v in check_title_degenerate(
+            draft.documents(), draft.base_documents(), path_templates=PROJECT_TEMPLATES
+        )
+    ] == ["title_degenerate"]
+    # …and the hub itself IS the project, so carrying that name there is right.
+    draft.retitle("projects/aurora/overview.md", "Aurora")
+    assert not [
+        v
+        for v in check_title_degenerate(
+            draft.documents(), draft.base_documents(), path_templates=PROJECT_TEMPLATES
+        )
+        if v.path == "projects/aurora/overview.md"
+    ]
+
+
+def test_a_page_with_no_heading_at_all_is_not_refused_by_the_gate():
+    """The check lists untitled pages (`id.title_degenerate`) and `retitle` repairs them.
+    Refusing them here would abort every round whose model opens a body on a `## ` section,
+    which is how pages have been created for as long as the tool face has existed."""
+    from pneuma_knowledge_core.compile.gate import check_title_degenerate
+
+    draft = project_draft()
+    draft.create_document(
+        "memory/topics/rift.md",
+        {"type": "topic", "slug": "rift"},
+        "## Facts\n\nIt exists. [cite: s01 ¶0-1]",
+    )
+    assert (
+        check_title_degenerate(
+            draft.documents(), draft.base_documents(), path_templates=PROJECT_TEMPLATES
+        )
+        == []
+    )
+
+
+def test_the_gate_refuses_a_chronology_wearing_its_hubs_name():
+    from pneuma_knowledge_core.compile.gate import check_title_shared_with_hub
+
+    hub, chronology = a_project()
+    draft = project_draft(hub, chronology)
+    assert (
+        check_title_shared_with_hub(
+            draft.documents(), draft.base_documents(), path_templates=PROJECT_TEMPLATES
+        )
+        == []
+    )
+    draft.retitle("projects/aurora/evolution.md", "Aurora")
+    violations = check_title_shared_with_hub(
+        draft.documents(), draft.base_documents(), path_templates=PROJECT_TEMPLATES
+    )
+    assert [v.kind for v in violations] == ["title_shared_with_hub"]
+    assert violations[0].path == "projects/aurora/evolution.md"
+    assert "projects/aurora/overview.md" in violations[0].detail
+
+
+# ──────────────────────────────────────────── the overview head against its own ledger
+
+
+def _page_with_overview(definition: str, claim_text: str) -> CanonicalDocument:
+    return canonical(
+        "memory/topics/atlas.md",
+        "# Atlas\n\n"
+        "<!-- overview -->\n\n"
+        "<!-- overview:definition -->\n### Definition\n\n"
+        f"{definition} <!-- c:a9999999 -->\n\n"
+        "<!-- /overview -->\n\n"
+        f"## Facts\n\n{claim_text} [cite: s01 ¶0-1] <!-- c:a1111111 -->",
+        title="Atlas",
+    )
+
+
+def test_the_gate_refuses_an_overview_block_that_repeats_a_ledger_claim():
+    from pneuma_knowledge_core.compile.gate import check_overview_restates
+
+    page = _page_with_overview("A chart of the currents.", "A chart of the currents.")
+    draft = draft_with(page)
+    # Untouched, the page is nobody's to repair this round.
+    assert check_overview_restates(draft.documents(), draft.base_bodies()) == []
+    doc = draft.read("memory/topics/atlas.md")
+    doc.body += "\n\nAnd of the winds. [cite: s01 ¶1-2] <!-- c:a3333333 -->"
+    violations = check_overview_restates(draft.documents(), draft.base_bodies())
+    assert [v.kind for v in violations] == ["overview_restates"]
+    assert "definition" in violations[0].detail
+
+
+def test_an_overview_block_that_reads_the_ledger_rather_than_repeating_it_passes():
+    from pneuma_knowledge_core.compile.gate import check_overview_restates
+
+    page = _page_with_overview(
+        "What the currents do to a harbour. c:a1111111", "A chart of the currents."
+    )
+    draft = draft_with(page)
+    draft.read("memory/topics/atlas.md").body += "\n\nMore. [cite: s01 ¶1-2] <!-- c:a3333333 -->"
+    assert check_overview_restates(draft.documents(), draft.base_bodies()) == []
+
+
+def test_the_gate_refuses_a_definition_made_of_references_alone():
+    from pneuma_knowledge_core.compile.gate import check_definition_empty
+
+    page = _page_with_overview("c:a1111111", "A chart of the currents.")
+    draft = draft_with(page)
+    assert check_definition_empty(draft.documents(), draft.base_bodies()) == []
+    draft.read("memory/topics/atlas.md").body += "\n\nMore. [cite: s01 ¶1-2] <!-- c:a3333333 -->"
+    violations = check_definition_empty(draft.documents(), draft.base_bodies())
+    assert [v.kind for v in violations] == ["definition_empty"]
+
+
+def test_the_four_new_kinds_are_in_the_enumerable_violation_catalog():
+    kinds = {kind for kind, _ in VIOLATION_KINDS}
+    assert {
+        "title_degenerate",
+        "title_shared_with_hub",
+        "overview_restates",
+        "definition_empty",
+    } <= kinds
+    catalog = dict(violation_catalog())
+    for kind in (
+        "title_degenerate",
+        "title_shared_with_hub",
+        "overview_restates",
+        "definition_empty",
+    ):
+        assert catalog[kind] and all(text.strip() for text in catalog[kind])
+
+
+# ─────────────────────────────────────────────────── a chronology keeps its own order
+
+
+def a_chronology(*dates: str) -> CanonicalDocument:
+    sections = "\n\n".join(
+        f"## {date}\n\nSomething happened. [cite: s01 ¶0-1] <!-- c:a{index}111111 -->"
+        for index, date in enumerate(dates, start=1)
+    )
+    return canonical(
+        "projects/aurora/evolution.md",
+        f"# Aurora timeline\n\n{sections}",
+        title="Aurora timeline",
+    )
+
+
+def test_an_append_under_a_date_the_page_already_has_joins_that_section():
+    draft = project_draft(a_chronology("2026-01-04", "2026-03-04"))
+    doc = draft.append_block(
+        "projects/aurora/evolution.md", "2026-01-04", "And then this. [cite: s01 ¶2-3]"
+    )
+    lines = [line for line in doc.body.split("\n") if line.startswith("## ")]
+    assert lines == ["## 2026-01-04", "## 2026-03-04"]  # no second section of that date
+    first, second = doc.body.index("And then this."), doc.body.index("## 2026-03-04")
+    assert first < second
+
+
+def test_an_append_of_an_older_date_opens_its_section_before_the_newer_one():
+    draft = project_draft(a_chronology("2026-01-04", "2026-03-04"))
+    doc = draft.append_block(
+        "projects/aurora/evolution.md", "2026-02-04", "The middle. [cite: s01 ¶2-3]"
+    )
+    assert [line for line in doc.body.split("\n") if line.startswith("## ")] == [
+        "## 2026-01-04",
+        "## 2026-02-04",
+        "## 2026-03-04",
+    ]
+    doc = draft.append_block(
+        "projects/aurora/evolution.md", "2025-12-01", "Before all of it. [cite: s01 ¶3-4]"
+    )
+    assert [line for line in doc.body.split("\n") if line.startswith("## ")] == [
+        "## 2025-12-01",
+        "## 2026-01-04",
+        "## 2026-02-04",
+        "## 2026-03-04",
+    ]
+    # The anchors that stood are untouched: placement moves nothing that was written.
+    assert "c:a1111111" in doc.body and "c:a2111111" in doc.body
+
+
+def test_a_newer_date_still_lands_at_the_end_and_other_pages_are_unchanged():
+    draft = project_draft(
+        a_chronology("2026-01-04", "2026-03-04"),
+        canonical(
+            "memory/topics/atlas.md",
+            "# Atlas\n\n## Facts\n\nIt exists. [cite: s01 ¶0-1] <!-- c:a7777777 -->",
+            title="Atlas",
+        ),
+    )
+    doc = draft.append_block(
+        "projects/aurora/evolution.md", "2026-05-04", "Later. [cite: s01 ¶2-3]"
+    )
+    assert doc.body.rstrip().split("\n## ")[-1].startswith("2026-05-04")
+    # A page that is not a chronology keeps the ordinary end-of-section append, and a
+    # heading that is not a date is an ordinary section wherever it sits.
+    other = draft.append_block(
+        "memory/topics/atlas.md", "2026-01-01", "A dated note. [cite: s01 ¶1-2]"
+    )
+    assert other.body.index("## Facts") < other.body.index("## 2026-01-01")
+
+
+def test_reorder_chronology_puts_the_sections_in_order_and_conserves_every_line():
+    draft = project_draft(a_chronology("2026-03-04", "2026-01-04", "2026-02-04"))
+    before = draft.read("projects/aurora/evolution.md").body
+    doc = draft.reorder_chronology("projects/aurora/evolution.md")
+    assert [line for line in doc.body.split("\n") if line.startswith("## ")] == [
+        "## 2026-01-04",
+        "## 2026-02-04",
+        "## 2026-03-04",
+    ]
+    # A permutation of whole sections: the same lines, and every anchor still on its claim.
+    assert sorted(before.split("\n")) == sorted(doc.body.split("\n"))
+    assert doc.body.split("\n")[0] == "# Aurora timeline"
+    for anchor in ("c:a1111111", "c:a2111111", "c:a3111111"):
+        assert anchor in doc.body
+
+
+def test_reorder_chronology_is_idempotent_and_refuses_a_page_with_nothing_to_order():
+    draft = project_draft(a_chronology("2026-01-04", "2026-02-04"))
+    once = draft.reorder_chronology("projects/aurora/evolution.md").body
+    twice = draft.reorder_chronology("projects/aurora/evolution.md").body
+    assert once == twice
+    flat = project_draft(
+        canonical(
+            "memory/topics/atlas.md",
+            "# Atlas\n\n## Facts\n\nIt exists. [cite: s01 ¶0-1] <!-- c:a1111111 -->",
+            title="Atlas",
+        )
+    )
+    with pytest.raises(AnchorToolError) as excinfo:
+        flat.reorder_chronology("memory/topics/atlas.md")
+    assert "memory/topics/atlas.md" in str(excinfo.value)
+
+
+def test_reorder_chronology_refuses_a_closed_volume_an_archived_page_and_a_record():
+    volume = canonical(
+        "projects/aurora/evolution/a02.md",
+        "## 2026-01-04\n\nOld. <!-- c:a2222222 -->\n\n## 2025-01-04\n\nOlder. <!-- c:a3333333 -->",
+        archived_from="projects/aurora/evolution.md",
+    )
+    archived = canonical(
+        "archive/projects/aurora/evolution.md",
+        "# Old\n\n## 2026-01-04\n\nx <!-- c:a4444444 -->\n\n## 2025-01-04\n\ny <!-- c:a5555555 -->",
+    )
+    record = canonical(
+        "memory/topics/gone.md",
+        "# Gone\n\n## 2026-01-04\n\nx <!-- c:a6666666 -->\n\n## 2025-01-04\n\ny <!-- c:a7777777 -->",
+        type="archived",
+        archive_of="archive/memory/topics/gone.md",
+    )
+    draft = project_draft(a_chronology("2026-01-04", "2026-02-04"), volume, archived, record)
+    for path in (volume.path, archived.path, record.path):
+        with pytest.raises(AnchorToolError):
+            draft.reorder_chronology(path)
+
+
+def test_reorder_chronology_is_in_the_compile_tool_face_with_a_typed_argument_schema():
+    from pneuma_knowledge_core.compile.runner import build_compile_tool_face
+
+    draft = project_draft(a_chronology("2026-03-04", "2026-01-04"))
+    tools = {tool.name: tool for tool in build_compile_tool_face(draft)}
+    assert "reorder_chronology" in tools
+    assert set(tools["reorder_chronology"].args_schema.model_fields) == {"path"}
+    answer = tools["reorder_chronology"].func(path="projects/aurora/evolution.md")
+    assert "2026-01-04" in answer and "2026-03-04" in answer

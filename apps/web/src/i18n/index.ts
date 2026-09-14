@@ -29,6 +29,7 @@ import { overview } from "./overview";
 import { process } from "./process";
 import { profile } from "./profile";
 import { recall } from "./recall";
+import { review } from "./review";
 import { service } from "./service";
 import { sources } from "./sources";
 import { steward } from "./steward";
@@ -52,6 +53,7 @@ export const BUNDLES = [
   ingest,
   process,
   recall,
+  review,
   ask,
   liveContext,
   steward,
@@ -79,6 +81,7 @@ export const MESSAGES = {
     ...ingest.zh,
     ...process.zh,
     ...recall.zh,
+    ...review.zh,
     ...ask.zh,
     ...liveContext.zh,
     ...steward.zh,
@@ -104,6 +107,7 @@ export const MESSAGES = {
     ...ingest.en,
     ...process.en,
     ...recall.en,
+    ...review.en,
     ...ask.en,
     ...liveContext.en,
     ...steward.en,

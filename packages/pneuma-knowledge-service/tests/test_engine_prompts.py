@@ -190,10 +190,13 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     # from these clauses and installed in the project, so a family and never an assembly.
     # +1: the reading reference's library design, primitives and contract-derived families.
     # +1: outline and glance help, shared by the CLI and its generated reference.
-    # +1: the structure lens's findings — what each lens id costs and what to do about it.
-    # A family and never an assembly: the sentences are rendered one at a time, by the
-    # console and by `pkc lens`, and no model is ever shown them.
-    assert len(fragments) == 37
+    # +2: the library's shape, in two families because the design splits it in two — the
+    # CHECK's findings (what each id costs and the verb that repairs it) and the LENS's
+    # dimensions (each band's statement and direction). Families and never assemblies: the
+    # sentences are rendered one at a time, by the console and by `pkc library review` /
+    # `pkc lens`, and the only model ever shown any of them is the review round, which reads
+    # the check's report as its task.
+    assert len(fragments) == 38
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(
