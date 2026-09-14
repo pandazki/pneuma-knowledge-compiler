@@ -52,10 +52,21 @@ async def open_round(
     A resumed round re-renders nothing: the task is a reading of the library, and the round is
     editing that library, so a re-read half-way through would hand the Steward a report about
     the repairs it has already made. The surfaces are kept on the session, exactly as the
-    evolve round keeps its own.
+    evolve round keeps its own. Resuming is the ORDINARY case for this door: the worker opens
+    the round and a Steward — or an Owner at the terminal — comes to it afterwards through
+    `pkc draft open <job>`, which routes here (`cli/draft.py:opener_for`).
     """
     existing = await rt.drafts.get(rt.user_id, job_id)
     if existing is not None:
+        # A round a DEAD launch left is continued rather than refused, exactly as a compile
+        # round is: the worker's harness may have died holding this draft, and the Owner
+        # typing `pkc draft open <job>` is then the only thing that will ever finish it.
+        previous = await shared._orphaned_by(rt, job_id, existing)
+        if previous:
+            code = await shared._adopt(rt, job_id, existing, previous, claim=claim)
+            if code != shared.EXIT_OK:
+                return code, "", ""
+            existing = await rt.drafts.get(rt.user_id, job_id) or existing
         await shared.require_owner(rt, job_id)
         if existing.get("kind", "compile") != REVIEW_JOB_KIND:
             print("this job has a different kind of draft", file=rt.err)

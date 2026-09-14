@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import httpx
@@ -39,6 +40,7 @@ from pneuma_knowledge_service.review_service import (
     render_check_task,
 )
 from pneuma_knowledge_service.settings import Settings
+from pneuma_knowledge_core.compile.patch import PatchDraft
 from pneuma_knowledge_core.compile.session import DraftSession
 from pneuma_knowledge_core.domain.canonical import CanonicalDocument
 from pneuma_knowledge_core.domain.ids import DocumentId
@@ -417,6 +419,10 @@ async def test_under_a_model_executor_the_review_round_is_skipped_and_says_so(mo
 #: against it and names `retitle` as the repair, so one round can actually close it.
 UNNAMED = "memory/people/legacy.md"
 
+#: A page whose dated sections arrive newest-first — what `reorder-chronology` repairs. Kept
+#: out of `_legacy_base` so the other rounds keep their one-finding library.
+UNORDERED = "memory/topics/alpha.md"
+
 
 def _legacy_base():
     return [
@@ -427,6 +433,19 @@ def _legacy_base():
             body="## 旧页\n\n- 旧的一条。[cite: src-old ¶0] <!-- c:bb22 -->",
         )
     ]
+
+
+def _unordered_doc():
+    return CanonicalDocument(
+        doc_id=DocumentId("alphaev1"),
+        path=UNORDERED,
+        frontmatter={"doc_id": "alphaev1", "type": "topic", "slug": "alpha"},
+        body=(
+            "# Alpha 的演进\n\n"
+            "## 2026-03-01\n\n- 三月的一条。[cite: src-old ¶1] <!-- c:cc33 -->\n\n"
+            "## 2026-01-01\n\n- 一月的一条。[cite: src-old ¶2] <!-- c:dd44 -->"
+        ),
+    )
 
 
 async def review_runtime(base=None):
@@ -744,6 +763,126 @@ async def test_a_review_draft_reopens_as_a_review_draft_and_not_as_a_compile_one
     assert await draft_cmd.draft_kind(rt, job_id) == REVIEW_JOB_KIND
     # And the shared verbs accept it, which is the thing the kind is read for.
     assert await draft_cmd.cmd_status(rt) == draft_cmd.EXIT_OK, rt.err.getvalue()
+
+
+# ───────────────────────────────── the door: `pkc draft` works the round the worker opened
+
+
+def as_pkc_draft(rt):
+    """The SAME stores under the runtime `pkc draft` builds for itself.
+
+    Its kind is `compile`, because `cli/runtime.build_runtime` defaults to that and the
+    Owner's terminal never says otherwise — which is the whole point. Every guard in
+    `cli/draft.py` used to compare that kind against the SESSION's, so a review round the
+    worker had opened refused every verb the Steward typed at it, with a sentence naming the
+    door it was already standing in.
+    """
+    return replace(rt, kind="compile", out=io.StringIO(), err=io.StringIO())
+
+
+async def opened_review_round(base=None):
+    """A review draft open on the library, and the `pkc draft` runtime a Steward types at."""
+    rt, jobs, drafts, store, job_id = await review_runtime(base)
+    code, _system, task = await review_cli.open_round(rt, job_id)
+    assert code == draft_cmd.EXIT_OK, rt.err.getvalue()
+    return as_pkc_draft(rt), jobs, drafts, store, job_id, task
+
+
+@pytest.mark.parametrize(
+    "verb,args",
+    [
+        ("list_documents", {}),
+        ("read_document", {"path": UNNAMED}),
+        ("retitle", {"path": UNNAMED, "title": "旧页"}),
+        ("reorder_chronology", {"path": UNORDERED}),
+    ],
+)
+async def test_every_pkc_draft_verb_works_the_open_review_round(verb, args):
+    """The defect, one verb at a time. Not one of these may answer "use `pkc draft`" to a
+    session that IS typing `pkc draft`."""
+    rt, _jobs, _drafts, _store, _job_id, _task = await opened_review_round(
+        _legacy_base() + [_unordered_doc()]
+    )
+    code = await draft_cmd.run_tool(rt, verb, args)
+    assert code == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert "use `pkc draft`" not in rt.err.getvalue()
+
+
+async def test_pkc_draft_status_reads_the_open_review_round():
+    rt, _jobs, _drafts, _store, _job_id, _task = await opened_review_round()
+    assert await draft_cmd.cmd_status(rt) == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert "budget:" in rt.out.getvalue()  # the round, not a refusal to look at it
+    assert not rt.err.getvalue()
+
+
+async def test_pkc_draft_finish_takes_the_REVIEW_rule_not_the_runtime_kind():
+    """The kind that governs after `_load` is the SESSION's. A review round that repaired
+    nothing and said nothing owes an account — and it owes it just as much when the process
+    finishing it calls itself a compile runtime."""
+    rt, _jobs, _drafts, store, _job_id, _task = await opened_review_round()
+
+    assert await draft_cmd.cmd_finish(rt) == draft_cmd.EXIT_GATE
+    assert draft_cmd.REVIEW_OWED_LINE in rt.err.getvalue()
+    assert not store.commits
+
+    rt.err.truncate(0), rt.err.seek(0)
+    assert await draft_cmd.cmd_finish(rt, brief="左着没修：需要 Owner 判断。") == draft_cmd.EXIT_OK, (
+        rt.err.getvalue()
+    )
+
+
+async def test_pkc_draft_finish_commits_the_repair_the_review_round_made():
+    rt, jobs, _drafts, store, job_id, _task = await opened_review_round()
+    assert await draft_cmd.run_tool(
+        rt, "retitle", {"path": UNNAMED, "title": "旧页"}
+    ) == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert await draft_cmd.cmd_finish(rt) == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert len(store.commits) == 1 and "# 旧页" in store.commits[-1][UNNAMED]
+
+
+async def test_pkc_draft_open_resumes_the_round_the_worker_opened():
+    """`pkc draft open <review-job>` routes to the review door and RESUMES — the worker
+    already opened this draft, so the Owner coming to it must meet the round, not a refusal
+    and not a second one."""
+    rt, _jobs, drafts, _store, job_id = (await review_runtime())[:5]
+    worker = rt
+    code, _system, first = await review_cli.open_round(worker, job_id)
+    assert code == draft_cmd.EXIT_OK
+
+    typed = as_pkc_draft(rt)
+    assert await draft_cmd.cmd_open(typed, job_id) == draft_cmd.EXIT_OK, typed.err.getvalue()
+    assert "different kind of draft" not in typed.err.getvalue()
+    assert first in typed.out.getvalue(), "the resumed round shows the round it resumed"
+    assert len(await drafts.list_open(DRAFT_USER)) == 1
+
+
+async def test_a_draft_of_another_door_is_still_refused_and_names_that_door():
+    """The rule loosened to the door, not to nothing: an evolve draft still belongs to
+    `pkc evolve draft`, and the sentence names a door that exists and is not this one."""
+    rt, jobs, _drafts, _store, job_id = await review_runtime()
+    assert await jobs.claim(DRAFT_USER, job_id, claimed_by=rt.draft_executor) is not None
+    evolving = replace(rt, kind="evolve")
+    await draft_cmd._store(
+        evolving,
+        PatchDraft.from_canonical([], []),
+        DraftSession(
+            user_id=str(DRAFT_USER), job_id=job_id, kind="evolve",
+            **draft_cmd.ownership_fields(evolving),
+        ),
+    )
+    typed = as_pkc_draft(rt)
+    assert await draft_cmd.cmd_status(typed) == draft_cmd.EXIT_NOTHING, typed.err.getvalue()
+    assert "the open draft is evolve; use `pkc evolve draft`." in typed.err.getvalue()
+
+
+def test_the_door_and_not_the_kind_is_what_the_guards_compare():
+    """Structural, because the defect was one comparison repeated in five places: no guard in
+    `cli/draft.py` may compare a session's kind to the runtime's for equality again."""
+    import inspect
+
+    body = inspect.getsource(draft_cmd)
+    for spelling in ("session.kind != rt.kind", "kind != rt.kind"):
+        assert spelling not in body, spelling
 
 
 def test_the_round_reads_only_fields_the_runtime_has():

@@ -317,7 +317,7 @@ async def require_open_slot(rt: DraftRuntime, job_id: str) -> None:
 
 
 async def _open_job_id(rt: DraftRuntime) -> str | None:
-    """The job this user currently holds a draft of THIS command's kind on, or None.
+    """The job this user currently holds a draft of THIS COMMAND'S DOOR on, or None.
 
     At most one, and that is not this module's promise: the queue hands out one claimed job
     per user per lane, so one open round of a kind is what the single-writer rule already
@@ -327,10 +327,10 @@ async def _open_job_id(rt: DraftRuntime) -> str | None:
     """
     open_ids = await rt.drafts.list_open(rt.user_id)
     for job_id in open_ids:
-        if await draft_kind(rt, job_id) == rt.kind:
+        if same_door(await draft_kind(rt, job_id), rt.kind):
             return job_id
-    # No draft names this kind: fall back to the most recent, so a legacy draft whose session
-    # recorded nothing is still found and `_load` still says what it is.
+    # No draft belongs to this door: fall back to the most recent, so a legacy draft whose
+    # session recorded nothing is still found and `_load` still says what it is.
     return open_ids[0] if open_ids else None
 
 
@@ -344,14 +344,37 @@ async def _load(rt: DraftRuntime) -> tuple[PatchDraft, DraftSession] | None:
         return None
     await require_owner(rt, job_id)
     session = DraftSession.from_state(state.get("session") or {})
-    if session.kind != rt.kind:
+    if not same_door(session.kind, rt.kind):
         print(f"the open draft is {session.kind}; use `{draft_door(session.kind)}`.", file=rt.err)
         return None
     return PatchDraft.from_state(state.get("draft") or {}), session
 
 
+#: kind → the command family a Steward types to work that draft. Kinds that are ABSENT share
+#: the default door: `pkc draft` opens and works a compile round and a review round alike,
+#: because a review round IS a compile-shaped draft — same verbs, same gate, different task.
+_DOORS: dict[str, str] = {"evolve": "pkc evolve draft", "episodes": "pkc index episodes"}
+
+
 def draft_door(kind: str) -> str:
-    return {"evolve": "pkc evolve draft", "episodes": "pkc index episodes"}.get(kind, "pkc draft")
+    return _DOORS.get(kind, "pkc draft")
+
+
+def same_door(left: str, right: str) -> bool:
+    """Do these two kinds belong to one command family?
+
+    THE RULE IS THE DOOR, NOT THE KIND, and the difference is not academic. Every guard here
+    used to compare kinds against the runtime's own, so a Steward working the first real
+    review round was answered — by `status`, `read-document`, `retitle`, `edit-claim`,
+    `finish`, all of them — with "the open draft is review; use `pkc draft`": a refusal
+    naming the door it was already standing in. Nothing it could type was accepted, the round
+    repaired nothing, and the next one reached the draft store by importing the CLI from
+    Python, which is precisely the second write path this design does not have.
+
+    So: every verb of a door accepts every draft of that door. A draft of ANOTHER door is
+    still refused, and then the sentence names a door that exists and is not this one.
+    """
+    return draft_door(left) == draft_door(right)
 
 
 def _base_documents(draft: PatchDraft) -> list[CanonicalDocument]:
@@ -372,9 +395,24 @@ def _base_documents(draft: PatchDraft) -> list[CanonicalDocument]:
 # ─────────────────────────────────────────────────────────────────────── open / status
 
 
+async def opener_for(rt: DraftRuntime, job_id: str):  # noqa: ANN201 — the open_round signature
+    """Which `open_round` this job wants — one door, more than one kind of round.
+
+    `pkc draft` opens two: an ordinary compile round, and a review round whose task is the
+    check's report instead of a source's material. The Owner types one command for both, so
+    the command reads the job (or the draft already open on it) and picks. Without this, the
+    Owner's only way back into a review round the worker opened was to be refused by it.
+    """
+    if await draft_kind(rt, job_id) == REVIEW_JOB_KIND:
+        from . import review as review_cli
+
+        return review_cli.open_round
+    return open_round
+
+
 async def cmd_open(rt: DraftRuntime, job_id: str) -> int:
     """Claim the job, render the contract and the task, print the round's two surfaces."""
-    code, system_text, task_text = await open_round(rt, job_id)
+    code, system_text, task_text = await (await opener_for(rt, job_id))(rt, job_id)
     if code == EXIT_OK:
         notice = rt.owner_profile_notice or (PLACEHOLDER_NOTICE if rt.owner_is_placeholder else "")
         if notice:
@@ -410,7 +448,7 @@ async def open_round(
                 return code, "", ""
             existing = await rt.drafts.get(rt.user_id, job_id) or existing
         await require_owner(rt, job_id)
-        if existing.get("kind", "compile") != rt.kind:
+        if not same_door(existing.get("kind", "compile"), rt.kind):
             print("this job has a different kind of draft", file=rt.err)
             return EXIT_REFUSED, "", ""
         draft = PatchDraft.from_state(existing.get("draft") or {})
@@ -1056,7 +1094,7 @@ async def cmd_abandon(rt: DraftRuntime, *, take_over: bool = False) -> int:
         print("no open draft", file=rt.err)
         return EXIT_NOTHING
     kind = (state.get("session") or {}).get("kind", "compile")
-    if kind != rt.kind:
+    if not same_door(kind, rt.kind):
         print(f"the open draft is {kind}; use `{draft_door(kind)}`.", file=rt.err)
         return EXIT_NOTHING
     audit = await rt.drafts.abandon(
