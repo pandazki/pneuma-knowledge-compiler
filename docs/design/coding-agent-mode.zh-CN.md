@@ -413,7 +413,8 @@ HTTP API 的读半边变成命令。同样的 handler、同样的形状，可要
 | `pkc search <q>`（`--lexical` / `--semantic` / 融合；`--include-archived`） | 在指定范围内返回 L1 / L2 排名命中，逐块标注发言者及日期。词法/融合头部报告每个词项及全部词项的**已索引块**数估计，说明单块匹配、相邻块可能合并涵盖词项、索引可能落后于 L0，并列出当前租户待处理及失败的索引作业数。引号短语算一个词项；语义模式无词法计数；融合模式单独报告词法总数；日期统一按头部声明的 Owner 时区计算，未记录时明确使用 UTC；JSON 保留日期及带偏移的原始时刻。引用块的日期与发言者仅在元数据长度、标识符及块顺序校验通过后附加，否则标为未知；邮件块展示发件人、角色及发送日 |
 | `pkc recall <q> --evidence`（`--include-archived`） / `pkc recall --evidence --handoff <id> --page N` | fast 证据，不含回答调用：头部列出统计、第三行 handoff 及精确的下一页命令；依次为断言、原文窗口、片段摘要（派生）、地图。有相关性评分的章节按排名排序，否则标注保留 lane 顺序。句柄到来源的索引列出引用块、发言者和日期。文本随 handoff 保留，silent 调用也如此：`--handoff` 读取保留分页，不重新检索或创建第二个 handoff；仅用 `--page` 会重新检索。JSON 保留完整 lane `content`，附 `tally` 和 `sources`；日期统一按头部声明的 Owner 时区计算，未记录时明确使用 UTC；JSON 保留日期及带偏移的原始时刻。引用块的日期与发言者仅在元数据长度、标识符及块顺序校验通过后附加，否则标为未知；邮件块展示发件人、角色及发送日 |
 | `pkc recall <q>`（`--include-archived`） | 配置了回答模型时的 fast lane |
-| `pkc jobs` / `pkc history` / `pkc brief <version>` | 队列、编译版本、编译后简报 |
+| `pkc jobs` / `pkc history` / `pkc brief <version>` | 队列、编译版本、编译后简报。`pkc jobs` 在行下面印一行 `waiting:`；库里有暂停的行时，它们另起一个标题，并列出本页上的 id |
+| `pkc jobs resume [--job ID \| --reason-like TEXT \| --all]` | 让暂停的作业重新开始，并重置退避表——那个人说：它等的那件事我已经做了。必须给一个选择器 |
 | `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q> --text-file <f>`（或 `-`；`--kind no_record`） | 关闭交接回答，或不经过交接直接记录阅读；每个引用都必须可解析 |
 | `pkc consultations` / `pkc spend` | 使用侧保留记录、交接证据数与直接引用数及其花费 |
 | `pkc evolve ls` / `show` | 提案及其 diff |
@@ -1140,19 +1141,63 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   有六轮正是这样收场，却被当作失败划掉，而那时根本没有一轮被尝试过。这一判据只读进程本身
   （`only_lifecycle`），而且那份不对称是刻意的：harness 真正打印出来的任何东西——栈回溯、不认识的
   事件、提供方的句子——都算**内容**，仍归 `failed`，因为一个说得出诊断的 harness 该出现在人会读的
-  作业行上。`no_turn` 按容量那套时钟走提供方的处置，也是这一族里唯一**有界**的一种：当翻倍到达
-  `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`，这一行就不再回来，并且把话说明白
-  （`harness_failed: Codex harness died before its first turn on 4 consecutive launches; not
-  coming back`）——熬过冷却所知最长等待的崩溃不是抖动，而永远重新入队的作业没有人会读。
+  作业行上。`no_turn` 按容量那套时钟走提供方的处置；翻倍到达 `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`
+  之后，它就按上限的间隔**继续等**，而不是停下来——熬过最长等待的崩溃多半是装坏了的 harness，而
+  "多半"是每一刻钟再问一次的理由，不是把所有者的活划掉的理由。
 
   `failed` 是非零退出（或自称 `turn.failed`），harness 打印的内容里没有任何一类标记，而它确实打印了
   自己的东西：它是关于**这一个作业**的，把它当成限流是一个有真实代价的缺陷。一份 24,439 个块、
   180 万字符的 `agent-session/v1` 分片让每一次启动都死掉；每次失败都把自己重新排到十五分钟的墙后面，
   行上还写着 `cooling_reason`，于是控制台宣告租户正在冷却，而 drain（它的冰只在限流分支上放）照样
-  继续认领。现在 `failed` 一轮以 `ok=false` 结束，带上 harness 自己的第一行
-  （`harness_failed: exit 1 — Error: input is too long for the selected model`），不冻结任何东西，
-  不等待任何东西，最多按 `AGENT_RETRIES` 重新入队；最后一次会说出来
-  （`… exit 1 after 3 attempts — …`），并把这行留给人读。四种情况下来源都不盖消化戳。
+  继续认领。现在 `failed` 一轮不冻结任何东西，按普通的重试表等待，理由就是 harness 自己的第一行
+  （`waiting: harness_failed: exit 1 — Error: …`）。四种情况下来源都不盖消化戳。
+
+  **没跑完的一切，只有一种处置。**
+
+  上面那套分类只决定作业**等多久**、租户是否冷却。它不再决定作业会不会回来，因为那个问题只有一个
+  答案（`job_retry.py`，`RETRY_BACKOFF_S`）：
+
+  > 没有跑完的作业回到 `queued`，**还在它自己那一行**，带上 `not_before`，detail 写作
+  > `waiting: <原因>; retry at <时刻> (attempt n)`，最近十次失败留在 `payload.retry.history` 里。
+  > 同一行、同一个作业 id、队列里同一个位置。没有任何东西被划掉，也没有任何计数会终结一个作业。
+  >
+  > 等待表走完之后，作业**暂停**：状态 `paused`，不再带任何 `not_before`，detail 写作
+  > `paused: <原因>; <n> attempts over <时长>; resume with pkc jobs resume`。它没有失败，也没有被
+  > 遗忘——它在等一个人。
+
+  它覆盖了本设计从前一个个点名的所有收场：harness 以任何退出码、任何输出死掉；一轮什么都没交代
+  （`round_incomplete` / `review_incomplete`）；提供方没额度或没钱；反复打断同一个作业的基础设施故障；
+  修复轮之后闸门仍然拒绝；episodes 一轮没有提交提案；库里压着别人未提交的改动（`canonical_dirty`
+  ——人把它提交或 stash 掉，紧接着的下一次尝试就会成功，这正是把它判失败为什么是错答案）；以及任何
+  没有人叫得出名字的异常。等待表是一分钟、五分钟、十五分钟、一小时、四小时、一天——然后它不再发问。
+  前段够快，一次抖动不花什么代价；后段够慢，一张过期的卡是一天被问一次，而不是一夜之间被问四百次；
+  而它是**有限的**，因为横跨一天半的六次尝试，该说的话已经说完了：能改变一个空账户、一个没人登录的
+  harness、一棵别人留下的脏工作树的是**人**，而永远发问的那一行，最后只会教会所有者跳过它。所以第
+  七次失败改为暂停。
+
+  暂停的行对一切会自己搬动工作的东西都是隐形的，而且它们谁都不必知道这个词：`claim_next` 只取
+  `status = 'queued'` 的行，自愈的重新入队写的是 `AND status = 'claimed'`。终结一次暂停的是
+  `pkc jobs resume [--job ID | --reason-like TEXT | --all]` 或 `POST /jobs/resume`——那个人说：它等
+  的那件事我已经做了。`payload.retry.attempts` 归零，于是下一次失败等一分钟，而不是用完的表末尾那
+  一天（情况变了，而等待表本就是对情况的猜测）；`payload.retry.history` 保留，因为已经发生在这个作业
+  身上的事，不会因为它被恢复而没有发生过。必须给一个选择器：什么都不说的 `resume` 会把整个知识库
+  暂停的活一次性重启，那是意外，不是操作。
+
+  例外逐条列在一个地方，每条附一句理由（`job_retry.TERMINAL_FAILURES`）：`unknown_kind`（这个构建里
+  没有任何东西跑得了这种作业）、`payload_invalid`（同样的字节下次解析出同样的结果）、`source_gone`
+  （作业点名的来源全被删了）、`input_too_large`（在框架已经做过的开窗与任务截断之后，harness 仍说装
+  不下）、`proposal_stale`（归档提案所依据的 canonical HEAD 已经变了）。这些以 `ok=false` 结束，留给
+  人读。不在这张表上的一切都等待。
+
+  所有者是**看到**它而不是猜到它：`GET /v1/users/{uid}/jobs/summary` 回答
+  `{queued, waiting: {count, reasons: [{reason, count, next_retry_at}]}, paused: {count,
+  reasons: [{reason, count, since}]}, claimed, failed, succeeded}`——五个计数互不重叠，`queued`
+  是此刻就能被认领的那些——`pkc jobs` 与 `pkchome status` 印的是同一份分组
+  （`Waiting: 13 · OpenRouter 402 payment required ×9 (next 14:05) · codex provider refused ×4
+  (next 13:52)`，以及其下的 `Paused: 5 · OpenRouter 402 payment required ×4 ·
+  canonical_dirty:work/aurora.md ×1 — pkc jobs resume`）。暂停那一行以命令收尾，因为它是状态报告
+  里唯一一句**请求**，而一份点出问题却藏起解法的报告只是半份报告。没有这些，一个服务商在拒付的知识
+  库，读起来和一个队列悄悄停住的知识库一模一样：每一行都是 `queued`，没有失败，什么也不动。
 
   **harness 说了什么**与 worker 判了什么并排保存，而且是**每一轮**都保存，不只是被拒的那些：
   `compile_jobs.harness_output` 存下进程自身输出的约 2 KB——Codex 的事件流里带有 agent 最后一条
@@ -1161,9 +1206,9 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   能说出原因的那些字，从前只活在一个随即被删掉的 per-job config home 和一个早已走远的 worker
   进程里。（`AGENT_KEEP_WORKDIR` 现在连同启动器的工作目录一起把那个 home 也留下，供人排查。）
 
-  对提供方的那几种答案（`no_turn` 也在内），worker 把作业以 `ok=false` 结束
-  （`rate_limited: Codex usage limit; retry after <时刻>`），**不**给它的来源盖消化戳，丢掉这次启动打开
-  的草稿，并把同一份载荷作为新行重新入队，带上 `not_before`——harness 自己说出的那个时刻
+  对提供方的那几种答案（`no_turn` 也在内），worker 把作业挂起等待
+  （`waiting: codex usage limit; retry at <时刻> (attempt n)`），**不**给它的来源盖消化戳，丢掉这次
+  启动打开的草稿，并把**同一行**压在 `not_before` 后面——harness 自己说出的那个时刻
   （`try again at Sep 15th, 2026 9:23 AM`，按 `PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE` 解读），或者一个
   从 `AGENT_RATE_LIMIT_COOLDOWN_S` 起、每次连续命中翻倍、上限六小时的冷却。`claim_next` 会跳过
   `not_before` 尚未到达的行，所以这份等待不占任何进程，也能穿过重启。与此并行，worker 在内存里把

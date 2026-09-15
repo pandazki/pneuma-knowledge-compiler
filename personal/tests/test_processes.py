@@ -184,11 +184,14 @@ def test_queue_reads_one_bounded_page_of_succeeded_compiles(home, make_library, 
                           {"completed_at": None}],
                 "page": {"next_cursor": "next"}}
     monkeypatch.setattr(status, "_jobs", jobs)
+    monkeypatch.setattr(status, "_summary", lambda *a, **kw: _quiet())
     assert status.queue_status(library) == {
         "pending": 5, "failed": 2, "failed_by_kind": {"evolve": 2}, "succeeded": 135,
         "last_compile_at": "2026-07-03T00:00:00Z",
         # Nothing is holding this queue back, which is a reading and not an absence.
         "cooling": None,
+        "waiting": {"count": 0, "reasons": []},
+        "paused": {"count": 0, "reasons": []},
     }
     # Five reads, no cursor: an offered next page is never followed, so a library with a
     # long succeeded history costs the same status call as a fresh one.
@@ -197,6 +200,97 @@ def test_queue_reads_one_bounded_page_of_succeeded_compiles(home, make_library, 
     succeeded = calls[-1]
     assert succeeded["kind"] == "compile" and succeeded["limit"] == 20
     assert all(0 < call["timeout"] <= status.QUEUE_BUDGET_SECONDS for call in calls)
+
+
+def _quiet() -> dict:
+    """A summary from a library with nothing waiting and nothing paused."""
+    return {"waiting": {"count": 0, "reasons": []}, "paused": {"count": 0, "reasons": []}}
+
+
+def test_a_queue_that_is_waiting_says_what_it_is_waiting_for_and_until_when(
+    home, make_library, monkeypatch
+):
+    """A queue that has stopped moving and a queue that is waiting look identical from the
+    outside — every row `queued`, nothing failed, nothing running. The engine groups the
+    reasons it wrote onto those rows (`GET /jobs/summary`), and status prints them, so the
+    Owner reads "nine of them on a payment refusal, back at 14:05" rather than going looking
+    for a fault in a library that is perfectly healthy."""
+    library = make_library()
+    monkeypatch.setattr(status, "_jobs", lambda *a, **kw: {"items": [], "page": {"total": 0}})
+    monkeypatch.setattr(status, "_summary", lambda *a, **kw: {
+        "waiting": {"count": 13, "reasons": [
+            {"reason": "OpenRouter 402 payment required", "count": 9,
+             "next_retry_at": "2026-09-15T14:05:00+08:00"},
+            {"reason": "codex provider refused", "count": 4,
+             "next_retry_at": "2026-09-15T13:52:00+08:00"},
+        ]},
+        "paused": {"count": 0, "reasons": []},
+    })
+    row = {"unattended": True, "queue": status.queue_status(library)}
+
+    assert status.waiting_line(row) == (
+        "13"
+        f" · OpenRouter 402 payment required ×9 (next {status.clock_time('2026-09-15T14:05:00+08:00')})"
+        f" · codex provider refused ×4 (next {status.clock_time('2026-09-15T13:52:00+08:00')})"
+    )
+    printed = status.render_text(
+        {"home": {"path": "/h", "version": "1", "console": "built"},
+         "docker": {"reachable": True}, "services": {},
+         "libraries": [{**_library_row(), "queue": row["queue"]}]}
+    )
+    assert f"  Waiting: {status.waiting_line(row)}" in printed
+
+
+def _library_row() -> dict:
+    """The keys `render_text` reads off one library, with nothing interesting in them."""
+    return {
+        "name": "lib", "current": True, "engine": {"up": True, "port": 18000},
+        "unattended": True, "agent_model": "", "reasoning_effort": "",
+        "reasoning_effort_episodes": "", "compile_call_timeout": None,
+        "compile_call_timeout_default": None, "queue": None, "key": True,
+        "engine_dir": "/e", "canonical_head": None, "skill_fresh": None,
+        "steps": {}, "last_used": None, "sync": None,
+    }
+
+
+def test_a_library_with_nothing_waiting_prints_no_waiting_line(home, make_library, monkeypatch):
+    """A line that is always there is a line nobody reads. Nothing waiting, nothing said."""
+    library = make_library()
+    monkeypatch.setattr(status, "_jobs", lambda *a, **kw: {"items": [], "page": {"total": 0}})
+    monkeypatch.setattr(status, "_summary", lambda *a, **kw: _quiet())
+    row = {"unattended": True, "queue": status.queue_status(library)}
+    assert status.waiting_line(row) == ""
+    assert status.paused_line(row) == ""
+
+
+def test_a_paused_queue_says_so_and_says_what_ends_it(home, make_library, monkeypatch):
+    """A paused job is the one thing in a library that will not move until the Owner does
+    something. So the line does not merely report it — it ends in the command that answers
+    it, because a status report that states a problem and hides its fix is half a report."""
+    library = make_library()
+    monkeypatch.setattr(status, "_jobs", lambda *a, **kw: {"items": [], "page": {"total": 0}})
+    monkeypatch.setattr(status, "_summary", lambda *a, **kw: {
+        "waiting": {"count": 0, "reasons": []},
+        "paused": {"count": 5, "reasons": [
+            {"reason": "OpenRouter 402 payment required", "count": 4,
+             "since": "2026-09-14T09:00:00+08:00"},
+            {"reason": "canonical_dirty:work/aurora.md", "count": 1,
+             "since": "2026-09-14T11:00:00+08:00"},
+        ]},
+    })
+    row = {"unattended": True, "queue": status.queue_status(library)}
+
+    assert status.paused_line(row) == (
+        "5 · OpenRouter 402 payment required ×4 · canonical_dirty:work/aurora.md ×1"
+        " — pkc jobs resume"
+    )
+    printed = status.render_text(
+        {"home": {"path": "/h", "version": "1", "console": "built"},
+         "docker": {"reachable": True}, "services": {},
+         "libraries": [{**_library_row(), "queue": row["queue"]}]}
+    )
+    assert f"  Paused: {status.paused_line(row)}" in printed
+    assert "Waiting:" not in printed, "a line with nothing behind it was printed"
 
 
 def test_a_queue_waiting_on_a_spent_subscription_says_so_on_the_worker_line(
@@ -221,6 +315,7 @@ def test_a_queue_waiting_on_a_spent_subscription_says_so_on_the_worker_line(
         return {"items": [], "page": page}
 
     monkeypatch.setattr(status, "_jobs", jobs)
+    monkeypatch.setattr(status, "_summary", lambda *a, **kw: _quiet())
     queue = status.queue_status(library)
     assert queue["cooling"] == {"until": "2026-09-15T01:23:00+00:00",
                                 "reason": "codex usage limit"}

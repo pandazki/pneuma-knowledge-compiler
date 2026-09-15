@@ -164,13 +164,15 @@ class Settings(BaseSettings):
     # the binary is a fake on PATH and a login is not a thing that exists.
     agent_probe_on_start: bool = True
 
-    # How many times the unattended launcher may relaunch a round the harness refused with a
-    # RATE LIMIT — and only that. A refusal of any other kind is reported, because it will be
-    # refused again; a timeout is not retried either, because the wall clock is the statement
-    # that the round is over. Waits are exponential with jitter and bounded by the launcher's
-    # own ceiling; a model at capacity is spaced wider (15 s, 30 s, 60 s), because capacity
-    # returns in seconds-to-minutes and a relaunch inside that window is wasted. 0 means one
-    # attempt and no backoff.
+    # How many times the unattended launcher may relaunch a round INSIDE ONE JOB when the
+    # harness refused with a RATE LIMIT — and only that. Rapid attempts, seconds apart, inside
+    # the launch this job already paid for; a model at capacity is spaced wider (15 s, 30 s,
+    # 60 s), because capacity returns in seconds-to-minutes and a relaunch inside that window
+    # is wasted. 0 means one attempt and no backoff.
+    #
+    # It is NOT how many times a job comes back. That is one rule now and it has no knob:
+    # every failure that is not provably hopeless puts the job back to `queued` behind
+    # `job_retry.RETRY_BACKOFF_S`, for as long as it takes (`job_retry.py`).
     agent_retries: int = 3
 
     # How long the worker leaves an agent-path job alone after the harness said the
@@ -189,9 +191,11 @@ class Settings(BaseSettings):
     # alternated between refused and answered within seconds, live — so a usage limit's
     # quarter-hour-doubling-to-six-hours kept the tenant off the air long after the model had
     # room again. Its own short wait instead, doubling per consecutive capacity refusal up to
-    # `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`, reset by the first round that runs. The launcher
-    # also spaces its own relaunches wider for this refusal (`launcher.CAPACITY_BACKOFF_S`),
-    # so a brief dip is usually absorbed inside one launch and never cools the tenant at all.
+    # `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`, reset by the first round that runs. At the ceiling
+    # it keeps asking at the ceiling interval: this cooling is an optimisation — do not launch
+    # while we know the provider is down — and never a verdict on the work. The launcher also
+    # spaces its own relaunches wider for this refusal (`launcher.CAPACITY_BACKOFF_S`), so a
+    # brief dip is usually absorbed inside one launch and never cools the tenant at all.
     agent_unavailable_cooldown_s: int = 120
     agent_unavailable_cooldown_max_s: int = 15 * 60
 

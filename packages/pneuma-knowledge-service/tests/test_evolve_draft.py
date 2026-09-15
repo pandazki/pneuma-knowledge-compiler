@@ -386,11 +386,20 @@ async def test_worker_agent_evolve_uses_the_door_and_never_the_model(tmp_path, m
         assert user == rt.user_id and kw["executor"] == "agent:codex"
         return rt
 
+    # Anything this callback raises is caught by the drain — which now PARKS the job rather
+    # than failing it — so a broken expectation in here would read as a passing test with a
+    # queued row. Collected and asserted after the drain instead.
+    refused: list[str] = []
+
     async def launch(request):
         called.append(request)
-        assert "pkc evolve draft finish" in request.task_text
-        assert "already open" in request.task_text
-        assert str(tmp_path) in request.task_text or "/coding-agent-mode/" in request.task_text
+        for claim, said in (
+            ("pkc evolve draft finish" in request.task_text, "no finish command"),
+            ("already open" in request.task_text, "the round was not named as open"),
+            (request.task_text.count(job_id) > 0, "the task never names its job"),
+        ):
+            if not claim:
+                refused.append(said)
         assert await propose(rt, tmp_path) == 0
         assert await evolve.run_command(rt, "rename", path=A, new_path=C) == 0
         assert await evolve.cmd_finish(rt) == 0
@@ -408,6 +417,7 @@ async def test_worker_agent_evolve_uses_the_door_and_never_the_model(tmp_path, m
     monkeypatch.setattr("pneuma_knowledge_service.evolve_service.propose_evolution", lambda **kw: pytest.fail("model propose called"))
     job_id = await rt.jobs.enqueue(rt.user_id, "evolve", {})
     count = await compile_worker.drain_user(rt.ctx, None, None, rt.user_id)
+    assert refused == []
     assert count == (0 if attended else 1)
     assert len(called) == (0 if attended else 1)
     assert (await rt.jobs.get_job(rt.user_id, job_id)).status == ("queued" if attended else "done")

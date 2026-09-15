@@ -13,6 +13,7 @@ import type { StageEvent, StageTiming } from "./stages";
 import { buildPageQuery, type Page } from "./pagination";
 import { confirmRequestBody } from "./archive";
 import { parseHomeStatus, type HomeStatus } from "./home";
+import { parseJobsSummary, type JobsSummary } from "./jobDetail";
 import {
   parseCheckReport,
   parseLensReading,
@@ -1708,6 +1709,34 @@ export function listJobs(
     kind: params.kind,
   });
   return req<Page<JobSummary>>(`/v1/users/${u(userId)}/jobs${query}`);
+}
+
+/**
+ * The queue in counts, waiting jobs among them.
+ *
+ * Its own call rather than a widening of `listJobs`, because it answers about the WHOLE
+ * queue while the ledger reads one page of it: a job parked on page four is still a job
+ * this user is waiting on. Null when the engine serving this console predates the route —
+ * the page then shows the ledger it always showed, with no waiting line.
+ */
+export async function getJobsSummary(userId: string): Promise<JobsSummary | null> {
+  return parseJobsSummary(await req<unknown>(`/v1/users/${u(userId)}/jobs/summary`));
+}
+
+/**
+ * Put paused jobs back on the queue: one job, every job under a reason, or all of them.
+ *
+ * Reversible by construction — a resumed job that finds its dependency still away parks
+ * itself again — which is why the console asks for no confirmation before calling it.
+ */
+export function resumeJobs(
+  userId: string,
+  body: { job_id?: string; reason_like?: string; all?: boolean },
+): Promise<{ resumed: number }> {
+  return req<{ resumed: number }>(`/v1/users/${u(userId)}/jobs/resume`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export interface HistoryPage extends Page<HistoryItemEnvelope> {

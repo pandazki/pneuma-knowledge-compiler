@@ -532,7 +532,8 @@ the reader's attention for it. `pkc canonical read` takes several paths in one p
 | `pkc search <q>` (`--lexical` / `--semantic` / fused; `--include-archived`) | L1 / L2 in the requested scope; ranked hits with per-block speakers and days. Lexical/fused headers show estimated per-term and all-terms **indexed blocks**, state single-block matching, possible adjacent-block joins and possible index lag behind L0, and count pending and failed index jobs for this tenant. Quoted phrases are one term; semantic has no lexical counts; fused reports its lexical total separately; all dates use the Owner calendar declared in the header, explicitly UTC when unstated; JSON retains days and original offset timestamps. Block dates/speakers require matching envelope lengths, identifiers and block order, else unknown; email blocks expose sender, role and sent day |
 | `pkc recall <q> --evidence` (`--include-archived`) / `pkc recall --evidence --handoff <id> --page N` | fast evidence without the answer call: header with tallies, handoff on line 3 and exact next-page command; claims, verbatim windows, episode summaries (derived), then map. Sections with relevance scores are rank-ordered; otherwise labelled as in the lane’s order. The handle-to-source index lists cited blocks, speakers and days. Prose is retained with the handoff, including silent calls: `--handoff` pages it without retrieval or a second handoff; `--page` alone starts a new retrieval. JSON preserves the whole lane `content`, with `tally` and `sources`; all dates use the Owner calendar declared in the header, explicitly UTC when unstated; JSON retains days and original offset timestamps. Block dates/speakers require matching envelope lengths, identifiers and block order, else unknown; email blocks expose sender, role and sent day |
 | `pkc recall <q>` (`--include-archived`) | the fast lane with the configured answer model, when one is configured |
-| `pkc jobs` / `pkc history` / `pkc brief <version>` | the queue, compile versions, the post-compile brief |
+| `pkc jobs` / `pkc history` / `pkc brief <version>` | the queue, compile versions, the post-compile brief. `pkc jobs` prints a `waiting:` line under its rows and, when the library has any, the PAUSED rows under a heading of their own with the ids on this page |
+| `pkc jobs resume [--job ID \| --reason-like TEXT \| --all]` | start paused jobs again with a fresh retry schedule — the person saying they have done the thing the row was waiting for. A selector is required |
 | `pkc consult answer <handoff_id> --text-file <f>` / `pkc consult record --question <q> --text-file <f>` (or `-`; `--kind no_record`) | close a handed answer or record direct reading without a hand-over; every citation must resolve |
 | `pkc consultations` / `pkc spend` | kept records of use, handed evidence and direct citation counts, and what they cost |
 | `pkc evolve ls` / `show` | proposals and their diffs |
@@ -1473,11 +1474,10 @@ went around the gate is stopped before the next round builds on it, rather than 
   deliberate: anything the harness actually printed — a stack trace, an unknown event, a
   provider's sentence — is CONTENT and stays `failed`, because a harness with a diagnosis
   belongs on the job where a person reads it. A `no_turn` takes the provider treatment on the
-  capacity clock, and is the one member of that family that is BOUNDED: once the doubling
-  reaches `AGENT_UNAVAILABLE_COOLDOWN_MAX_S` the row stops coming back and says so
-  (`harness_failed: Codex harness died before its first turn on 4 consecutive launches; not
-  coming back`), because a crash that survives the longest wait the cooling knows is not
-  jitter and a job re-queued for ever is a job nobody reads.
+  capacity clock; at the ceiling (`AGENT_UNAVAILABLE_COOLDOWN_MAX_S`) it keeps waiting AT the
+  ceiling rather than stopping, because a crash that survives the longest wait is probably a
+  broken install and "probably" is a reason to ask once a quarter-hour, not a reason to strike
+  the Owner's work out.
 
   `failed` is a non-zero exit (or a declared `turn.failed`) with no marker of any kind in
   what the harness printed, and something of its own printed: it is about THIS JOB, and
@@ -1485,11 +1485,69 @@ went around the gate is stopped before the next round builds on it, rather than 
   24,439 blocks and 1.8M characters killed every launch it was given; each failure re-queued
   itself behind a fifteen-minute wall with `cooling_reason` on the row, so the console
   announced a cooling tenant while the drain — whose ice is set on the rate-limit branch only
-  — went on claiming. A `failed` round now completes `ok=false` with the harness's own first
-  line (`harness_failed: exit 1 — Error: input is too long for the selected model`), cools
-  nothing, waits for nothing, and is re-queued at most `AGENT_RETRIES` times; the last
-  attempt says so (`… exit 1 after 3 attempts — …`) and the row is left for a person to read.
+  — went on claiming. A `failed` round cools nothing and waits on the ordinary schedule with
+  the harness's own first line as its reason (`waiting: harness_failed: exit 1 — Error: …`).
   Sources stay undigested in all four cases.
+
+  **One treatment for everything that did not finish.**
+
+  The classification above decides HOW LONG a job waits and whether the tenant cools. It no
+  longer decides whether the job comes back, because that question has one answer
+  (`job_retry.py`, `RETRY_BACKOFF_S`):
+
+  > A job that did not finish goes back to `queued` **on its own row**, behind `not_before`,
+  > with `waiting: <reason>; retry at <instant> (attempt n)` as its detail and the last ten
+  > failures in `payload.retry.history`. Same row, same job id, same place in the queue.
+  > Nothing is struck out and no count ends a job.
+  >
+  > When the schedule runs out the job **pauses**: status `paused`, no `not_before` at all,
+  > `paused: <reason>; <n> attempts over <span>; resume with pkc jobs resume`. It is not
+  > failed and it is not forgotten — it is waiting for a person.
+
+  It covers every ending this design used to name one at a time: a harness that died with any
+  exit and any output, a round that accounted for nothing (`round_incomplete` /
+  `review_incomplete`), a provider out of room or out of money, an infrastructure fault that
+  kept interrupting one job, a gate that still refuses after the repair round, an episodes round
+  that submitted no proposal, a library holding somebody's uncommitted changes
+  (`canonical_dirty` — a person commits or stashes what they left there and the very next
+  attempt succeeds, which is exactly why failing it would be the wrong answer), and any
+  exception nobody has a name for at all. The schedule is a minute, five, fifteen, an hour,
+  four — and then it stops asking. Quick enough at the front that a blip costs nothing, slow
+  enough at the back that a card that expired is asked once a day rather than four hundred
+  times a night, and finite because six attempts across a day and a half have said what they
+  are going to say: what changes an empty account, a harness nobody logged in or a tree
+  somebody left dirty is a PERSON, and a row that goes on asking for ever is a row the Owner
+  learns to scroll past. So the seventh failure pauses instead.
+
+  A paused row is invisible to everything that moves work by itself, and neither of them has
+  to know the word: `claim_next` takes `status = 'queued'` rows and the self-heal's requeue is
+  written `AND status = 'claimed'`. What ends a pause is `pkc jobs resume [--job ID |
+  --reason-like TEXT | --all]` or `POST /jobs/resume` — the person saying they have done the
+  thing the row was waiting for. `payload.retry.attempts` goes back to 0 so the next failure
+  waits a minute rather than the day the spent schedule ended on (the situation has changed,
+  and the schedule is a guess about the situation); `payload.retry.history` is kept, because
+  what already happened to this job is not undone by resuming it. A selector is required:
+  `resume` with nothing stated would restart a whole library's paused work by accident.
+
+  The exception is enumerated, in one place, with a reason each (`job_retry.TERMINAL_FAILURES`):
+  `unknown_kind` (no body in this build runs that kind), `payload_invalid` (the same bytes parse
+  the same way next time), `source_gone` (every source the job names has been deleted),
+  `input_too_large` (the harness says it will not fit, after the windowing and task bounds the
+  framework already applies) and `proposal_stale` (an archive proposal whose canonical HEAD has
+  moved). Those complete `ok=false` and are left for a person to read. Anything not in that list
+  waits.
+
+  The Owner sees it rather than inferring it: `GET /v1/users/{uid}/jobs/summary` answers
+  `{queued, waiting: {count, reasons: [{reason, count, next_retry_at}]}, paused: {count,
+  reasons: [{reason, count, since}]}, claimed, failed, succeeded}` — five disjoint counts,
+  `queued` being what a claim could take right now — and both `pkc jobs` and `pkchome status`
+  print the same grouping (`Waiting: 13 · OpenRouter 402 payment required ×9 (next 14:05) ·
+  codex provider refused ×4 (next 13:52)`, and under it `Paused: 5 · OpenRouter 402 payment
+  required ×4 · canonical_dirty:work/aurora.md ×1 — pkc jobs resume`). The paused line ends in
+  the command because it is the only line in a status report that is a REQUEST, and a report
+  that states a problem and hides its fix is half a report. Without any of this a library whose
+  provider is refusing payment reads exactly like a library whose queue has silently stopped:
+  every row `queued`, nothing failed, nothing moving.
 
   **What the harness said** is kept beside what the worker decided, on EVERY round and not
   only on the ones it refused: `compile_jobs.harness_output` holds ~2 KB of the process's own
@@ -1501,10 +1559,10 @@ went around the gate is stopped before the next round builds on it, rather than 
   (`AGENT_KEEP_WORKDIR` keeps that home as well as the launcher's working directory, for a
   round somebody is diagnosing.)
 
-  For the provider answers (`no_turn` included) the worker completes the job `ok=false`
-  (`rate_limited: Codex usage limit; retry after <instant>`), leaves its sources
-  **undigested**, drops the draft the launch opened, and queues the same payload again as a
-  new row carrying `not_before` — the instant the harness itself named (`try again at Sep
+  For the provider answers (`no_turn` included) the worker parks the job
+  (`waiting: codex usage limit; retry at <instant> (attempt n)`), leaves its sources
+  **undigested**, drops the draft the launch opened, and holds the SAME row behind a
+  `not_before` — the instant the harness itself named (`try again at Sep
   15th, 2026 9:23 AM`, read in `PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE`), or a cooldown that
   doubles per consecutive hit from `AGENT_RATE_LIMIT_COOLDOWN_S` to a ceiling of six hours.
   `claim_next` skips a row whose `not_before` is in the future, so the wait costs no process

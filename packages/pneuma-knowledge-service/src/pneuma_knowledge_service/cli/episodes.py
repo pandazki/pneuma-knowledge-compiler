@@ -31,6 +31,7 @@ from pneuma_knowledge_core.ingest.semantic import (
 from pneuma_knowledge_core.prompts import prompt
 
 from ..coding_agent.backends import backend
+from ..job_retry import park
 from ..coding_agent.install import installed_hash, steward_skill_hash
 from ..wiring import (
     agent_judgement, agent_record_matches, chunks_from_agent_manifest,
@@ -400,7 +401,18 @@ async def cmd_finish(rt: EpisodesRuntime) -> int:
             )
             await shared._store(rt, draft, session)
         else:
-            await rt.jobs.complete(rt.user_id, session.job_id, ok=False, detail=str(exc), executor=rt.executor)
+            # The repair round did not answer either: it submitted no proposal, or the source
+            # moved under it. Neither is the judgement's last word — the same source judged
+            # again is an ordinary round — so the job WAITS rather than failing
+            # (`job_retry.py`), keeping what the attempt said on its own row.
+            job = await rt.jobs.get_job(rt.user_id, session.job_id)
+            await park(
+                rt.jobs,
+                rt.user_id,
+                session.job_id,
+                payload=dict(getattr(job, "payload", {}) or {}),
+                reason=f"episodes: {exc}",
+            )
             await rt.drafts.delete(rt.user_id, session.job_id, executor=rt.draft_executor)
         print(str(exc), file=rt.err)
         return shared.EXIT_GATE

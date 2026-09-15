@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -226,10 +227,10 @@ def fast(monkeypatch):
     monkeypatch.setattr(compile_worker, "INFRA_BACKOFF_START_S", 0.01)
     monkeypatch.setattr(compile_worker, "INFRA_BACKOFF_MAX_S", 0.02)
     monkeypatch.setattr(compile_worker, "IDLE_SWEEP_S", 0.01)
-    compile_worker._INFRA_STRIKES.clear()
+    compile_worker._INFRA_INTERRUPTIONS.clear()
     compile_worker._IN_FLIGHT.clear()
     yield
-    compile_worker._INFRA_STRIKES.clear()
+    compile_worker._INFRA_INTERRUPTIONS.clear()
     compile_worker._IN_FLIGHT.clear()
 
 
@@ -263,6 +264,30 @@ async def drain_until_done(ctx, *job_ids: str, timeout: float = 5.0) -> None:  #
                 # riding an outage out, and it is what that recovery DID that these tests
                 # are about (`_IN_FLIGHT`).
                 if all(rows.get(j) == "done" for j in job_ids) and not compile_worker.in_flight_jobs():
+                    return
+                await asyncio.sleep(0.005)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def drain_until_parked(ctx, *job_ids: str, timeout: float = 5.0) -> None:  # noqa: ANN001
+    """`drain_until_done` for work that does not finish: run the sweep until every named job
+    is back in the queue behind a `not_before`, then stop it."""
+    task = asyncio.create_task(compile_worker.drain_forever(ctx, None))
+    try:
+        async with asyncio.timeout(timeout):
+            while True:
+                if task.done():
+                    await task
+                    pytest.fail("the drain returned on its own")
+                rows = {r["job_id"]: r for r in await ctx.store.list_jobs(USER)}
+                parked = [
+                    j for j in job_ids
+                    if rows.get(j, {}).get("status") == "queued"
+                    and rows[j].get("not_before") is not None
+                ]
+                if len(parked) == len(job_ids) and not compile_worker.in_flight_jobs():
                     return
                 await asyncio.sleep(0.005)
     finally:
@@ -361,16 +386,19 @@ async def test_a_job_the_vector_store_dropped_under_comes_back_instead_of_failin
     assert f"(job {a} requeued)" in out
 
 
-async def test_an_error_that_is_transient_only_in_name_fails_the_job_after_the_bound(
+async def test_an_error_that_is_transient_only_in_name_waits_on_the_schedule_instead(
     monkeypatch, fast, caplog
 ):
     """Every probe answers and the same job meets the same "transient" error every time:
     that is not an outage for this job, whatever it is for the stack. After the bound the job
-    is failed and the rest of the queue drains — and the row SAYS which of the two happened.
+    stops being put straight back and WAITS on the retry schedule — the rest of the queue
+    drains past it, and the row SAYS what interrupted it and how often.
 
-    What it said before: `worker error: qdrant_client.ResponseHandlingException`, on a live
-    episodes job whose Qdrant write had in fact been interrupted three times and given up on
-    at the fourth. The class of the last attempt is not the reason; the count is."""
+    It is not struck out at any count: nothing about an infrastructure fault says the work
+    cannot succeed, only that it has not yet. What the row said before this existed was
+    `worker error: qdrant_client.ResponseHandlingException`, on a live episodes job whose
+    Qdrant write had in fact been interrupted three times and given up on at the fourth. The
+    class of the last attempt is not the reason; the count is."""
     store = FlakyQueue()
     a = await store.enqueue(USER, "index", {})
     b = await store.enqueue(USER, "index", {})
@@ -380,13 +408,21 @@ async def test_an_error_that_is_transient_only_in_name_fails_the_job_after_the_b
     )
 
     with caplog.at_level("WARNING"):
-        await drain_until_done(Ctx(store), a, b)
+        await drain_until_done(Ctx(store), b)
 
-    strikes = compile_worker.INFRA_JOB_INTERRUPTIONS + 1
-    assert runs.count(a) == strikes
-    assert outcomes(store) == [(a, False), (b, True)]
-    said = f"infrastructure repeated: postgres ({DROPPED}) interrupted this job {strikes} times; failed"
-    assert store.completed[0]["detail"] == said
+    attempts = compile_worker.INFRA_PUT_BACKS + 1
+    assert runs.count(a) == attempts
+    # `b` finished; `a` is queued again, waiting, and never completed at all.
+    assert outcomes(store) == [(b, True)]
+    row = [r for r in await store.list_jobs(USER) if r["job_id"] == a][0]
+    assert row["status"] == "queued"
+    said = (
+        f"infrastructure repeated: postgres ({DROPPED}) interrupted this job {attempts} times"
+    )
+    assert row["detail"] == (
+        f"waiting: {said}; retry at {row['not_before'].isoformat()} (attempt 1)"
+    )
+    assert row["not_before"] > datetime.now(timezone.utc)
     # The same words in the log, once, with the last attempt's stack still under them.
     gave_up = [r for r in caplog.records if said in r.getMessage()]
     assert len(gave_up) == 1 and gave_up[0].levelname == "WARNING" and gave_up[0].exc_info
@@ -472,10 +508,13 @@ async def test_a_bare_read_error_after_an_episodes_round_is_ridden_out_not_faile
 async def test_a_failure_is_never_written_without_a_reason_or_a_traceback(
     monkeypatch, fast, caplog
 ):
-    """Two shapes of the same rule. A job row holds one sentence, so that sentence must at
+    """Two shapes of the same rule. A parked row holds one sentence, so that sentence must at
     least name the class when the exception carries no words; and the stack that produced it
     goes to the log, which is where an operator looks and where — the night this was written
-    — there was nothing at all."""
+    — there was nothing at all.
+
+    Neither job is failed: an exception nobody enumerated is not evidence that the work
+    cannot be done, so both wait and both say what they are waiting for."""
     store = FlakyQueue()
     blank = await store.enqueue(USER, "index", {})
     spoken = await store.enqueue(USER, "index", {})
@@ -487,12 +526,16 @@ async def test_a_failure_is_never_written_without_a_reason_or_a_traceback(
     )
 
     with caplog.at_level("ERROR"):
-        await drain_until_done(Ctx(store), blank, spoken)
+        await drain_until_parked(Ctx(store), blank, spoken)
 
-    details = {row["job_id"]: row["detail"] for row in store.completed}
-    assert details[blank] == "worker error: ValueError"
-    assert details[spoken] == "worker error: a payload nobody can compile"
-    logged = [r for r in caplog.records if "job %s failed" in r.msg]
+    assert store.completed == [], "a failure nobody enumerated ended a job"
+    rows = {row["job_id"]: row for row in await store.list_jobs(USER)}
+    assert rows[blank]["detail"].startswith("waiting: worker error: ValueError; retry at ")
+    assert rows[spoken]["detail"].startswith(
+        "waiting: worker error: a payload nobody can compile; retry at "
+    )
+    assert all(row["detail"].endswith("(attempt 1)") for row in rows.values())
+    logged = [r for r in caplog.records if "job %s did not finish" in r.msg]
     assert [r.args[1] for r in logged] == [blank, spoken]
     assert all(r.args[0] == DERIVED_LANE and r.exc_info for r in logged), "no traceback was kept"
 

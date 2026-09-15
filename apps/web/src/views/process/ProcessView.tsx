@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PackageOpen, UserRound } from "lucide-react";
 import {
+  ApiError,
   compile,
+  getJobsSummary,
   listJobs,
+  resumeJobs,
   type CompileResult,
   type JobSummary,
 } from "@/lib/api";
-import { fmtTime } from "@/lib/format";
-import { countWaitingForSteward, splitGateDetail } from "@/lib/jobDetail";
+import { fmtClock, fmtDayClock, fmtTime } from "@/lib/format";
+import {
+  countWaitingForSteward,
+  detailLines,
+  isWaitingDetail,
+  type JobsSummary,
+} from "@/lib/jobDetail";
 import { locateStep, type LocateWalk } from "@/lib/jobLocate";
 import {
   firstPage,
@@ -69,6 +77,10 @@ function statusText(
       return { label: t("process.status.running"), className: "text-ink-2" };
     case "queued":
       return { label: t("process.status.queued"), className: "text-ink-3" };
+    // Its own state, in ordinary ink: the retries ran out and the job is waiting for a
+    // person. Nothing about it was judged wrong, so it is not written in the failure red.
+    case "paused":
+      return { label: t("process.status.paused"), className: "text-ink-2" };
     default:
       return { label: status, className: "text-ink-2" };
   }
@@ -86,6 +98,13 @@ export default function ProcessView() {
   const t = useT();
 
   const [jobPage, setJobPage] = useState<Page<JobSummary> | null>(null);
+  /**
+   * The whole queue in counts, beside the one page of it this ledger reads. Null until the
+   * first answer, and null forever on an engine that has no such route.
+   */
+  const [summary, setSummary] = useState<JobsSummary | null>(null);
+  /** An engine without the route is asked once, not every three seconds. */
+  const summaryAbsent = useRef(false);
   /** The cursor `jobPage` was loaded with — the walk below must know which page it is reading. */
   const [jobPageCursor, setJobPageCursor] = useState<string | null>(null);
   const [pageState, setPageState] = useState<CursorPageState>(firstPage);
@@ -94,6 +113,9 @@ export default function ProcessView() {
   const [compiling, setCompiling] = useState(false);
   const [compileResult, setCompileResult] = useState<CompileResult | null>(null);
   const [compileError, setCompileError] = useState<string | null>(null);
+  /** Which resume is in flight: `all`, or the job id of a single row. */
+  const [resuming, setResuming] = useState<string | null>(null);
+  const [resumeError, setResumeError] = useState<string | null>(null);
 
   const jobs = jobPage?.items ?? null;
   const selectedJobId = selection?.kind === "job" ? selection.id : null;
@@ -123,6 +145,8 @@ export default function ProcessView() {
 
   useEffect(() => {
     setPageState(firstPage());
+    // A different user is a different queue — and possibly a different engine.
+    summaryAbsent.current = false;
   }, [currentUser]);
 
   // The job ledger: loaded once; polled every 3s while a running/queued (or claimed) job is
@@ -130,6 +154,7 @@ export default function ProcessView() {
   useEffect(() => {
     if (!currentUser) {
       setJobPage(null);
+      setSummary(null);
       setLoadError(null);
       return;
     }
@@ -138,17 +163,32 @@ export default function ProcessView() {
     let loaded = false;
     const tick = async () => {
       try {
-        const page = await listJobs(currentUser, {
-          limit: PAGE_SIZE,
-          cursor: pageState.cursor,
-        });
+        // The summary never fails the ledger: a queue the engine cannot summarize is still
+        // a queue whose rows this page can read.
+        const [page, counts] = await Promise.all([
+          listJobs(currentUser, { limit: PAGE_SIZE, cursor: pageState.cursor }),
+          summaryAbsent.current
+            ? Promise.resolve(null)
+            : getJobsSummary(currentUser).catch((e: unknown) => {
+                if (e instanceof ApiError && e.status === 404) summaryAbsent.current = true;
+                return null;
+              }),
+        ]);
         if (!live) return;
         const rows = page.items;
         loaded = true;
         setJobPage(page);
         setJobPageCursor(pageState.cursor);
+        // A transient summary failure keeps the last counts rather than blanking the line
+        // mid-poll; only a route that is not there clears it.
+        if (counts) setSummary(counts);
+        else if (summaryAbsent.current) setSummary(null);
         setLoadError(null);
-        if (rows.some((j) => ACTIVE_STATUSES.has(j.status))) {
+        // A job parked on another page is still outstanding work, so the counts keep the
+        // poll alive even when nothing on THIS page is moving.
+        const outstanding =
+          (counts?.queued ?? 0) + (counts?.waiting.count ?? 0) + (counts?.claimed ?? 0) > 0;
+        if (outstanding || rows.some((j) => ACTIVE_STATUSES.has(j.status))) {
           timer = window.setTimeout(tick, 3000);
         }
       } catch (e) {
@@ -225,6 +265,25 @@ export default function ProcessView() {
       setCompileError((e as Error).message);
     } finally {
       setCompiling(false);
+    }
+  }
+
+  /**
+   * Put paused work back on the queue. No confirmation: a resume is reversible — a job that
+   * finds its dependency still away parks itself again — and a dialog in front of a
+   * reversible act only teaches people to dismiss dialogs.
+   */
+  async function onResume(body: { job_id?: string; all?: boolean }, token: string) {
+    if (!currentUser) return;
+    setResuming(token);
+    setResumeError(null);
+    try {
+      await resumeJobs(currentUser, body);
+      reload();
+    } catch (e) {
+      setResumeError((e as Error).message);
+    } finally {
+      setResuming(null);
     }
   }
 
@@ -320,6 +379,72 @@ export default function ProcessView() {
         </Callout>
       )}
 
+      {/* Parked jobs, as a line of prose rather than an alarm: nothing here failed, the
+          queue is holding work whose dependency was away. No waiting job, no line — "0
+          waiting" is a state nobody is in. */}
+      {summary && summary.waiting.count > 0 && (
+        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-13 text-ink-2">
+          <span>{t("process.waiting.line", { count: summary.waiting.count })}</span>
+          {summary.waiting.reasons.map((reason) => (
+            <span key={reason.reason} className="text-ink-3">
+              <span aria-hidden>· </span>
+              {reason.next_retry_at
+                ? t("process.waiting.reasonNext", {
+                    reason: reason.reason,
+                    count: reason.count,
+                    time: fmtClock(reason.next_retry_at),
+                  })
+                : t("process.waiting.reason", {
+                    reason: reason.reason,
+                    count: reason.count,
+                  })}
+            </span>
+          ))}
+        </p>
+      )}
+
+      {/* Under it, the work that stopped trying. Same line, one act on the end: nothing was
+          judged wrong here, so there is no error ink and no confirmation in front of it. */}
+      {summary && summary.paused.count > 0 && (
+        <p className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-13 text-ink-2">
+          <span>{t("process.paused.line", { count: summary.paused.count })}</span>
+          {summary.paused.reasons.map((reason) => (
+            <span key={reason.reason} className="text-ink-3">
+              <span aria-hidden>· </span>
+              {reason.since
+                ? t("process.paused.reasonSince", {
+                    reason: reason.reason,
+                    count: reason.count,
+                    time: fmtDayClock(reason.since),
+                  })
+                : t("process.paused.reason", {
+                    reason: reason.reason,
+                    count: reason.count,
+                  })}
+            </span>
+          ))}
+          <Button
+            size="sm"
+            variant="ghost"
+            loading={resuming === "all"}
+            disabled={readOnly || resuming != null}
+            title={readOnly ? t("process.compile.readOnlyHint") : undefined}
+            onClick={() => void onResume({ all: true }, "all")}
+          >
+            {t("process.paused.resumeAll")}
+          </Button>
+        </p>
+      )}
+      {resumeError && (
+        <Callout
+          tone="danger"
+          title={t("process.paused.resumeFailed")}
+          onDismiss={() => setResumeError(null)}
+        >
+          <Mono className="break-all">{resumeError}</Mono>
+        </Callout>
+      )}
+
       {locating && (
         <Callout tone="info">
           {t("process.locate.searching", { job: selectedJobId ?? "" })}
@@ -357,14 +482,12 @@ export default function ProcessView() {
               const st = statusText(t, j.status, j.ok);
               return (
                 <li key={j.job_id} className="border-b border-line last:border-b-0">
-                  <button
-                    type="button"
-                    aria-expanded={expanded}
-                    onClick={() =>
-                      select(expanded ? null : { kind: "job", id: j.job_id })
-                    }
+                  {/* The row expands; the resume act sits BESIDE it rather than inside it —
+                      a button nested in a button is not a row with two acts, it is invalid
+                      markup with one unreachable one. */}
+                  <div
                     className={cn(
-                      "relative flex w-full flex-col gap-1.5 px-3 py-2.5 text-left",
+                      "relative flex items-start gap-2 pr-3",
                       "transition-colors duration-120 ease-out",
                       expanded ? "bg-accent-soft" : "hover:bg-hover",
                     )}
@@ -372,25 +495,54 @@ export default function ProcessView() {
                     {expanded && (
                       <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-accent" />
                     )}
-                    <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
-                      <Mono className="min-w-0 break-all text-13 text-ink">{j.job_id}</Mono>
-                      <Badge>{j.kind}</Badge>
-                      <span className={cn("text-13", st.className)}>{st.label}</span>
-                    </span>
-                    <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-12 text-ink-3">
-                      <span>
-                        {t("process.row.created")} <Mono>{fmtTime(j.created_at)}</Mono>
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() =>
+                        select(expanded ? null : { kind: "job", id: j.job_id })
+                      }
+                      className="flex min-w-0 flex-1 flex-col gap-1.5 px-3 py-2.5 text-left"
+                    >
+                      <span className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                        <Mono className="min-w-0 break-all text-13 text-ink">{j.job_id}</Mono>
+                        <Badge>{j.kind}</Badge>
+                        <span className={cn("text-13", st.className)}>{st.label}</span>
+                        {/* A parked job is queued, not broken — the word sits BESIDE the
+                            status in muted ink, and carries the worker's own note. */}
+                        {isWaitingDetail(j.detail) && (
+                          <span className="text-12 text-ink-3" title={j.detail ?? undefined}>
+                            {t("process.row.waiting")}
+                          </span>
+                        )}
                       </span>
-                      <span>
-                        {t("process.row.completed")} <Mono>{fmtTime(j.completed_at)}</Mono>
-                      </span>
-                      {j.snapshot_ref && (
+                      <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-12 text-ink-3">
                         <span>
-                          snapshot <Mono className="break-all">{j.snapshot_ref}</Mono>
+                          {t("process.row.created")} <Mono>{fmtTime(j.created_at)}</Mono>
                         </span>
-                      )}
-                    </span>
-                  </button>
+                        <span>
+                          {t("process.row.completed")} <Mono>{fmtTime(j.completed_at)}</Mono>
+                        </span>
+                        {j.snapshot_ref && (
+                          <span>
+                            snapshot <Mono className="break-all">{j.snapshot_ref}</Mono>
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                    {j.status === "paused" && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="my-2"
+                        loading={resuming === j.job_id}
+                        disabled={readOnly || resuming != null}
+                        title={readOnly ? t("process.compile.readOnlyHint") : undefined}
+                        onClick={() => void onResume({ job_id: j.job_id }, j.job_id)}
+                      >
+                        {t("process.paused.resume")}
+                      </Button>
+                    )}
+                  </div>
                   {expanded && <JobDetail job={j} userId={currentUser} />}
                 </li>
               );
@@ -428,7 +580,7 @@ function JobDetail({ job, userId }: { job: JobSummary; userId: string }) {
   const t = useT();
   const jump = useApp((s) => s.jump);
   const { titles } = useSourceTitles(userId, job.source_ids);
-  const reasons = useMemo(() => splitGateDetail(job.detail), [job.detail]);
+  const reasons = useMemo(() => detailLines(job.detail), [job.detail]);
   return (
     <div className="border-t border-line bg-surface px-3 py-3">
       <DefinitionList

@@ -70,6 +70,7 @@ from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.skill.version import SkillVersion
 
 from ..job_lanes import lane_of
+from ..job_retry import park
 from ..persona_profile import PLACEHOLDER_NOTICE
 from ..review_service import REVIEW_JOB_KIND
 from .check import SKILL_TRAILER
@@ -1128,12 +1129,17 @@ async def complete_job(rt: DraftRuntime, job_id: str, result: CompileResult) -> 
     commit carries its snapshot. No `token_usage`: nothing here measured any, and the column
     stays NULL rather than recording a zero nobody counted."""
     if result.status == "aborted":
-        await rt.jobs.complete(
+        # The gate still refuses after the repair round. Nothing was written, the material is
+        # untouched, and a later round over the same sources can pass where this one did not —
+        # so the job waits with the gate's own words on it rather than being struck out
+        # (`job_retry.py`, and `persist_compile_result` says the same on the worker's side).
+        job = await rt.jobs.get_job(rt.user_id, job_id)
+        await park(
+            rt.jobs,
             rt.user_id,
             job_id,
-            ok=False,
-            detail="; ".join(v.render() for v in result.violations),
-            executor=rt.executor,
+            payload=dict(getattr(job, "payload", {}) or {}),
+            reason="gate refused: " + "; ".join(v.render() for v in result.violations),
         )
         return
     await rt.jobs.complete(

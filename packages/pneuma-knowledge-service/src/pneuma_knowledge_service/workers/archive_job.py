@@ -92,6 +92,8 @@ from ..archive_service import (
     library_head,
 )
 from ..ingest_sources import ingest_source_contract
+from ..infra_faults import infrastructure_fault
+from ..job_retry import park
 from ..projection import sync_projection
 from ..skills import skill_for_user
 from ..wiring import AppContext
@@ -874,6 +876,30 @@ async def run_archive_job(ctx: AppContext, user_id: UserId, job: object) -> None
     try:
         detail = await _execute(ctx, user, proposal_id, row, progress)
     except Exception as exc:  # noqa: BLE001 — every failure is the proposal's, and stated
+        if isinstance(exc, CanonicalDirtyError) or infrastructure_fault(exc) is not None:
+            # Nothing here is a defect of the PROPOSAL, and nothing was decided about it: the
+            # working tree held somebody's uncommitted changes, or a peer was away. The
+            # proposal stays CONFIRMED — still the Owner's decision, still awaiting execution
+            # — and the job waits and says what stopped it (`job_retry.py`). The dirty tree is
+            # the ordinary case: a person commits what they left there, and the next attempt
+            # executes the same decision without them having to make it again.
+            parked = await park(
+                ctx.store,
+                user,
+                job_id,
+                payload=dict(payload),
+                reason=(
+                    exc.detail if isinstance(exc, CanonicalDirtyError) else f"archive: {exc}"
+                ),
+            )
+            _log.warning("archive job %s: %s", job_id, parked.detail)
+            return
+        # Everything else IS about this proposal — a reason with no statement behind it, a
+        # record the gate refused, a move the tree would not take, a HEAD that moved under
+        # the confirm (`job_retry.TERMINAL_FAILURES["proposal_stale"]`). No wait fixes any of
+        # them, and several of them leave PARTIAL progress that has to be written down: the
+        # proposal is recorded failed with what did land, and the job ends.
+        #
         # `CanonicalDirtyError` gets its own spelling rather than a class name: the library
         # holds somebody else's uncommitted changes, the adapter refused rather than
         # discarding them, and nothing moved. One code across every face that reports it

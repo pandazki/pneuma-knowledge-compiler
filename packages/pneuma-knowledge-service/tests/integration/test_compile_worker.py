@@ -126,7 +126,7 @@ async def test_worker_compiles_one_job_end_to_end(ctx):
     await ctx.store.delete_user(user)
 
 
-async def test_a_compile_over_a_hand_edited_library_fails_canonical_dirty_and_writes_nothing(
+async def test_a_compile_over_a_hand_edited_library_waits_on_canonical_dirty_and_writes_nothing(
     ctx,
 ):
     """The correction, at the job face. Somebody edits `data/canonical/<user>/` — by hand, or
@@ -135,9 +135,13 @@ async def test_a_compile_over_a_hand_edited_library_fails_canonical_dirty_and_wr
 
     What used to happen is what this pins the end of: the adapter read any dirty tree as a
     dead writer's residue and ran `reset --hard` + `clean -fd`, so the edits were gone and
-    the only trace was one WARNING line in a worker log. The failure is STATED — the job's
-    detail is `canonical_dirty:<paths>`, not `worker error: …` — because the fix is one
+    the only trace was one WARNING line in a worker log. The failure is STATED — the reason
+    on the job is `canonical_dirty:<paths>`, not `worker error: …` — because the fix is one
     command and the operator has to be able to find it.
+
+    And then the job WAITS rather than failing: the person commits or stashes what they left
+    in the tree, and the very next attempt compiles it (`job_retry.py`). Failing it would mean
+    doing the one thing that fixes this and then still having to requeue by hand.
     """
     user = UserId(f"u-it-dirty-{uuid.uuid4().hex[:8]}")
     result = await ingest_conversation(
@@ -191,9 +195,10 @@ async def test_a_compile_over_a_hand_edited_library_fails_canonical_dirty_and_wr
         assert await drain_user(ctx, second, load_skill_base("v1"), user) == 1
 
         job = (await ctx.store.list_jobs(user))[0]
-        assert job["ok"] is False
-        assert job["detail"].startswith("canonical_dirty:")
+        assert job["status"] == "queued" and job["ok"] is None
+        assert job["detail"].startswith("waiting: canonical_dirty:")
         assert "memory/people/cheng-ye.md" in job["detail"]
+        assert job["payload"]["retry"]["attempts"] == 1
         # Their edit is still there, and the library did not move.
         assert page.read_text("utf-8") == edited
         assert (await ctx.canonical.snapshots(user))[0].ref == head
@@ -251,13 +256,23 @@ async def test_projection_failure_keeps_source_retryable_and_noop_repairs_it(
             for job in await ctx.store.list_jobs(user)
             if job["kind"] == "compile"
         ][0]
-        assert failed["status"] == "done" and failed["ok"] is False
+        # A derived store that was away is not the compile's failure: the job waits, saying
+        # so, and the canonical commit it already made is reconciled by the replay below.
+        assert failed["status"] == "queued" and failed["ok"] is None
+        assert failed["detail"].startswith("waiting: worker error: ")
         assert "synthetic projection outage" in failed["detail"]
 
-        # POST /compile would select this undigested source. Replaying it is a
-        # canonical noop, but must repair all derived stores before digestion.
-        assert await ctx.store.undigested_source_ids(user) == [sid]
-        await ctx.store.enqueue(user, "compile", {"source_ids": [sid]})
+        # The waiting job IS the work, so `POST /compile` adds nothing: it selects a source
+        # whose compile is already in flight, and a parked row is in flight. That is the
+        # idempotence the endpoint has always had, now covering a retry it does not own.
+        assert await ctx.store.undigested_source_ids(user) == []
+
+        # When its wait passes, the same row is claimed again. Replaying it is a canonical
+        # noop, but must repair all derived stores before digestion.
+        async with ctx.store._pool.connection() as conn:
+            await conn.execute(
+                "UPDATE compile_jobs SET not_before = NULL WHERE id = %s", (failed["job_id"],)
+            )
         assert await drain_user(ctx, model, load_skill_base("v1"), user) == 1
 
         assert calls == 2
@@ -267,6 +282,7 @@ async def test_projection_failure_keeps_source_retryable_and_noop_repairs_it(
             for job in await ctx.store.list_jobs(user)
             if job["kind"] == "compile"
         ][0]
+        assert retry["job_id"] == failed["job_id"], "the Owner's job id changed under them"
         assert retry["ok"] is True
         assert retry["detail"].startswith("projection:")
         assert await ctx.store.list_canonical_claims(user)

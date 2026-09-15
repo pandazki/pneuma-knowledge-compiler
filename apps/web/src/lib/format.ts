@@ -51,6 +51,46 @@ export function fmtCount(n: number, locale: Locale = activeLocale()): string {
 }
 
 /**
+ * A wall clock, `HH:MM` — for a moment close enough that the day does not need saying. A
+ * retry a few minutes out is read as a time of day, and a date in front of it would be
+ * noise; anything that is not a stamp is passed through rather than turned into a lie.
+ */
+export function fmtClock(
+  ts: string | null | undefined,
+  locale: Locale = activeLocale(),
+): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  return d.toLocaleTimeString(intlTag(locale), {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/**
+ * A day and a clock without the year — `MM-DD HH:MM`. `fmtTime` carries seconds because it
+ * stamps a job's own moments; a "since" in a line of prose is read to the minute, and the
+ * two extra digits are noise there.
+ */
+export function fmtDayClock(
+  ts: string | null | undefined,
+  locale: Locale = activeLocale(),
+): string {
+  if (!ts) return "—";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return ts;
+  return d.toLocaleString(intlTag(locale), {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+/**
  * A `YYYY-MM-DD` day, as a day — no clock. Passed through untouched if it is not one, so a
  * malformed stamp stays visible instead of turning into "Invalid Date".
  */

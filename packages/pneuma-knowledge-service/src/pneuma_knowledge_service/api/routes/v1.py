@@ -2364,6 +2364,135 @@ async def list_jobs(
     )
 
 
+class WaitingReasonOut(BaseModel):
+    """One reason jobs are waiting, how many wait on it, and the soonest of them."""
+
+    reason: str
+    count: int
+    next_retry_at: str | None = None
+
+
+class WaitingOut(BaseModel):
+    count: int
+    reasons: list[WaitingReasonOut] = []
+
+
+class PausedReasonOut(BaseModel):
+    """One reason jobs are paused, how many, and since when the oldest of them has been."""
+
+    reason: str
+    count: int
+    since: str | None = None
+
+
+class PausedOut(BaseModel):
+    count: int
+    reasons: list[PausedReasonOut] = []
+
+
+class JobSummaryOut(BaseModel):
+    """What this library's queue is doing, in one read.
+
+    Five disjoint counts and the reasons behind two of them. `waiting` is the queue's answer
+    to "why is nothing moving": a job that did not finish goes back to `queued` behind a
+    `not_before` with the reason on its row (the service's `job_retry.py`), so a library whose
+    provider is refusing payment shows thirteen jobs WAITING on a stated reason rather than
+    thirteen jobs failed, or — worse — a queue that has silently stopped. `paused` is the end
+    of that road: a job that has used up the retry schedule stops asking and waits for a
+    person, and `POST /jobs/resume` is what starts it again. `queued` is what a claim could
+    take right now; neither the waiting nor the paused rows are in it.
+    """
+
+    queued: int
+    waiting: WaitingOut
+    paused: PausedOut = PausedOut(count=0)
+    claimed: int
+    failed: int
+    succeeded: int
+
+
+@router.get("/jobs/summary", response_model=JobSummaryOut)
+async def job_summary(user_id: str, request: Request) -> JobSummaryOut:
+    """The queue's counts, and why the waiting jobs wait."""
+    ctx = _ctx(request)
+    summary = await ctx.store.job_summary(UserId(user_id))
+    waiting = summary.get("waiting") or {}
+    paused = summary.get("paused") or {}
+    return JobSummaryOut(
+        queued=int(summary.get("queued", 0)),
+        claimed=int(summary.get("claimed", 0)),
+        failed=int(summary.get("failed", 0)),
+        succeeded=int(summary.get("succeeded", 0)),
+        waiting=WaitingOut(
+            count=int(waiting.get("count", 0)),
+            reasons=[
+                WaitingReasonOut(
+                    reason=str(entry["reason"]),
+                    count=int(entry["count"]),
+                    next_retry_at=_stamp(entry.get("next_retry_at")),
+                )
+                for entry in (waiting.get("reasons") or [])
+            ],
+        ),
+        paused=PausedOut(
+            count=int(paused.get("count", 0)),
+            reasons=[
+                PausedReasonOut(
+                    reason=str(entry["reason"]),
+                    count=int(entry["count"]),
+                    since=_stamp(entry.get("since")),
+                )
+                for entry in (paused.get("reasons") or [])
+            ],
+        ),
+    )
+
+
+def _stamp(value: object) -> str | None:
+    """One instant as the API writes them, or null when the row could not say."""
+    return value.isoformat() if isinstance(value, datetime) else None
+
+
+class ResumeJobsIn(BaseModel):
+    """Which paused jobs to start again. Exactly one selector, and one is required.
+
+    Required because `resume` with nothing stated would be a whole library's paused work
+    restarted by an empty request, and the place to refuse an accident is before it happens.
+    """
+
+    job_id: str | None = None
+    reason_like: str | None = None
+    all: bool = False
+
+
+class ResumeJobsOut(BaseModel):
+    resumed: int
+
+
+@router.post("/jobs/resume", response_model=ResumeJobsOut)
+async def resume_jobs(user_id: str, body: ResumeJobsIn, request: Request) -> ResumeJobsOut:
+    """Put paused jobs back in the queue with a fresh retry schedule.
+
+    The other half of the pause (`job_retry.py`): a job that used up the schedule is waiting
+    for a person, and this is the person saying they have done the thing it was waiting for.
+    `payload.retry.attempts` goes back to 0 so the next failure waits a minute rather than the
+    day the exhausted schedule ended on; the history is kept.
+    """
+    if not (body.job_id or (body.reason_like or "").strip() or body.all):
+        raise HTTPException(
+            status_code=422,
+            detail="resume needs a selector: job_id, reason_like or all",
+        )
+    ctx = _ctx(request)
+    resumed = await ctx.store.resume_jobs(
+        UserId(user_id),
+        job_id=body.job_id or None,
+        reason_like=(body.reason_like or "").strip(),
+        every=bool(body.all),
+    )
+    return ResumeJobsOut(resumed=resumed)
+
+
 @router.get("/history", response_model=HistoryPageOut)
 async def list_history(
     user_id: str,

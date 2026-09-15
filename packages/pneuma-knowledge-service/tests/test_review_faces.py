@@ -594,14 +594,17 @@ async def test_a_review_round_that_repaired_nothing_and_said_nothing_is_not_ok(
     assert result.outcome == REVIEW_INCOMPLETE
     assert not store.commits, "a round that repaired nothing must not have committed"
     row = await job_row(jobs, DRAFT_USER, job_id)
-    assert row["ok"] is False
-    assert row["detail"].startswith("review_incomplete:"), row["detail"]
+    # It WAITS rather than failing — the same report read again by a round that answers it is
+    # an ordinary round — and the row says which of the two nothings this was.
+    assert row["ok"] is None and row["status"] == "queued"
+    assert row["detail"].startswith("waiting: review_incomplete:"), row["detail"]
     assert "neither repaired a finding nor said why" in row["detail"]
     # What the Steward said, on the row — the per-job home the round ran in is already gone.
     assert row["harness_output"] and said in row["harness_output"]
-    # And bounded like a harness that died: it comes back, it does not come back forever.
-    (queued,) = [r for r in await jobs.list_jobs(DRAFT_USER) if r["status"] == "queued"]
-    assert queued["payload"]["harness_failures"] == 1
+    # One row, its own place, the attempt counted on it.
+    assert [r["job_id"] for r in await jobs.list_jobs(DRAFT_USER)] == [job_id]
+    assert row["payload"]["retry"]["attempts"] == 1
+    assert row["not_before"] is not None
 
 
 async def test_a_review_round_that_repaired_nothing_but_said_why_is_a_finished_round(
@@ -684,12 +687,12 @@ async def test_the_harnesss_own_finish_meets_the_same_rule_and_can_still_answer_
     assert row["ok"] is True and row["detail"] == draft_cmd.REVIEW_NOTHING_DETAIL
 
 
-async def test_a_harness_that_walks_away_from_that_refusal_still_fails_the_job(
+async def test_a_harness_that_walks_away_from_that_refusal_still_brings_the_job_back(
     monkeypatch, tmp_path
 ):
     """The other half: a round refused inside the harness's own session, whose Steward then
     stops rather than answering. The worker finishes what is there, meets the same rule, and
-    this time there is nobody left to answer it — so the job fails and comes back."""
+    this time there is nobody left to answer it — so the job waits and comes back."""
     rt, jobs, _drafts, store, job_id = await review_runtime()
 
     async def finish_and_stop(inside):  # noqa: ANN001
@@ -705,7 +708,7 @@ async def test_a_harness_that_walks_away_from_that_refusal_still_fails_the_job(
     assert result.outcome == REVIEW_INCOMPLETE
     assert not store.commits
     row = await job_row(jobs, DRAFT_USER, job_id)
-    assert row["ok"] is False and row["detail"].startswith("review_incomplete:")
+    assert row["ok"] is None and row["detail"].startswith("waiting: review_incomplete:")
     assert "I found nothing to do." in (row["harness_output"] or "")
 
 

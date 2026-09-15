@@ -151,6 +151,79 @@ class JobQueue(Protocol):
         """
         ...
 
+    async def park(
+        self,
+        user_id: UserId,
+        job_id: str,
+        *,
+        payload: dict[str, Any],
+        not_before: datetime | None,
+        detail: str,
+        paused: bool = False,
+        claimed_by: str | None = None,
+        harness_output: str | None = None,
+    ) -> None:
+        """Return a job to the queue to be retried later, on the SAME row.
+
+        The queue's answer to every failure that is not provably hopeless (the service's
+        `job_retry.py` states the rule and the one list of exceptions). It differs from
+        `release` in that something DID go wrong and the row says so — `detail` carries
+        `waiting: <reason>; retry at <instant> (attempt n)` and `payload.retry` carries the
+        history — and from `complete(ok=False)` in that the job is not finished: it is queued
+        again, behind `not_before`, at the place it already had.
+
+        The same row on purpose. A queue that answers a failure by completing one row and
+        writing another makes the Owner track a chain of ids for one piece of work, and makes
+        every count of "what failed" include work that is merely waiting. Nothing about the
+        row's place changes, so a job that was next is next again when its wait is over.
+
+        `paused` is the end of the retry schedule: the row goes to the `paused` status with no
+        `not_before` at all, because what it is waiting for is a PERSON rather than an
+        instant. A paused job is never claimed and never requeued by a self-heal; `resume_jobs`
+        is the only thing that starts it again.
+
+        `claimed_by`, when supplied, requires that body to still hold the claim, exactly as it
+        does on `complete`. A finished job is never parked.
+        """
+        ...
+
+    async def resume_jobs(
+        self,
+        user_id: UserId,
+        *,
+        job_id: str | None = None,
+        reason_like: str = "",
+        every: bool = False,
+    ) -> int:
+        """Put paused jobs back in the queue with a fresh schedule; return how many.
+
+        The other half of the pause: a person has done the thing the row was waiting for —
+        topped up the account, logged the harness in, committed what they left in the tree —
+        and says so. `payload.retry.attempts` goes back to 0 so the next failure waits a
+        minute rather than a day (the situation has changed, and the schedule is a guess about
+        the situation), while `payload.retry.history` is KEPT: what already happened to this
+        job is not undone by resuming it.
+
+        One of three selectors, and at least one is required — `job_id` for a named row,
+        `reason_like` for every row whose reason contains that text, `every` for all of them.
+        Nothing else about the row moves: same id, same place, same payload of work.
+        """
+        ...
+
+    async def job_summary(self, user_id: UserId) -> dict[str, Any]:
+        """What this user's queue is doing right now, in one read.
+
+        `{queued, waiting: {count, reasons: [{reason, count, next_retry_at}]}, paused:
+        {count, reasons: [{reason, count, since}]}, claimed, failed, succeeded}`. `queued` is
+        what a claim could take now, `waiting` is the rest of the queued rows — those whose
+        `not_before` is still ahead — and `paused` is the ones that have run out of schedule
+        and are waiting for a person; the counts are disjoint and a face can add them up.
+        Both `reasons` lists group by the phrase the row's detail carries, because "13
+        waiting" is a fact nobody can act on and "9 of them on a payment refusal" is the one
+        an Owner can.
+        """
+        ...
+
     async def release(self, user_id: UserId, job_id: str) -> None:
         """Return a claimed job to the queue, undecided (`pkc draft abandon`).
 

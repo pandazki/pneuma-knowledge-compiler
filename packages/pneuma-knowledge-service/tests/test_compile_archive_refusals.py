@@ -46,6 +46,10 @@ class _Store:
     def __init__(self) -> None:
         self.completed: list[dict] = []
         self.digested: list[tuple] = []
+        #: An aborted round does not END its job — it waits (`job_retry.park`) — so the
+        #: detail this module is about lands here instead.
+        self.parked: list[dict] = []
+        self.usage: list[dict] = []
 
     async def block_counts(self, user_id):
         return {}
@@ -55,6 +59,15 @@ class _Store:
 
     async def complete(self, user_id, job_id, *, ok, detail, token_usage=None, **kw):
         self.completed.append({"job_id": job_id, "ok": ok, "detail": detail})
+
+    async def park(self, user_id, job_id, *, payload, not_before, detail, **kw):
+        self.parked.append({"job_id": job_id, "detail": detail, "not_before": not_before})
+
+    async def record_job_usage(self, user_id, job_id, *, token_usage=None, **kw):
+        self.usage.append({"job_id": job_id, "token_usage": token_usage})
+
+    async def get_job(self, user_id, job_id):
+        return None
 
 
 class _Canonical:
@@ -105,7 +118,11 @@ async def _run(monkeypatch, result: CompileResult) -> dict:
     monkeypatch.setattr(compile_worker, "maybe_trigger_evolve", _noop)
     job = SimpleNamespace(job_id="job-1", payload={"source_ids": []})
     await process_job(ctx, None, _skill(), USER, job)
-    return ctx.store.completed[0]
+    if ctx.store.completed:
+        return ctx.store.completed[0]
+    # An aborted round waits rather than failing: the same detail, on the row it keeps.
+    row = ctx.store.parked[0]
+    return {"job_id": row["job_id"], "ok": False, "detail": row["detail"], "row": row}
 
 
 async def _noop(*args, **kwargs):
@@ -141,7 +158,9 @@ async def test_an_aborted_round_reports_its_refusals_beside_its_violations(monke
     )
     done = await _run(monkeypatch, result)
     assert done["ok"] is False
-    assert done["detail"].startswith("[citation] memory/topics/x.md: no such source; ")
+    assert done["detail"].startswith(
+        "waiting: gate refused: [citation] memory/topics/x.md: no such source; "
+    )
     assert "archive_refusals:" in done["detail"]
 
 
@@ -164,7 +183,8 @@ async def test_a_repair_round_is_visible_on_every_branch_including_an_abort(monk
         ),
     )
     assert aborted["ok"] is False
-    assert aborted["detail"].endswith("; rounds:2")
+    # The run facts still ride the reason, ahead of the retry the park appends to it.
+    assert "; rounds:2; retry at " in aborted["detail"]
 
     noop = await _run(monkeypatch, _result("noop", rounds=2))
     assert noop["detail"] == "noop; rounds:2"
