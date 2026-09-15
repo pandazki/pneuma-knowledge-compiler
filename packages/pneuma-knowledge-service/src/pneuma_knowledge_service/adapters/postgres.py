@@ -1830,8 +1830,9 @@ class PostgresStore:
         *,
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
+        harness_output: str | None = None,
     ) -> None:
-        """`token_usage` / `executor` on an already-finished job, and nothing else.
+        """`token_usage` / `executor` / `harness_output` on an already-finished job.
 
         The unattended agent launcher learns what a round cost only after the round's own
         `pkc draft finish` completed the job (docs/design/coding-agent-mode.md §9). This adds
@@ -1843,14 +1844,16 @@ class PostgresStore:
         assignment gets an assignment cast for free, `coalesce(json, jsonb)` has no common
         type and raises at execution time. The in-memory double cannot see that difference,
         which is why the test for this is a PG-tier one."""
-        if token_usage is None and executor is None:
+        if token_usage is None and executor is None and harness_output is None:
             return
         async with self._pool.connection() as conn:
             await conn.execute(
                 "UPDATE compile_jobs SET token_usage = coalesce(%s, token_usage), "
+                "harness_output = coalesce(%s, harness_output), "
                 "executor = coalesce(%s, executor) WHERE user_id = %s AND id = %s",
                 (
                     Jsonb(dict(token_usage)) if token_usage else None,
+                    harness_output or None,
                     executor or None,
                     str(user_id),
                     job_id,

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 
 import httpx
@@ -32,15 +33,37 @@ from pneuma_knowledge_service.cli import build_parser, dispatch
 from pneuma_knowledge_service.job_lanes import CANONICAL_LANE, JOB_LANES, lane_of
 from pneuma_knowledge_service.lens import read_check
 from pneuma_knowledge_service.review_service import (
+    REVIEW_CLEAN_KEY,
     REVIEW_JOB_KIND,
     REVIEW_TASK_KEY,
     enqueue_review,
     render_check_task,
 )
 from pneuma_knowledge_service.settings import Settings
+from pneuma_knowledge_core.compile.patch import PatchDraft
+from pneuma_knowledge_core.compile.session import DraftSession
+from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+from pneuma_knowledge_core.domain.ids import DocumentId
+from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+from pneuma_knowledge_service.cli import draft as draft_cmd, review as review_cli
+from pneuma_knowledge_service.coding_agent.launcher import LaunchResult
+from pneuma_knowledge_service.coding_agent.round_runner import (
+    HANDED_OFF,
+    FINISHED_BY_WORKER,
+    REVIEW_INCOMPLETE,
+)
+from pneuma_knowledge_service.lens import read_check_over
 from pneuma_knowledge_service.workers import compile_worker
 
 from _cli_library import USER, document, library  # noqa: E402
+from test_agent_round import (  # noqa: E402
+    FakeHarness,
+    drive_agent_job,
+    job_row,
+    runner,
+)
+from test_draft_cli import SKILL, FakeCanonicalStore  # noqa: E402
+from test_draft_cli import USER as DRAFT_USER  # noqa: E402
 
 PAGE = "memory/topics/pricing.md"
 OTHER = "memory/people/cheng-ye.md"
@@ -390,15 +413,588 @@ async def test_under_a_model_executor_the_review_round_is_skipped_and_says_so(mo
     assert completed["ok"] and "not a coding agent" in (completed["detail"] or "")
 
 
-def test_the_review_round_is_finished_by_the_ordinary_gate():
-    """No second rulebook: its OPEN is its own (the task is a report, not a source), and its
-    FINISH is `cli/draft.py`'s — the same predicates judging the same kind of draft."""
+# ───────────────────────────────────── the round, over the runtime the worker really builds
+
+#: A page written before the leading-`# ` rule existed: the check reports `id.title_degenerate`
+#: against it and names `retitle` as the repair, so one round can actually close it.
+UNNAMED = "memory/people/legacy.md"
+
+#: A page whose dated sections arrive newest-first — what `reorder-chronology` repairs. Kept
+#: out of `_legacy_base` so the other rounds keep their one-finding library.
+UNORDERED = "memory/topics/alpha.md"
+
+
+def _legacy_base():
+    return [
+        CanonicalDocument(
+            doc_id=DocumentId("legacy01"),
+            path=UNNAMED,
+            frontmatter={"doc_id": "legacy01", "type": "person", "slug": "legacy"},
+            body="## 旧页\n\n- 旧的一条。[cite: src-old ¶0] <!-- c:bb22 -->",
+        )
+    ]
+
+
+def _unordered_doc():
+    return CanonicalDocument(
+        doc_id=DocumentId("alphaev1"),
+        path=UNORDERED,
+        frontmatter={"doc_id": "alphaev1", "type": "topic", "slug": "alpha"},
+        body=(
+            "# Alpha 的演进\n\n"
+            "## 2026-03-01\n\n- 三月的一条。[cite: src-old ¶1] <!-- c:cc33 -->\n\n"
+            "## 2026-01-01\n\n- 一月的一条。[cite: src-old ¶2] <!-- c:dd44 -->"
+        ),
+    )
+
+
+async def review_runtime(base=None):
+    """A REAL `DraftRuntime` for a queued review job — the dataclass, not a stand-in.
+
+    This is the fixture the missing test needed. `open_round` reached for `rt.ctx`, which a
+    `DraftRuntime` does not carry, and every test that "covered" the round did so through a
+    `SimpleNamespace` or by reading the source for a string — so the round died at open on the
+    Owner's library with nothing to show for it. A runtime with exactly the fields the real one
+    has is the only fixture that can tell the two apart.
+    """
+    store = FakeCanonicalStore(_legacy_base() if base is None else base)
+    jobs = InMemoryJobQueue()
+    drafts = InMemoryDraftStore(jobs)
+    job_id = await jobs.enqueue(DRAFT_USER, REVIEW_JOB_KIND, {})
+
+    async def no_inputs(job):  # noqa: ANN001
+        # PINNED rather than stubbed: a review round has no source, so anything that reached
+        # for compile material would be reaching for material this job never had.
+        raise AssertionError("a review round loads no compile inputs")
+
+    async def no_sources(ids):  # noqa: ANN001
+        assert not list(ids), "a review round's session names no sources"
+        return []
+
+    async def load_bounds():
+        return None
+
+    rt = draft_cmd.DraftRuntime(
+        user_id=DRAFT_USER,
+        canonical=store,
+        drafts=drafts,
+        jobs=jobs,
+        skill=SKILL,
+        load_inputs=no_inputs,
+        load_sources=no_sources,
+        load_bounds=load_bounds,
+        overview_budget_chars=2000,
+        overview_required_after_claims=8,
+        kind=REVIEW_JOB_KIND,
+        out=io.StringIO(),
+        err=io.StringIO(),
+    )
+    return rt, jobs, drafts, store, job_id
+
+
+async def test_the_round_opens_over_what_the_runtime_carries_and_nothing_else():
+    """The regression. `open_round` may read only the runtime's own fields — `canonical`,
+    `skill.path_templates` — because that is all a `DraftRuntime` has."""
+    rt, _jobs, drafts, _store, job_id = await review_runtime()
+    code, system_text, task_text = await review_cli.open_round(rt, job_id)
+    assert code == draft_cmd.EXIT_OK, rt.err.getvalue()
+
+    assert task_text.startswith("review · ")  # the report's own head
+    assert "id.title_degenerate" in task_text and UNNAMED in task_text
+    assert prompt(REVIEW_TASK_KEY).strip("\n") in task_text
+    assert system_text.strip(), "the round is given the write contract it is judged by"
+
+    state = await drafts.get(DRAFT_USER, job_id)
+    assert state is not None and state["kind"] == REVIEW_JOB_KIND
+    assert state["session"]["task_sha256"]
+
+
+async def test_the_round_refuses_a_job_of_another_kind():
+    rt, jobs, _drafts, _store, _job_id = await review_runtime()
+    other = await jobs.enqueue(DRAFT_USER, "compile", {"source_ids": ["src-01"]})
+    code, _system, _task = await review_cli.open_round(rt, other)
+    assert code == draft_cmd.EXIT_REFUSED
+    assert "not a review job" in rt.err.getvalue()
+
+
+async def test_the_worker_path_opens_the_round_and_the_harness_repairs_what_it_found(tmp_path):
+    """The whole round as the worker runs it: the runner opens the draft, hands the report to
+    a harness, and the harness's repair goes through the ORDINARY verbs and the ordinary gate.
+
+    Only the subprocess is a double. Everything else — the open, the `retitle`, the gate, the
+    commit, the job row — is the shipped code."""
+    rt, jobs, drafts, store, job_id = await review_runtime()
+    assert await jobs.claim(DRAFT_USER, job_id) is not None
+
+    seen: dict = {}
+
+    async def look(inside):  # noqa: ANN001 — the runtime, mid-round
+        seen["state"] = await inside.drafts.get(inside.user_id, job_id)
+
+    fake = FakeHarness(rt, [[look, ("retitle", {"path": UNNAMED, "title": "旧页"}), "finish"]])
+    result = await runner(fake, tmp_path).run_job(rt, job_id)
+
+    (request,) = fake.requests
+    assert "id.title_degenerate" in request.task_text, "the round was not given the report"
+    assert prompt(REVIEW_TASK_KEY).strip("\n") in request.task_text
+    assert "already open" in request.task_text  # the unattended preamble rides above it
+    assert seen["state"]["kind"] == REVIEW_JOB_KIND, "no draft was open during the round"
+
+    assert result.outcome == HANDED_OFF
+    assert len(store.commits) == 1
+    assert "# 旧页" in store.commits[-1][UNNAMED]
+    assert jobs.completed and jobs.completed[0]["ok"] is True
+
+
+async def test_the_repaired_page_no_longer_answers_for_the_finding(tmp_path):
+    """The round is measurable the way the design says: the same library, a reading before and
+    a reading after (§7). Nothing asserts it IMPROVES — this asserts the loop is closed."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+    before, _docs = await read_check_over(store, DRAFT_USER, SKILL.path_templates)
+    assert any(f.id == "id.title_degenerate" for f in before.findings)
+
+    assert await jobs.claim(DRAFT_USER, job_id) is not None
+    fake = FakeHarness(rt, [[("retitle", {"path": UNNAMED, "title": "旧页"}), "finish"]])
+    await runner(fake, tmp_path).run_job(rt, job_id)
+
+    after, _docs = await read_check_over(store, DRAFT_USER, SKILL.path_templates)
+    assert not any(
+        f.id == "id.title_degenerate" and UNNAMED in f.paths for f in after.findings
+    )
+
+
+# ───────────────────────────── the round that accounted for nothing (the Owner's first run)
+
+
+def _review_ctx(jobs):
+    """The worker context `process_agent_job` reads: a coding-agent compile executor."""
+    return _Ctx(_settings(llm_model_compile="agent:codex"), jobs)
+
+
+def _silent(said: str = "") -> LaunchResult:
+    """A harness that exited 0 — cleanly, reporting nothing wrong — and typed nothing."""
+    return LaunchResult(exit_code=0, stdout='{"type":"item.completed"}\n', stderr="",
+                        last_message=said)
+
+
+async def test_a_review_round_that_repaired_nothing_and_said_nothing_is_not_ok(
+    monkeypatch, tmp_path
+):
+    """The defect this closes, as it happened: 248 open findings, a harness that ran three
+    and a half minutes, exited 0 without finishing, a worker that finished the empty draft —
+    and a job row reading `ok=True, projection:{…unchanged…}; rounds:1`. Nothing was repaired,
+    nothing was said about repairing nothing, and the row claimed the work was done."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+    said = "I read the report and stopped."
+    fake = FakeHarness(rt, [["nothing"]], result=lambda: _silent(said))
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == REVIEW_INCOMPLETE
+    assert not store.commits, "a round that repaired nothing must not have committed"
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is False
+    assert row["detail"].startswith("review_incomplete:"), row["detail"]
+    assert "neither repaired a finding nor said why" in row["detail"]
+    # What the Steward said, on the row — the per-job home the round ran in is already gone.
+    assert row["harness_output"] and said in row["harness_output"]
+    # And bounded like a harness that died: it comes back, it does not come back forever.
+    (queued,) = [r for r in await jobs.list_jobs(DRAFT_USER) if r["status"] == "queued"]
+    assert queued["payload"]["harness_failures"] == 1
+
+
+async def test_a_review_round_that_repaired_nothing_but_said_why_is_a_finished_round(
+    monkeypatch, tmp_path
+):
+    """The other legitimate ending, and the reason the rule is about the ACCOUNT and not
+    about the writes: a finding that needs the Owner's judgement is left on purpose, and the
+    round that leaves it and says so has done exactly what it was asked to do."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+
+    async def finish_with_a_brief(inside):  # noqa: ANN001
+        await draft_cmd.cmd_finish(
+            inside, brief="The one finding needs the Owner: only they can name this page."
+        )
+
+    fake = FakeHarness(rt, [[finish_with_a_brief]], result=lambda: _silent())
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == HANDED_OFF, "the harness judged its own round"
+    assert not store.commits
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is True
+    assert row["detail"] == draft_cmd.REVIEW_NOTHING_DETAIL
+    assert not [r for r in await jobs.list_jobs(DRAFT_USER) if r["status"] == "queued"]
+
+
+async def test_a_review_over_a_library_with_nothing_to_repair_finishes_ok(
+    monkeypatch, tmp_path
+):
+    """A round is owed an account of the findings it was GIVEN. A library the check reads
+    clean gives it none, so writing nothing and saying nothing is the whole of the work —
+    and the task says so in words rather than asking for repairs over an empty list."""
+    rt, jobs, _drafts, store, job_id = await review_runtime(base=[])
+    report, _documents = await read_check_over(store, DRAFT_USER, SKILL.path_templates)
+    assert not report.findings, "this fixture is only a test while the library reads clean"
+
+    fake = FakeHarness(rt, [["nothing"]], result=lambda: _silent())
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    (request,) = fake.requests
+    assert prompt(REVIEW_CLEAN_KEY).strip("\n") in request.task_text
+    assert prompt(REVIEW_TASK_KEY).strip("\n") not in request.task_text
+    assert result.outcome == FINISHED_BY_WORKER
+    assert not store.commits
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is True and row["detail"] == draft_cmd.REVIEW_CLEAN_DETAIL
+    assert not [r for r in await jobs.list_jobs(DRAFT_USER) if r["status"] == "queued"]
+
+
+async def test_the_harnesss_own_finish_meets_the_same_rule_and_can_still_answer_it(
+    monkeypatch, tmp_path
+):
+    """The rule lives in `cmd_finish`, the one function that ends a draft whoever calls it —
+    so a Steward running `pkc draft finish` itself over a round it did nothing in is refused
+    in its own process. A rule only the worker enforced is one the harness walks around.
+
+    And the refusal is answerable while somebody can answer it: the draft stays open and one
+    `finish --brief` ends the round. Deleting it there would refuse a Steward for having no
+    brief and then take away the only round it could write one in."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+
+    async def finish_then_say_why(inside):  # noqa: ANN001
+        assert await draft_cmd.cmd_finish(inside) == draft_cmd.EXIT_GATE
+        assert "--brief" in inside.err.getvalue(), "the refusal did not say what ends the round"
+        await draft_cmd.cmd_finish(
+            inside, brief="Every finding here needs the Owner's judgement; I repaired none."
+        )
+
+    fake = FakeHarness(rt, [[finish_then_say_why]], result=lambda: _silent())
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == HANDED_OFF
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is True and row["detail"] == draft_cmd.REVIEW_NOTHING_DETAIL
+
+
+async def test_a_harness_that_walks_away_from_that_refusal_still_fails_the_job(
+    monkeypatch, tmp_path
+):
+    """The other half: a round refused inside the harness's own session, whose Steward then
+    stops rather than answering. The worker finishes what is there, meets the same rule, and
+    this time there is nobody left to answer it — so the job fails and comes back."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+
+    async def finish_and_stop(inside):  # noqa: ANN001
+        assert await draft_cmd.cmd_finish(inside) == draft_cmd.EXIT_GATE
+
+    fake = FakeHarness(
+        rt, [[finish_and_stop]], result=lambda: _silent("I found nothing to do.")
+    )
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == REVIEW_INCOMPLETE
+    assert not store.commits
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is False and row["detail"].startswith("review_incomplete:")
+    assert "I found nothing to do." in (row["harness_output"] or "")
+
+
+async def test_a_round_whose_own_finish_left_the_job_claimed_is_not_a_lost_draft(tmp_path):
+    """The runner's safety net, stated as a test because the alternative is a stuck job.
+
+    A draft that is gone while the job is still claimed by THIS launch can only be a finish
+    that refused the round and left it for the worker. Reading that as a lost draft — which
+    is what a missing draft used to mean — ends the job nowhere: it stays claimed, and the
+    tenant's canonical lane stays held by a round that is over."""
+    rt, jobs, drafts, _store, job_id = await review_runtime()
+
+    async def drop_the_draft(inside):  # noqa: ANN001
+        await inside.drafts.delete(
+            inside.user_id, job_id, executor=inside.draft_executor
+        )
+
+    fake = FakeHarness(rt, [[drop_the_draft]], result=lambda: _silent())
+    assert await jobs.claim(DRAFT_USER, job_id) is not None
+    result = await runner(fake, tmp_path).run_job(rt, job_id)
+
+    assert result.outcome == REVIEW_INCOMPLETE
+    assert (await jobs.get_job(DRAFT_USER, job_id)).status == "claimed"
+
+
+async def test_a_review_round_that_repaired_something_stays_ok(monkeypatch, tmp_path):
+    """The round that did the work is unchanged by any of this: no brief is owed, because
+    the repair itself is the account."""
+    rt, jobs, _drafts, store, job_id = await review_runtime()
+    fake = FakeHarness(
+        rt, [[("retitle", {"path": UNNAMED, "title": "旧页"}), "finish"]],
+        result=lambda: _silent(),
+    )
+    result = await drive_agent_job(
+        monkeypatch, _review_ctx(jobs), rt, job_id, fake, tmp_path
+    )
+
+    assert result.outcome == HANDED_OFF
+    assert len(store.commits) == 1
+    row = await job_row(jobs, DRAFT_USER, job_id)
+    assert row["ok"] is True
+
+
+async def test_a_review_draft_reopens_as_a_review_draft_and_not_as_a_compile_one():
+    """The second half of the same defect. `DraftSession.from_state` allow-lists the kinds it
+    will reopen, so a kind missing from that list comes back as `compile` — and every shared
+    command then refuses the round it is standing in with "the open draft is compile". The
+    round survives one command and dies on the next, which no in-memory session can show."""
+    rt, _jobs, drafts, _store, job_id = await review_runtime()
+    code, _system, _task = await review_cli.open_round(rt, job_id)
+    assert code == draft_cmd.EXIT_OK, rt.err.getvalue()
+
+    state = await drafts.get(DRAFT_USER, job_id)
+    assert DraftSession.from_state(state["session"]).kind == REVIEW_JOB_KIND
+    assert await draft_cmd.draft_kind(rt, job_id) == REVIEW_JOB_KIND
+    # And the shared verbs accept it, which is the thing the kind is read for.
+    assert await draft_cmd.cmd_status(rt) == draft_cmd.EXIT_OK, rt.err.getvalue()
+
+
+# ───────────────────────────────── the door: `pkc draft` works the round the worker opened
+
+
+def as_pkc_draft(rt):
+    """The SAME stores under the runtime `pkc draft` builds for itself.
+
+    Its kind is `compile`, because `cli/runtime.build_runtime` defaults to that and the
+    Owner's terminal never says otherwise — which is the whole point. Every guard in
+    `cli/draft.py` used to compare that kind against the SESSION's, so a review round the
+    worker had opened refused every verb the Steward typed at it, with a sentence naming the
+    door it was already standing in.
+    """
+    return replace(rt, kind="compile", out=io.StringIO(), err=io.StringIO())
+
+
+async def opened_review_round(base=None):
+    """A review draft open on the library, and the `pkc draft` runtime a Steward types at."""
+    rt, jobs, drafts, store, job_id = await review_runtime(base)
+    code, _system, task = await review_cli.open_round(rt, job_id)
+    assert code == draft_cmd.EXIT_OK, rt.err.getvalue()
+    return as_pkc_draft(rt), jobs, drafts, store, job_id, task
+
+
+@pytest.mark.parametrize(
+    "verb,args",
+    [
+        ("list_documents", {}),
+        ("read_document", {"path": UNNAMED}),
+        ("retitle", {"path": UNNAMED, "title": "旧页"}),
+        ("reorder_chronology", {"path": UNORDERED}),
+    ],
+)
+async def test_every_pkc_draft_verb_works_the_open_review_round(verb, args):
+    """The defect, one verb at a time. Not one of these may answer "use `pkc draft`" to a
+    session that IS typing `pkc draft`."""
+    rt, _jobs, _drafts, _store, _job_id, _task = await opened_review_round(
+        _legacy_base() + [_unordered_doc()]
+    )
+    code = await draft_cmd.run_tool(rt, verb, args)
+    assert code == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert "use `pkc draft`" not in rt.err.getvalue()
+
+
+async def test_pkc_draft_status_reads_the_open_review_round():
+    rt, _jobs, _drafts, _store, _job_id, _task = await opened_review_round()
+    assert await draft_cmd.cmd_status(rt) == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert "budget:" in rt.out.getvalue()  # the round, not a refusal to look at it
+    assert not rt.err.getvalue()
+
+
+async def test_pkc_draft_finish_takes_the_REVIEW_rule_not_the_runtime_kind():
+    """The kind that governs after `_load` is the SESSION's. A review round that repaired
+    nothing and said nothing owes an account — and it owes it just as much when the process
+    finishing it calls itself a compile runtime."""
+    rt, _jobs, _drafts, store, _job_id, _task = await opened_review_round()
+
+    assert await draft_cmd.cmd_finish(rt) == draft_cmd.EXIT_GATE
+    assert draft_cmd.REVIEW_OWED_LINE in rt.err.getvalue()
+    assert not store.commits
+
+    rt.err.truncate(0), rt.err.seek(0)
+    assert await draft_cmd.cmd_finish(rt, brief="左着没修：需要 Owner 判断。") == draft_cmd.EXIT_OK, (
+        rt.err.getvalue()
+    )
+
+
+async def test_pkc_draft_finish_commits_the_repair_the_review_round_made():
+    rt, jobs, _drafts, store, job_id, _task = await opened_review_round()
+    assert await draft_cmd.run_tool(
+        rt, "retitle", {"path": UNNAMED, "title": "旧页"}
+    ) == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert await draft_cmd.cmd_finish(rt) == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert len(store.commits) == 1 and "# 旧页" in store.commits[-1][UNNAMED]
+
+
+async def test_pkc_draft_open_resumes_the_round_the_worker_opened():
+    """`pkc draft open <review-job>` routes to the review door and RESUMES — the worker
+    already opened this draft, so the Owner coming to it must meet the round, not a refusal
+    and not a second one."""
+    rt, _jobs, drafts, _store, job_id = (await review_runtime())[:5]
+    worker = rt
+    code, _system, first = await review_cli.open_round(worker, job_id)
+    assert code == draft_cmd.EXIT_OK
+
+    typed = as_pkc_draft(rt)
+    assert await draft_cmd.cmd_open(typed, job_id) == draft_cmd.EXIT_OK, typed.err.getvalue()
+    assert "different kind of draft" not in typed.err.getvalue()
+    assert first in typed.out.getvalue(), "the resumed round shows the round it resumed"
+    assert len(await drafts.list_open(DRAFT_USER)) == 1
+
+
+async def test_a_draft_of_another_door_is_still_refused_and_names_that_door():
+    """The rule loosened to the door, not to nothing: an evolve draft still belongs to
+    `pkc evolve draft`, and the sentence names a door that exists and is not this one."""
+    rt, jobs, _drafts, _store, job_id = await review_runtime()
+    assert await jobs.claim(DRAFT_USER, job_id, claimed_by=rt.draft_executor) is not None
+    evolving = replace(rt, kind="evolve")
+    await draft_cmd._store(
+        evolving,
+        PatchDraft.from_canonical([], []),
+        DraftSession(
+            user_id=str(DRAFT_USER), job_id=job_id, kind="evolve",
+            **draft_cmd.ownership_fields(evolving),
+        ),
+    )
+    typed = as_pkc_draft(rt)
+    assert await draft_cmd.cmd_status(typed) == draft_cmd.EXIT_NOTHING, typed.err.getvalue()
+    assert "the open draft is evolve; use `pkc evolve draft`." in typed.err.getvalue()
+
+
+def test_the_door_and_not_the_kind_is_what_the_guards_compare():
+    """Structural, because the defect was one comparison repeated in five places: no guard in
+    `cli/draft.py` may compare a session's kind to the runtime's for equality again."""
     import inspect
 
-    from pneuma_knowledge_service.cli import review as review_cli
-    from pneuma_knowledge_service.coding_agent import round_runner
+    body = inspect.getsource(draft_cmd)
+    for spelling in ("session.kind != rt.kind", "kind != rt.kind"):
+        assert spelling not in body, spelling
 
+
+# ─────────────────── a finding names the verb that repairs it, and that verb reaches canonical
+
+
+#: A contract that declares a chronology family, which the reference one this fixture library
+#: runs under does not. The check reads the role off the template (`shape/families.py`), so a
+#: chronology finding cannot be raised against a library whose contract has no chronology.
+CHRONOLOGY_TEMPLATES = ("projects/{slug}/overview.md", "projects/{slug}/evolution.md")
+CHRONOLOGY = "projects/beta/evolution.md"
+
+
+def _chronology(body: str, doc_id: str = "betaevo1"):
+    return CanonicalDocument(
+        doc_id=DocumentId(doc_id),
+        path=CHRONOLOGY,
+        frontmatter={"doc_id": doc_id, "type": "project", "slug": "beta"},
+        body=body,
+    )
+
+
+#: Two sections under ONE date, ascending. `reorder_chronology` sorts, so this page is already
+#: sorted: the verb runs, reports the range it spans, and changes nothing. This is the shape
+#: three real pages were in, and the shape the report used to send a round at with that verb.
+REPEATED = (
+    "# Beta 的演进\n\n"
+    "## 2026-06-12\n\n- 上午的一条。[cite: src-old ¶3] <!-- c:ee55 -->\n\n"
+    "## 2026-06-12\n\n- 下午的一条。[cite: src-old ¶4] <!-- c:ff66 -->"
+)
+
+#: Genuinely out of order: newest first. Sorting is exactly the repair.
+INVERTED = (
+    "# Beta 的演进\n\n"
+    "## 2026-03-01\n\n- 三月的一条。[cite: src-old ¶1] <!-- c:cc33 -->\n\n"
+    "## 2026-01-01\n\n- 一月的一条。[cite: src-old ¶2] <!-- c:dd44 -->"
+)
+
+
+async def test_a_reordered_page_reaches_the_commit_with_its_sections_moved():
+    """The round trip the third real review round did not make: the verb reported a repair on
+    three pages and the commit carried none of them. It carries this one, and the assertion is
+    on the committed BYTES — a commit that said a page changed while its sections stood where
+    they were is the same defect wearing a passing test."""
+    rt, _jobs, _drafts, store, _job_id, _task = await opened_review_round(
+        _legacy_base() + [_unordered_doc()]
+    )
+    assert await draft_cmd.run_tool(
+        rt, "reorder_chronology", {"path": UNORDERED}
+    ) == draft_cmd.EXIT_OK, rt.err.getvalue()
+    assert await draft_cmd.cmd_finish(rt, brief="reordered one chronology") == draft_cmd.EXIT_OK, (
+        rt.err.getvalue()
+    )
+
+    assert len(store.commits) == 1
+    committed = store.commits[-1][UNORDERED]
+    assert committed.index("2026-01-01") < committed.index("2026-03-01"), (
+        "the commit carries the page in its original order"
+    )
+    for anchor in ("c:cc33", "c:dd44"):
+        assert anchor in committed, "a permutation lost a claim"
+
+
+async def _chronology_check(body: str):
+    lib = library(docs=[_chronology(body)])
+    report, _documents = await read_check_over(
+        lib.canonical, USER, CHRONOLOGY_TEMPLATES
+    )
+    return {f.id: f for f in report.findings if CHRONOLOGY in f.paths}
+
+
+async def test_a_page_whose_only_fault_is_a_repeated_date_is_not_sent_to_the_sorter():
+    """The cause of that empty commit, as a property of the REPORT. `reorder_chronology`
+    sorts; a page whose sections already ascend and merely share a date is sorted, so naming
+    that verb told a round to run a command that could not do what the report asked. It did,
+    on three pages, and said so in a brief."""
+    found = await _chronology_check(REPEATED)
+    assert "form.repeated_dates" in found
+    assert "form.unordered_chronology" not in found
+
+    repeated = found["form.repeated_dates"]
+    assert "2026-06-12" in repeated.evidence
+    action = prompt(repeated.action.key, **repeated.action.fields)
+    assert "ordinary edit" in action
+    assert "does not repair this" in action, "the action must say why the sorter is not it"
+
+
+async def test_an_inverted_chronology_is_the_one_told_to_reorder():
+    found = await _chronology_check(INVERTED)
+    assert "form.repeated_dates" not in found
+    action = found["form.unordered_chronology"].action
+    assert "reorder_chronology" in prompt(action.key, **action.fields)
+
+
+async def test_a_page_with_both_faults_reports_both_with_their_own_repairs():
+    found = await _chronology_check(
+        INVERTED + "\n\n## 2026-01-01\n\n- 同一天的另一条。[cite: src-old ¶5] <!-- c:aa77 -->"
+    )
+    assert set(found) >= {"form.unordered_chronology", "form.repeated_dates"}
+
+
+def test_the_round_reads_only_fields_the_runtime_has():
+    """The audit, mechanically. `open_round` runs on a `DraftRuntime` and on nothing else, so
+    every `rt.<field>` it names must be one — the defect was a single `rt.ctx`."""
+    import inspect
+    import re
+
+    fields = set(draft_cmd.DraftRuntime.__dataclass_fields__)
+    named = set(re.findall(r"\brt\.([a-z_]+)", inspect.getsource(review_cli)))
+    assert named <= fields, f"not on DraftRuntime: {sorted(named - fields)}"
+
+
+def test_the_round_has_no_finish_of_its_own():
+    """Its OPEN is its own — the task is a report, not a source — and its FINISH is
+    `cli/draft.py`'s, so the same predicates judge the same kind of draft."""
     assert not hasattr(review_cli, "cmd_finish")
-    body = inspect.getsource(round_runner.AgentRoundRunner._run_owned_job)
-    assert 'elif rt.kind == "review"' in body
-    assert "from ..cli.review import open_round as open_draft" in body

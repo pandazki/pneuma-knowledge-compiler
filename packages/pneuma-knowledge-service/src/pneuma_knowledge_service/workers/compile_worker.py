@@ -155,10 +155,28 @@ _RATE_LIMIT_HITS: dict[str, int] = {}
 #: dip never lengthens the next usage-limit guess, nor the other way round.
 _CAPACITY_HITS: dict[str, int] = {}
 
-#: How much of a refusing harness's own output is kept on the job row (`harness_output`).
-#: Enough to hold the failure and the lines around it; small enough that a job listing which
-#: selects the column is still a listing. The words themselves are the launcher's, scrubbed.
+#: How much of a harness's own output is kept on the job row (`harness_output`). Enough to
+#: hold what the Steward said and the lines a failure ended on; small enough that a job
+#: listing which selects the column is still a listing. The words themselves are the
+#: launcher's, scrubbed.
 HARNESS_OUTPUT_CHARS = 2000
+
+
+def _harness_output(result: object) -> str:
+    """What the harness said about a round, bounded for the job row.
+
+    The cut takes the MIDDLE out rather than the tail. The runner hands over the agent's own
+    final message at the head and the process output after it
+    (`round_runner._round_output`), and those two ends are the readable ones: what the Steward
+    said it did, and the line its process ended on. What lies between them under `--json` is
+    an event stream nobody reads.
+    """
+    text = str(getattr(result, "output", "") or "")
+    if len(text) <= HARNESS_OUTPUT_CHARS:
+        return text
+    head = HARNESS_OUTPUT_CHARS // 2
+    return text[:head] + "\n…\n" + text[-(HARNESS_OUTPUT_CHARS - head - 3):]
+
 
 #: How the drain waits out an infrastructure outage: the first retry after this many
 #: seconds, doubling to `INFRA_BACKOFF_MAX_S`. Bounded both ways — quick enough that a
@@ -940,6 +958,7 @@ async def _run_agent_job(
     from ..coding_agent.round_runner import (
         ABANDONED,
         HARNESS_UNAVAILABLE,
+        REVIEW_INCOMPLETE,
         ROUND_INCOMPLETE,
         AgentRoundRunner,
     )
@@ -1009,10 +1028,21 @@ async def _run_agent_job(
     _RATE_LIMIT_HITS.pop(str(user_id), None)
     _CAPACITY_HITS.pop(str(user_id), None)
     _COOLING.pop(str(user_id), None)
-    if result.outcome == ROUND_INCOMPLETE:
-        # It ran, but it did not reach the end of its material and nothing was committed:
-        # a failure to report and a job to bring back, never a success.
+    if result.outcome in (ROUND_INCOMPLETE, REVIEW_INCOMPLETE):
+        # It ran, but it accounted for nothing — it did not reach the end of its material, or
+        # it repaired no finding and said nothing about repairing none. A failure to report
+        # and a job to bring back, never a success. (`_round_incomplete` keeps the harness's
+        # output on the row itself, through the completion that fails the job.)
         await _round_incomplete(ctx, user_id, job, result, executor=runner.executor)
+    elif result.outcome not in (ABANDONED, "draft ownership lost"):
+        # What the harness SAID, on every round that ended in a job row and not only on the
+        # ones it refused. The round's session is deleted when the job ends, so this is the
+        # only place the Steward's own account of an unattended round survives; it costs one
+        # bounded column and it is the difference between reading what happened on the
+        # Owner's library and reading `rounds:1`.
+        said = _harness_output(result)
+        if said:
+            await ctx.store.record_job_usage(user_id, job_id, harness_output=said)
     if result.usage and result.outcome not in (ABANDONED, "draft ownership lost"):
         await ctx.store.record_job_usage(
             user_id, job_id, token_usage=result.usage, executor=executor.spec
@@ -1072,7 +1102,7 @@ async def _harness_unavailable(
     # What the harness said, bounded and already scrubbed by the runner. Kept on the row
     # because `exit 1` is not a diagnosis, and the words that were a diagnosis lived only in
     # a worker process that has since moved on.
-    harness_output = (getattr(result, "output", "") or "")[-HARNESS_OUTPUT_CHARS:]
+    harness_output = _harness_output(result)
     # The runner classifies; this only falls back for a caller that predates the field.
     refusal = str(getattr(result, "harness_reason", "") or "") or (
         UNAVAILABLE_RATE_LIMITED if getattr(result, "rate_limited", False)
@@ -1262,7 +1292,7 @@ async def _fail_or_interrupt(
 async def _round_incomplete(
     ctx: AppContext, user_id: UserId, job: object, result: object, *, executor: str
 ) -> None:
-    """End a round that did not run to its end and committed nothing, and queue it again.
+    """End a round that accounted for nothing, and queue it again.
 
     What happened the night this was written: a 940k-character source's round timed out,
     the worker's finish found nothing to commit, and the job was recorded `ok=True`,
@@ -1271,8 +1301,15 @@ async def _round_incomplete(
     reason, its sources stay undigested (nothing called `persist_compile_result`), and the
     same payload comes back at the job's own place, a bounded number of times — the same
     `harness_failures` counter and `AGENT_RETRIES` bound as a harness that died.
+
+    The same ending, and for the same reason, when a REVIEW round exits cleanly having
+    repaired none of the findings it was given and said nothing about why: the process ended,
+    but nothing was done and nothing was said, and a job row claiming otherwise is the one
+    defect this whole path exists to make impossible. Which of the two it was is the detail's
+    first word (`round_incomplete` / `review_incomplete`).
     """
-    from ..cli.draft import ROUND_INCOMPLETE_DETAIL
+    from ..cli.draft import REVIEW_INCOMPLETE_DETAIL, ROUND_INCOMPLETE_DETAIL
+    from ..coding_agent.round_runner import REVIEW_INCOMPLETE
 
     job_id = getattr(job, "job_id")
     kind = getattr(job, "kind", COMPILE_JOB_KIND)
@@ -1281,10 +1318,14 @@ async def _round_incomplete(
         "timed out" if getattr(result, "timed_out", False)
         else f"exit {getattr(result, 'exit_code', 0)}"
     )
-    detail = ROUND_INCOMPLETE_DETAIL.format(why=why)
+    detail = (
+        REVIEW_INCOMPLETE_DETAIL
+        if getattr(result, "outcome", "") == REVIEW_INCOMPLETE
+        else ROUND_INCOMPLETE_DETAIL.format(why=why)
+    )
     attempts = int(payload.get("harness_failures", 0) or 0) + 1
     requeue = attempts < max(1, int(ctx.settings.agent_retries))
-    harness_output = (getattr(result, "output", "") or "")[-HARNESS_OUTPUT_CHARS:]
+    harness_output = _harness_output(result)
     await ctx.store.complete(
         user_id, job_id, ok=False, detail=detail, claimed_by=executor,
         harness_output=harness_output or None,

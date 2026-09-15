@@ -492,7 +492,8 @@ def launcher(tmp_path, monkeypatch):
     library_path = tmp_path / "home/libraries/notes"
     library_path.mkdir(parents=True)
     calls = []
-    state = {"returncode": 0, "name": "notes", "path": str(library_path), "tenant": "lib-notes", "owner_name": "Momo"}
+    state = {"returncode": 0, "name": "notes", "path": str(library_path), "tenant": "lib-notes",
+             "owner_name": "Momo", "stderr": "refused: the knowledge store is unreachable\n"}
 
     def run(command, **kwargs):
         calls.append(command)
@@ -510,8 +511,12 @@ def launcher(tmp_path, monkeypatch):
         else:
             assert "--intake" not in command
         source_id = "source-" + sessions.digest(sessions.encoded_json(payload).encode())[:16]
+        # stderr is the COMMAND's own words about the command — a refusal a reader can act
+        # on. It is reported when the ingest fails, so the double speaks like the CLI does
+        # rather than echoing transcript material back (which is what OMITTED stands for).
         return SimpleNamespace(returncode=state["returncode"], stdout=json.dumps({
-            "sources": [{"source_id": source_id, "deduplicated": False}], "compile_jobs": ["job-1"]}), stderr=OMITTED)
+            "sources": [{"source_id": source_id, "deduplicated": False}], "compile_jobs": ["job-1"]}),
+            stderr=state["stderr"])
 
     monkeypatch.setattr(sessions.subprocess, "run", run)
     return SimpleNamespace(path=library_path, calls=calls, state=state)
@@ -551,7 +556,11 @@ def test_failures_keep_exact_pending_payloads_for_retry(provider_files, launcher
     args = ["ingest", *common_args(provider_files)]
     assert sessions.main(args) == 1
     assert all("pending" in entry for entry in json.loads((launcher.path / "sync-state.json").read_text())["sessions"].values())
-    assert OMITTED not in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    # Nothing the transcript held escapes; what the reader is told is why the ingest failed.
+    assert OMITTED not in printed
+    assert printed.count("ingest failed (exit 2): refused: the knowledge store is unreachable"
+                         "; exact payload retained for retry") == 2
     launcher.state["returncode"] = 0
     assert sessions.main(args) == 0
     assert len(json.loads((launcher.path / "sync-state.json").read_text())["sessions"]) == 2

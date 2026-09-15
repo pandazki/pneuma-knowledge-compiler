@@ -33,7 +33,7 @@ def importer(home, make_library, provider_files, monkeypatch):
     watch_project(library, str(provider_files.project))
     payloads, commands = [], []
     accepted = {}
-    behavior = {"fail": False, "lost_response": False}
+    behavior = {"fail": False, "lost_response": False, "stderr": "synthetic failure"}
 
     def run(command, **kwargs):
         assert command[:7] == ["pkchome", "exec", "--library", library.state.name, "--", "pkc", "ingest"]
@@ -41,7 +41,7 @@ def importer(home, make_library, provider_files, monkeypatch):
         payload = json.loads(Path(command[command.index("--file") + 1]).read_text())
         payloads.append(payload)
         if behavior["fail"]:
-            return SimpleNamespace(returncode=1, stdout="", stderr="synthetic failure")
+            return SimpleNamespace(returncode=1, stdout="", stderr=behavior["stderr"])
         key = sessions.digest(sessions.encoded_json(payload).encode())
         duplicate = key in accepted
         accepted.setdefault(key, f"s{len(accepted) + 1}")
@@ -205,6 +205,43 @@ def test_lost_ingest_response_replays_exact_payload_despite_growth(provider_file
     assert len(importer.accepted) == 2
     assert importer.run()["increments"] == 1
     assert len(importer.accepted) == 3
+
+
+def test_a_failed_ingest_reports_why_and_still_retains_the_payload(provider_files, importer):
+    """A pass that retries the same bytes every quarter hour has to say what refused them.
+
+    The exit code alone cannot distinguish a store that is briefly down from a payload no
+    retry will ever fix, so the last non-empty line of the command's own stderr rides the
+    session's `error` field into actions.log and out through `pkchome status`.
+    """
+    importer.behavior["fail"] = True
+    importer.behavior["stderr"] = (
+        "Traceback (most recent call last):\n"
+        '  File "adapters/postgres.py", line 313, in add\n'
+        "psycopg.DataError: PostgreSQL text fields cannot contain NUL (0x00) bytes\n")
+    report = importer.run()
+    failed = [row for row in report["sessions"] if row["status"] == "error"]
+    assert failed and report["skipped"] == len(failed) and report["ingested"] == 0
+    assert all(row["error"] == (
+        "ingest failed (exit 1): psycopg.DataError: PostgreSQL text fields cannot contain "
+        "NUL (0x00) bytes; exact payload retained for retry") for row in failed)
+    assert "psycopg.DataError" in sessions.render_sync(report)
+    # Retention is unchanged: the exact bytes are still journaled for the next pass.
+    pending = list((importer.state.parent / "sync-pending").glob("*.json"))
+    assert len(pending) == len(failed)
+    assert all(entry.get("pending") for entry in
+               json.loads(importer.state.read_text())["sessions"].values())
+
+    # A runaway stream is bounded rather than poured into the report.
+    importer.behavior["stderr"] = "refused: " + "x" * 900
+    row = next(r for r in importer.run()["sessions"] if r["status"] == "error")
+    reason = row["error"].split("(exit 1): ", 1)[1].removesuffix("; exact payload retained for retry")
+    assert len(reason) == sessions.STDERR_EXCERPT_CHARS and reason.endswith("\u2026")
+
+    # An empty stderr leaves the message it always had.
+    importer.behavior["stderr"] = "   \n\n"
+    row = next(r for r in importer.run()["sessions"] if r["status"] == "error")
+    assert row["error"] == "ingest failed (exit 1); exact payload retained for retry"
 
 
 def test_partial_jsonl_tail_waits_for_newline(provider_files, importer):

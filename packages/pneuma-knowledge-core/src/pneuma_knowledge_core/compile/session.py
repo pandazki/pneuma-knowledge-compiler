@@ -39,6 +39,11 @@ def content_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+#: Every door that opens a draft, beside the default. One list, so the reopen path and the
+#: type cannot disagree about what a kind is.
+KINDS: tuple[str, ...] = ("evolve", "episodes", "review")
+
+
 @dataclass(frozen=True)
 class DraftSession:
     """One open compile round, as data.
@@ -55,7 +60,10 @@ class DraftSession:
     executor: str = ""
     opened_at: str = ""
     worker_posture: str = ""
-    kind: Literal["compile", "evolve", "episodes"] = "compile"
+    #: Which door opened this round. `review` is a compile-shaped draft with no source: its
+    #: task is the check's report and its verbs and gate are the ordinary ones, so only the
+    #: door that opened it differs (docs/design/structure-lens.md §3.2).
+    kind: Literal["compile", "evolve", "episodes", "review"] = "compile"
     #: The door's pinned, role-specific inputs (evolve evidence, proposal and contract).
     context: dict = field(default_factory=dict)
     #: real source id → `sNN`, in the order the sources were supplied.
@@ -146,7 +154,11 @@ class DraftSession:
             executor=str(state.get("executor") or ""),
             opened_at=str(state.get("opened_at") or ""),
             worker_posture=str(state.get("worker_posture") or ""),
-            kind=state["kind"] if state.get("kind") in ("evolve", "episodes") else "compile",
+            # An allow-list and not a cast: a stored state naming a kind this build does not
+            # have is a compile draft, which is the kind every door can at least read. A kind
+            # MISSING from it is silently reopened as a compile round — so a new door must be
+            # added here in the same change that adds the door.
+            kind=state["kind"] if state.get("kind") in KINDS else "compile",
             context=dict(state.get("context") or {}),
             handle_by_real={
                 str(k): str(v)

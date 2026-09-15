@@ -214,6 +214,19 @@ API 和控制台触达知识库，从不通过所有者的 agent 会话。
 - **2.20 Finish（v1）。** `pkc draft finish` 先跑总览下限，再跑 gate。干净：提交、发出事件和简报、
   删除 draft、完成作业。有违规：打印违规和修复预算，draft 保持打开供一轮修复；第二次失败则作业
   中止，正本不动。
+
+  **在被拉起的轮次里，提交归 worker。** 被拉起的 harness 工作在一个空的沙箱目录中，正本仓库在
+  它之外：这个进程拿不到 `.git/pneuma.lock`，于是一次试图提交的 finish 会在 gate 已经通过之后
+  死在 *Operation not permitted* 上——在一座真实知识库上，106 轮以「harness 停了，worker 收的尾」
+  结束，而 harness 提交数为 0，每一轮的 Steward 都终结在一条 traceback 上，它写的简报也随进程
+  一起消失。所以这一刀切在权限所在的位置。执行者是被拉起的那种（`PKC_DRAFT_EXECUTOR` 以
+  `worker:` 开头）时，finish 做完一次 finish 该做的一切，唯独不提交——总览下限、gate、自查轮欠的
+  交代、把简报写进 draft——把会话标记为 `finish_requested`，用一句话说明
+  （`steward.finish.handed_off`），以 0 退出且不碰 git。随后 worker 自己的 finish 把这个会话按
+  正常路径提交，用的是交到它手上的那份简报，该轮记为**「finished by the harness, committed by
+  the worker」**，而不是记成 harness 走开了的一轮。harness 内的 gate 拒绝仍然是拒绝：打印违规、
+  留下 draft，只有 worker 的 finish 才中止——中止会结束作业，而一个提交不了的进程也不该结束作业。
+  终端上的 Steward 手里就有仓库，照旧直接提交。
 - **2.21 读一切（v1）。** `pkc source fetch`、`pkc search`、`pkc canonical read`、`pkc glance`、
   `pkc history`、`pkc consultations`、`pkc jobs`——HTTP API 的读半边变成命令，租户都取自项目。
 - **2.22 无人值守，同一双手（v1）。** worker 用 skill 的 system 文本和渲染好的任务经 stdin 拉起
@@ -475,6 +488,7 @@ pkc draft search-knowledge <q> | search-source <q>
 pkc draft <component-tool> …                 启用的组件贡献什么就有什么
 pkc draft check                              对打开的 draft 跑完整 gate，不 finish
 pkc draft finish [--brief <f>|-]              总览下限 → gate → 提交 | 违规；Steward 简报
+                                             （被拉起的轮次：在此判定，由 worker 提交）
 pkc draft abandon [--take-over]              释放作业；删除 draft；显式恢复其他执行者的草稿
 ```
 
@@ -1121,10 +1135,12 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   不等待任何东西，最多按 `AGENT_RETRIES` 重新入队；最后一次会说出来
   （`… exit 1 after 3 attempts — …`），并把这行留给人读。三种情况下来源都不盖消化戳。
 
-  **harness 说了什么**与 worker 判了什么并排保存：`compile_jobs.harness_output` 存下进程自身输出的
-  最后约 2 KB，入库之前先由启动器（`scrub`）洗掉一切形如凭据的内容，并由 `GET /jobs` 与
-  `pkc jobs --json` 呈现。`exit 1` 说不出原因；能说出原因的那些字，从前只活在一个早已走远的
-  worker 进程里。
+  **harness 说了什么**与 worker 判了什么并排保存，而且是**每一轮**都保存，不只是被拒的那些：
+  `compile_jobs.harness_output` 存下进程自身输出的约 2 KB——Codex 的事件流里带有 agent 最后一条
+  消息时，那条消息排在最前，进程输出跟在它下面——入库之前先由启动器（`scrub`）洗掉一切形如凭据
+  的内容，并由 `GET /jobs` 与 `pkc jobs --json` 呈现。`exit 1` 说不出原因，`rounds:1` 同样说不出；
+  能说出原因的那些字，从前只活在一个随即被删掉的 per-job config home 和一个早已走远的 worker
+  进程里。（`AGENT_KEEP_WORKDIR` 现在连同启动器的工作目录一起把那个 home 也留下，供人排查。）
 
   对提供方的那两种答案，worker 把作业以 `ok=false` 结束（`rate_limited: Codex usage limit;
   retry after <时刻>`），**不**给它的来源盖消化戳，丢掉这次启动打开

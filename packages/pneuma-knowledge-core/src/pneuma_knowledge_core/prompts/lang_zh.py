@@ -649,7 +649,9 @@ _STEWARD_ROUND_ZH = """\
    `rewrite-overview`、`set-fields`。一条命令施加一次改动，并打印发生了什么。
 5. 拿不准这一轮还剩多少、或机械检查已经认定欠了什么时，用 `pkc draft status`。
 6. `pkc draft finish --brief <f>`（或 `--brief -`）提交你为本版本写的简报；非空且不超过 8000
-   字符。闸门审判整份草稿并提交它，或者驳回并打印它发现的东西。
+   字符。闸门审判整份草稿并提交它，或者驳回并打印它发现的东西。如果这一轮是 worker 拉起的，
+   闸门在这里审判，提交由 worker 完成——finish 会这么说，你也不必再做什么；那是那种场合的正常
+   结尾，因为被拉起的轮次工作在知识库目录之外，拿不到它的锁。
 7. 被驳回时：修掉它点名的问题，再跑一次 `pkc draft finish`。只修一轮。第二次驳回是一份报告，不
    是第三次尝试——说清楚卡在哪里，然后停下。
 8. `pkc draft finish` 成功后，对每个写入过的族运行 `pkc outline --family <template>`。
@@ -709,6 +711,15 @@ _STEWARD_REVIEW_TASK_ZH = """\
 一轮修不了的就留着——需要 Owner 判断的、本知识库没有证据支撑的、或者会改变断言原意的——
 并在简报里逐条写明留下了什么、为什么。留下并写明的发现别人还能接手；靠猜修好的发现，
 没有人能追溯。
+"""
+
+
+_STEWARD_REVIEW_CLEAN_ZH = """\
+## 这一轮要做什么
+
+上面的报告是不经模型、按本知识库自己的契约读出的自查结果，它没有发现要修的地方。这一轮
+没有要写的东西：没有哪条发现要求补链接、改名字或调顺序，也没有打开任何来源可供记录新的
+内容。就这样把这一轮结束——在这里凭空找活干，等于给本知识库添上没有证据支撑的断言。
 """
 
 
@@ -2731,6 +2742,12 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
     "steward.skill.postures": _STEWARD_POSTURES_ZH,
     "steward.unattended.task": _STEWARD_UNATTENDED_TASK_ZH,
     "steward.review.task": _STEWARD_REVIEW_TASK_ZH,
+    "steward.finish.handed_off": (
+        "闸门通过；本轮已判定，简报已保存。本次会话退出后由 worker 提交——被拉起的轮次运行在"
+        "知识库目录之外，拿不到它的锁，提交因此归那个拿得到锁的进程。这里没有别的事要做，"
+        "不要再次执行 finish。"
+    ),
+    "steward.review.clean": _STEWARD_REVIEW_CLEAN_ZH,
     "steward.skill.owner_speech": _STEWARD_OWNER_SPEECH_ZH,
     "steward.skill.cannot": _STEWARD_CANNOT_ZH,
     "steward.skill.archive": _STEWARD_ARCHIVE_ZH,
@@ -2885,6 +2902,14 @@ worker 已认领 episodes 作业 `{job}` 并打开草稿。阅读下面的规则
     "check.form.unordered_chronology.action": (
         "对 `{path}` 执行 reorder_chronology：整个小节按升序移动，不碰任何一条断言（claim）。"
         "第一处乱序是 {first}。"
+    ),
+    "check.form.repeated_dates.impact": (
+        "`{path}` 在 {repeats}（共 {count} 个日期）下各有不止一个日期小节，"
+        "同一天的记录被拆在页面的两处，读者只会看到其中一半。"
+    ),
+    "check.form.repeated_dates.action": (
+        "用一次普通编辑把『{title}』里重复的每一天并成一个小节，保留每一条断言和它的锚点。"
+        "reorder_chronology 修不了这个：那些小节本来就是往前走的，排序不会改变任何东西。"
     ),
     "check.form.overview_restates.impact": (
         "`{path}` 总览里的 `{slot}` 一字不差地重复了它自己账本里的一条断言（claim），这个头部"

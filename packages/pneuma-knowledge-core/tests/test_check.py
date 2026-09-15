@@ -672,7 +672,10 @@ def test_every_item_carries_an_impact_and_an_action_in_both_packs(item):
 def test_the_two_kinds_are_exactly_the_designs_two_tables():
     assert set(CHECK_IDS) == set(JUDGEMENT_IDS) | set(LEGACY_IDS)
     assert not set(JUDGEMENT_IDS) & set(LEGACY_IDS)
-    assert len(JUDGEMENT_IDS) == 8 and len(LEGACY_IDS) == 10
+    # 11 legacy: §2's ten hooks, plus the repeated-date half of the chronology item. It is
+    # split from the inversion because the two have different repairs — `reorder_chronology`
+    # sorts, and a page whose sections already ascend and merely share a date is sorted.
+    assert len(JUDGEMENT_IDS) == 8 and len(LEGACY_IDS) == 11
 
 
 #: What a finding has to be ABOUT for its sentence to be worth reading: the page, or the

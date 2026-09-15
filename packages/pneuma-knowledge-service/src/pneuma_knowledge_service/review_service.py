@@ -27,7 +27,6 @@ from __future__ import annotations
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.prompts import prompt
 
-from .lens import check_report
 
 #: The job kind. `job_lanes.py` classifies it into the canonical lane by this spelling, and
 #: `tests/test_job_lanes.py` pins the two against each other.
@@ -38,9 +37,21 @@ REVIEW_JOB_KIND = "review"
 #: reword through the overlay seam, like every other sentence a round reads.
 REVIEW_TASK_KEY = "steward.review.task"
 
+#: And the key carrying the other thing this round can be asked, which is nothing. A library
+#: the check reads clean must be told so in words rather than handed "repair what a round can
+#: repair" over an empty list: the instruction alone, under a report with no findings in it,
+#: is an invitation to find something — and the one write this round must never make is a
+#: claim nobody asked for.
+REVIEW_CLEAN_KEY = "steward.review.clean"
+
 
 def render_check_task(report, *, bound: int = 0) -> str:
     """The check's report as the round's task text, bounded, with the instruction under it.
+
+    Called when the round OPENS and never at enqueue: a review job may sit in the queue
+    behind a compile that repairs half of what the check found, and a task frozen at enqueue
+    would send the round after findings that no longer exist. That is also why the queued row
+    carries no payload — there is nothing about the library for it to hold.
 
     The report first and the instruction after it, because the instruction is written about
     the report ("repair what a round can repair") and a reader meets the subject before the
@@ -56,8 +67,13 @@ def render_check_task(report, *, bound: int = 0) -> str:
     from .cli.lens import check_head, finding_blocks
 
     findings = list(report.findings)
-    blocks = finding_blocks(findings)
     head = check_head(report)
+    if not findings:
+        # The empty case, stated. The head already says `0 finding(s)`; what it does not say
+        # is what to do about it, and the round's ordinary instruction — repair what a round
+        # can repair — says the opposite of the truth over an empty list.
+        return "\n".join(head).strip("\n") + "\n\n" + prompt(REVIEW_CLEAN_KEY).strip("\n")
+    blocks = finding_blocks(findings)
     kept: list[list[str]] = []
     spent = len("\n".join(head))
     for block in blocks:
@@ -75,17 +91,6 @@ def render_check_task(report, *, bound: int = 0) -> str:
     return "\n".join(lines).strip("\n") + "\n\n" + prompt(REVIEW_TASK_KEY).strip("\n")
 
 
-async def review_task(ctx, user_id: UserId, *, at: str | None = None) -> str:
-    """The round's task text, computed from this library as it stands.
-
-    Computed at OPEN and not at enqueue: a job may sit in the queue behind a compile that
-    repairs half of what the check found, and a task frozen at enqueue would send the round
-    after findings that no longer exist.
-    """
-    report = await check_report(ctx, user_id, at=at)
-    return render_check_task(report, bound=int(ctx.settings.agent_task_structure_chars))
-
-
 async def enqueue_review(ctx, user_id: UserId) -> str:
     """Queue one review round for this library. Returns the job id.
 
@@ -96,9 +101,9 @@ async def enqueue_review(ctx, user_id: UserId) -> str:
 
 
 __all__ = [
+    "REVIEW_CLEAN_KEY",
     "REVIEW_JOB_KIND",
     "REVIEW_TASK_KEY",
     "enqueue_review",
     "render_check_task",
-    "review_task",
 ]

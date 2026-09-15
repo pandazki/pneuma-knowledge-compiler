@@ -26,6 +26,7 @@ from pneuma_knowledge_service.coding_agent import round_runner
 from pneuma_knowledge_service.coding_agent.launcher import LaunchResult
 from pneuma_knowledge_service.coding_agent.round_runner import (
     COMMITTED_BY_HARNESS,
+    HANDED_OFF,
     FINISHED_BY_WORKER,
     ROUND_INCOMPLETE,
     AgentRoundResult,
@@ -221,7 +222,7 @@ async def test_a_round_left_by_a_crashed_launch_is_finished_by_the_next_one(tmp_
     fake = FakeHarness(rt, [[look, "finish"]])
     result = await runner(fake, tmp_path).run_job(rt, h.job_id)
 
-    assert result.outcome == COMMITTED_BY_HARNESS
+    assert result.outcome == HANDED_OFF
     assert seen == [spent], "the next launch did not see the round as the dead one left it"
     assert len(h.store.commits) == 1
     assert any(PERSON in str(commit) for commit in h.store.commits)

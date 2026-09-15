@@ -18,12 +18,11 @@ from __future__ import annotations
 from pneuma_knowledge_core.compile.patch import PatchDraft
 from pneuma_knowledge_core.compile.runner import first_round_budget
 from pneuma_knowledge_core.compile.session import DraftSession, content_sha256
-from pneuma_knowledge_core.components import component_job
 from pneuma_knowledge_core.domain.archive import live_documents
 from pneuma_knowledge_core.skill.contract import render_system_contract
 
+from ..lens import read_check_over
 from ..review_service import REVIEW_JOB_KIND, render_check_task
-from ..lens import read_check
 from . import draft as shared
 from .draft import DraftRuntime
 
@@ -40,6 +39,7 @@ async def build_runtime(ctx, user_id, *, executor=None) -> DraftRuntime:
     return await build(ctx, user_id, executor=executor, kind=REVIEW_JOB_KIND)
 
 
+@shared.draft_command
 async def open_round(
     rt: DraftRuntime, job_id: str, *, claim: bool = True
 ) -> tuple[int, str, str]:
@@ -52,10 +52,21 @@ async def open_round(
     A resumed round re-renders nothing: the task is a reading of the library, and the round is
     editing that library, so a re-read half-way through would hand the Steward a report about
     the repairs it has already made. The surfaces are kept on the session, exactly as the
-    evolve round keeps its own.
+    evolve round keeps its own. Resuming is the ORDINARY case for this door: the worker opens
+    the round and a Steward — or an Owner at the terminal — comes to it afterwards through
+    `pkc draft open <job>`, which routes here (`cli/draft.py:opener_for`).
     """
     existing = await rt.drafts.get(rt.user_id, job_id)
     if existing is not None:
+        # A round a DEAD launch left is continued rather than refused, exactly as a compile
+        # round is: the worker's harness may have died holding this draft, and the Owner
+        # typing `pkc draft open <job>` is then the only thing that will ever finish it.
+        previous = await shared._orphaned_by(rt, job_id, existing)
+        if previous:
+            code = await shared._adopt(rt, job_id, existing, previous, claim=claim)
+            if code != shared.EXIT_OK:
+                return code, "", ""
+            existing = await rt.drafts.get(rt.user_id, job_id) or existing
         await shared.require_owner(rt, job_id)
         if existing.get("kind", "compile") != REVIEW_JOB_KIND:
             print("this job has a different kind of draft", file=rt.err)
@@ -105,10 +116,14 @@ async def open_round(
             f"job {job_id} is claimed by {job.claimed_by}; cannot join its round"
         )
 
-    report, documents = await read_check(rt.ctx, rt.user_id)
-    task_text = render_check_task(
-        report, bound=int(rt.task_structure_chars)
+    # Over what the RUNTIME holds, not over an application context: a `DraftRuntime` carries
+    # `canonical` and a resolved `skill`, and has no `ctx` to resolve anything out of. The
+    # templates are the round's own — the same ones the draft's path ownership is judged by,
+    # so the check cannot find a family the gate then refuses.
+    report, documents = await read_check_over(
+        rt.canonical, rt.user_id, rt.skill.path_templates
     )
+    task_text = render_check_task(report, bound=int(rt.task_structure_chars))
     # The contract alone, with no owner or time context: those two carry the material's
     # situation, and this round has no material. What it needs from the system surface is the
     # write contract and the families — which is what a Steward is judged against here.
@@ -140,10 +155,17 @@ async def open_round(
         overview_required_after_claims=rt.overview_required_after_claims,
         max_tool_calls=rt.max_tool_calls,
         commit_message="review: repair what the check found",
-        context={"system_text": system_text, "task_text": task_text},
+        # HOW MANY findings this round was given, beside the two surfaces. Read at the finish
+        # and nowhere else: a round given findings owes either a repair or a sentence about
+        # why it made none, and a round given none owes neither (`draft._review_owes_an_account`).
+        # The number rather than the report, because that is the whole of what the finish asks.
+        context={
+            "system_text": system_text,
+            "task_text": task_text,
+            "findings": len(report.findings),
+        },
     )
-    async with component_job(str(rt.user_id)):
-        await shared._store(rt, draft, session)
+    await shared._store(rt, draft, session)
     return shared.EXIT_OK, system_text, task_text
 
 

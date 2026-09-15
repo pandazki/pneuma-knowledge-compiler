@@ -131,11 +131,16 @@ class JobQueue(Protocol):
         *,
         token_usage: dict[str, int] | None = None,
         executor: str | None = None,
+        harness_output: str | None = None,
     ) -> None:
-        """Record what a FINISHED job cost, without touching its outcome.
+        """Record what a FINISHED job cost and what its harness said, without touching its
+        outcome.
 
         `complete` is the write that ends a job, and it states the outcome; this states only
-        the two bookkeeping columns beside it. It exists because of one asymmetry: under an
+        the bookkeeping columns beside it. `harness_output` is here for the same asymmetry as
+        the usage: a launched round's own words exist one process out, after the round's `pkc
+        draft finish` has already written the row, and they are the only account of a round
+        nobody watched. It exists because of one asymmetry: under an
         agent executor the round is ended by `pkc draft finish` INSIDE the harness's session,
         which never saw the harness's own token counters — the unattended launcher did, one
         process out, after the job row was already written. Calling `complete` again to add

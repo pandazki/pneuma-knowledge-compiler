@@ -188,6 +188,15 @@ async def test_worker_return_after_takeover_does_not_finish_the_replacement(owne
 
 
 async def test_worker_return_after_finish_does_not_touch_the_next_job(owned, tmp_path):
+    """The round the worker is holding is the only one its return may end.
+
+    The harness's own finish no longer closes the round — it judges it and hands the COMMIT to
+    the worker (`cli/draft.handed_off`), because a launched round cannot take the canonical
+    lock. So the draft is still open while that session runs, and the next job is not openable
+    yet: that is the single-writer rule doing its job, not a regression. What this pins is the
+    other half — the worker's return commits ITS job and leaves the queued one exactly where
+    it was, openable the moment the lane is free.
+    """
     rt, job = owned.rt, owned.job_id
     assert await rt.jobs.claim(rt.user_id, job) is not None
     next_job = await rt.jobs.enqueue(rt.user_id, "compile", {"source_ids": []})
@@ -195,13 +204,17 @@ async def test_worker_return_after_finish_does_not_touch_the_next_job(owned, tmp
 
     async def launcher(request):
         assert await draft.cmd_finish(rt) == 0
-        assert await draft.cmd_open(second, next_job) == 0
+        assert await draft.cmd_open(second, next_job) == draft.EXIT_REFUSED, (
+            "the round this session judged is still open; the lane is not free"
+        )
         return LaunchResult(exit_code=0, stdout="", stderr="")
 
     runner = AgentRoundRunner(manifest=CODEX, project_dir=str(tmp_path), timeout_s=1, launcher=launcher)
     await runner.run_job(rt, job)
     assert (await rt.jobs.get_job(rt.user_id, job)).status == "done"
-    assert (await rt.jobs.get_job(rt.user_id, next_job)).status == "claimed"
+    assert (await rt.jobs.get_job(rt.user_id, next_job)).status == "queued"
+
+    assert await draft.cmd_open(second, next_job) == 0
     assert (await rt.drafts.owner(rt.user_id, next_job)).executor == second.draft_executor
 
 

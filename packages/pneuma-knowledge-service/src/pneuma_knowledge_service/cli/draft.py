@@ -71,6 +71,7 @@ from pneuma_knowledge_core.skill.version import SkillVersion
 
 from ..job_lanes import lane_of
 from ..persona_profile import PLACEHOLDER_NOTICE
+from ..review_service import REVIEW_JOB_KIND
 from .check import SKILL_TRAILER
 
 EXIT_OK = 0
@@ -78,14 +79,42 @@ EXIT_NOTHING = 1
 EXIT_REFUSED = 2
 EXIT_BUDGET = 3
 EXIT_GATE = 4
-#: The worker finished a round whose launch did not end cleanly, and nothing was committed.
-#: Only reachable through `DraftRuntime.unclean_launch`, which only the runner sets.
+#: The round ended without accounting for itself, so the finish did not accept it and the
+#: job is left claimed for the worker to fail and queue again. Two ways in, and both are
+#: statements about a round nobody watched: a launch that did not end cleanly and committed
+#: nothing (`DraftRuntime.unclean_launch`, which only the runner sets), and a review round
+#: that neither repaired a finding nor said why (`REVIEW_INCOMPLETE_DETAIL`).
 EXIT_INCOMPLETE = 5
 
 #: The detail a round that did not really run is recorded with — `round_incomplete: <why>;
 #: nothing was committed` — spelled once, for the finish that detects it and the worker that
 #: writes it onto the job row.
 ROUND_INCOMPLETE_DETAIL = "round_incomplete: {why}; nothing was committed"
+
+#: The detail a REVIEW round that accounts for nothing is recorded with. A review round is
+#: given findings and asked for one of two things about each: a repair, or a sentence saying
+#: why not. A round that ends with neither did not do the work, however cleanly its process
+#: exited — and the one defect class this project refuses is a job reporting success about
+#: work nobody did. Spelled once, for the finish that refuses the round and the worker that
+#: writes the refusal onto the job row.
+REVIEW_INCOMPLETE_DETAIL = (
+    "review_incomplete: the round neither repaired a finding nor said why; "
+    "nothing was committed"
+)
+
+#: The two ok endings of a review round that wrote nothing, and they are different facts. A
+#: round that was given findings and repaired none of them is finished only because its brief
+#: accounts for that; a round over a library the check found nothing wrong with had nothing
+#: to repair in the first place.
+REVIEW_NOTHING_DETAIL = "review: repaired nothing; the brief says why"
+REVIEW_CLEAN_DETAIL = "review: the check found nothing to repair"
+
+#: What a session still able to answer is told instead — the refusal as something to DO, in
+#: the shape the overview floor's refusal has: one more command ends the round either way.
+REVIEW_OWED_LINE = (
+    "this review round repaired none of the findings it was given. Repair one, or finish "
+    "with a brief that says why you repaired none: `pkc draft finish --brief FILE`."
+)
 
 #: The write verbs, i.e. the calls whose result is post-checked on the page they touched.
 #: A read verb changes nothing a gate predicate can judge (`read_document` only records that
@@ -108,6 +137,13 @@ WRITE_TOOLS = frozenset(
         "reorder_chronology",
     }
 )
+
+
+#: What a LAUNCHED round's executor label begins with (`coding_agent/round_runner.py` mints
+#: `worker:<backend>:<uuid>` and exports it as `PKC_DRAFT_EXECUTOR`; the draft store's
+#: liveness lease reads the same prefix). A `pkc` process whose executor starts with it is
+#: running inside a harness the worker launched, which is the one fact `handed_off` needs.
+WORKER_EXECUTOR_PREFIX = "worker:"
 
 
 def draft_executor() -> str:
@@ -198,6 +234,12 @@ class DraftRuntime:
     #: (`EXIT_INCOMPLETE`). Empty everywhere else: the harness's own `pkc draft finish`, and
     #: an Owner's terminal, never set it.
     unclean_launch: str = ""
+    #: Set by the unattended runner around the finish IT runs, whatever the kind. It is the
+    #: difference between a refusal somebody can answer and a round that is over: a Steward
+    #: at a terminal — or one still typing inside its own session — is told what the finish
+    #: wants and keeps its draft to supply it, while the worker's finish is the last thing
+    #: that will happen to this round, so a round it cannot accept ends there.
+    worker_finish: bool = False
     record_brief: Callable[[str, str], Awaitable[None]] | None = None
     #: Does the owner profile still name nobody? A NOTICE, never a refusal: the round opens,
     #: the surfaces are byte-identical, and the langchain executor is untouched. What it buys
@@ -282,7 +324,7 @@ async def require_open_slot(rt: DraftRuntime, job_id: str) -> None:
 
 
 async def _open_job_id(rt: DraftRuntime) -> str | None:
-    """The job this user currently holds a draft of THIS command's kind on, or None.
+    """The job this user currently holds a draft of THIS COMMAND'S DOOR on, or None.
 
     At most one, and that is not this module's promise: the queue hands out one claimed job
     per user per lane, so one open round of a kind is what the single-writer rule already
@@ -292,10 +334,10 @@ async def _open_job_id(rt: DraftRuntime) -> str | None:
     """
     open_ids = await rt.drafts.list_open(rt.user_id)
     for job_id in open_ids:
-        if await draft_kind(rt, job_id) == rt.kind:
+        if same_door(await draft_kind(rt, job_id), rt.kind):
             return job_id
-    # No draft names this kind: fall back to the most recent, so a legacy draft whose session
-    # recorded nothing is still found and `_load` still says what it is.
+    # No draft belongs to this door: fall back to the most recent, so a legacy draft whose
+    # session recorded nothing is still found and `_load` still says what it is.
     return open_ids[0] if open_ids else None
 
 
@@ -309,14 +351,37 @@ async def _load(rt: DraftRuntime) -> tuple[PatchDraft, DraftSession] | None:
         return None
     await require_owner(rt, job_id)
     session = DraftSession.from_state(state.get("session") or {})
-    if session.kind != rt.kind:
+    if not same_door(session.kind, rt.kind):
         print(f"the open draft is {session.kind}; use `{draft_door(session.kind)}`.", file=rt.err)
         return None
     return PatchDraft.from_state(state.get("draft") or {}), session
 
 
+#: kind → the command family a Steward types to work that draft. Kinds that are ABSENT share
+#: the default door: `pkc draft` opens and works a compile round and a review round alike,
+#: because a review round IS a compile-shaped draft — same verbs, same gate, different task.
+_DOORS: dict[str, str] = {"evolve": "pkc evolve draft", "episodes": "pkc index episodes"}
+
+
 def draft_door(kind: str) -> str:
-    return {"evolve": "pkc evolve draft", "episodes": "pkc index episodes"}.get(kind, "pkc draft")
+    return _DOORS.get(kind, "pkc draft")
+
+
+def same_door(left: str, right: str) -> bool:
+    """Do these two kinds belong to one command family?
+
+    THE RULE IS THE DOOR, NOT THE KIND, and the difference is not academic. Every guard here
+    used to compare kinds against the runtime's own, so a Steward working the first real
+    review round was answered — by `status`, `read-document`, `retitle`, `edit-claim`,
+    `finish`, all of them — with "the open draft is review; use `pkc draft`": a refusal
+    naming the door it was already standing in. Nothing it could type was accepted, the round
+    repaired nothing, and the next one reached the draft store by importing the CLI from
+    Python, which is precisely the second write path this design does not have.
+
+    So: every verb of a door accepts every draft of that door. A draft of ANOTHER door is
+    still refused, and then the sentence names a door that exists and is not this one.
+    """
+    return draft_door(left) == draft_door(right)
 
 
 def _base_documents(draft: PatchDraft) -> list[CanonicalDocument]:
@@ -337,9 +402,24 @@ def _base_documents(draft: PatchDraft) -> list[CanonicalDocument]:
 # ─────────────────────────────────────────────────────────────────────── open / status
 
 
+async def opener_for(rt: DraftRuntime, job_id: str):  # noqa: ANN201 — the open_round signature
+    """Which `open_round` this job wants — one door, more than one kind of round.
+
+    `pkc draft` opens two: an ordinary compile round, and a review round whose task is the
+    check's report instead of a source's material. The Owner types one command for both, so
+    the command reads the job (or the draft already open on it) and picks. Without this, the
+    Owner's only way back into a review round the worker opened was to be refused by it.
+    """
+    if await draft_kind(rt, job_id) == REVIEW_JOB_KIND:
+        from . import review as review_cli
+
+        return review_cli.open_round
+    return open_round
+
+
 async def cmd_open(rt: DraftRuntime, job_id: str) -> int:
     """Claim the job, render the contract and the task, print the round's two surfaces."""
-    code, system_text, task_text = await open_round(rt, job_id)
+    code, system_text, task_text = await (await opener_for(rt, job_id))(rt, job_id)
     if code == EXIT_OK:
         notice = rt.owner_profile_notice or (PLACEHOLDER_NOTICE if rt.owner_is_placeholder else "")
         if notice:
@@ -375,7 +455,7 @@ async def open_round(
                 return code, "", ""
             existing = await rt.drafts.get(rt.user_id, job_id) or existing
         await require_owner(rt, job_id)
-        if existing.get("kind", "compile") != rt.kind:
+        if not same_door(existing.get("kind", "compile"), rt.kind):
             print("this job has a different kind of draft", file=rt.err)
             return EXIT_REFUSED, "", ""
         draft = PatchDraft.from_state(existing.get("draft") or {})
@@ -786,6 +866,28 @@ async def _gate(
 BRIEF_MAX_CHARS = 8000
 
 
+def handed_off(rt: DraftRuntime) -> bool:
+    """Is this finish running INSIDE a harness the worker launched?
+
+    Then it must not commit, and the reason is physical rather than stylistic. A launched
+    round runs in an empty sandboxed working directory (the personal edition puts every one
+    there), and the canonical repository is outside it: the process cannot take
+    `.git/pneuma.lock`, so `finalize_compile` dies on `Operation not permitted` AFTER the
+    gate has passed. On one real library that ending happened 106 times against 0 harness
+    commits — every round's Steward finishing on a traceback, and the worker then finishing
+    the round again as if the harness had walked away from it.
+
+    So the cut moves to where the permission is: the harness's finish does everything a
+    finish does EXCEPT the commit — the overview floor, the gate, the brief — marks the
+    session, and says so; the worker, which does hold the lock, commits what was judged.
+    That is the normal ending of a launched round, not a fallback from one.
+
+    `worker_finish` is the worker's own call of this same function, and it is the half that
+    makes the rule terminate: the process that holds the lock is never handed off from.
+    """
+    return not rt.worker_finish and rt.draft_executor.startswith(WORKER_EXECUTOR_PREFIX)
+
+
 def validate_brief(text: str) -> str:
     """The Steward's narration, bounded independently of canonical knowledge."""
     if not text.strip() or len(text) > BRIEF_MAX_CHARS:
@@ -861,6 +963,36 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
             print(feedback, file=rt.err)
             return EXIT_GATE
 
+        if handed_off(rt):
+            # Inside a launched harness: judged here, committed by the worker. Everything a
+            # finish decides has been decided by this point — the overview floor, the gate,
+            # and (below) the account a review round owes — so what the worker inherits is a
+            # round that has already been judged rather than one it has to judge for the
+            # Steward that walked away from it.
+            if violations:
+                # A repair round the gate still refuses. The harness says so and leaves the
+                # draft; the worker's own finish is what ABORTS it, because aborting ends the
+                # job and a process that cannot commit must not end one either.
+                await _store(rt, draft, session)
+                print(render_violations(violations), file=rt.err)
+                return EXIT_GATE
+            if not draft.is_dirty() and _review_owes_an_account(session, brief):
+                # The same refusal the terminal gets, at the same moment: the session is
+                # still typing and one `pkc draft finish --brief …` answers it.
+                await _store(rt, draft, session)
+                print(REVIEW_OWED_LINE, file=rt.err)
+                return EXIT_GATE
+            session.context["finish_requested"] = True
+            await _store(rt, draft, session)
+            print(prompt("steward.finish.handed_off"), file=rt.out)
+            return EXIT_OK
+
+        # The brief BEFORE the commit, always. It is the round's own words and it is already
+        # decided; the commit is the part that can still fail on something outside this
+        # process — a lock it cannot take, a dirty tree, a disk. When that happened, the
+        # brief died with the process and the worker's finish committed the round with none:
+        # the job row's `brief` was null about a round that had written one.
+        await _store(rt, draft, session)
         sources = await rt.load_sources(session.source_ids)
         result = await finalize_compile(
             user_id=rt.user_id,
@@ -879,14 +1011,44 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
             executor_skill=rt.executor_skill,
         )
 
-    if result.status == "noop" and rt.unclean_launch:
+    if result.status == "noop" and rt.unclean_launch and not session.context.get(
+        "finish_requested"
+    ):
         # The round the worker is finishing ended by a timeout or a crash, and nothing in it
         # reached canonical. Recording that as a noop would complete the job ok, stamp its
         # sources digested and tell the Owner the material was compiled — about a round that
         # never got to the end of it. The draft goes (there is nothing in it to keep); the job
         # stays claimed for the worker to end as a failure and queue again.
+        #
+        # `finish_requested` is the exception, and it is not a leniency: that session's OWN
+        # finish passed the gate and handed the commit over. The round reached its end; what
+        # happened to the harness process afterwards says nothing about it.
         await rt.drafts.delete(rt.user_id, session.job_id, executor=rt.draft_executor)
         print(ROUND_INCOMPLETE_DETAIL.format(why=rt.unclean_launch), file=rt.err)
+        return EXIT_INCOMPLETE
+
+    if result.status == "noop" and _review_owes_an_account(session, brief):
+        # A review round that repaired none of the findings it was given AND said nothing
+        # about why. Recording that as a finished job is the shape this project treats as its
+        # worst defect: the row would say the library was reviewed, the report would still
+        # hold every finding, and nothing anywhere would say the round accounted for none of
+        # them. Judged HERE because this is the one function that ends a draft, whoever calls
+        # it — so the harness's own `pkc draft finish` meets the same rule the worker's does.
+        #
+        # What differs is only what a refusal can still lead to. A session that is still
+        # typing keeps its draft and is told what is owed, exactly as the overview floor tells
+        # it: one `pkc draft finish --brief …` answers this. The WORKER's finish is the last
+        # thing that will happen to the round, so there the round ends the way a round that
+        # never reached its end ends — the draft goes, the job stays claimed, and the worker
+        # fails it and queues it again.
+        if not rt.worker_finish:
+            # The finish's own call is already spent (the gate ran); the round keeps its
+            # draft and its remaining budget, and one more command ends it either way.
+            await _store(rt, draft, session)
+            print(REVIEW_OWED_LINE, file=rt.err)
+            return EXIT_GATE
+        await rt.drafts.delete(rt.user_id, session.job_id, executor=rt.draft_executor)
+        print(REVIEW_INCOMPLETE_DETAIL, file=rt.err)
         return EXIT_INCOMPLETE
 
     await _persist(rt, session, result)
@@ -908,6 +1070,23 @@ async def cmd_finish(rt: DraftRuntime, *, brief: str | None = None) -> int:
     return EXIT_OK
 
 
+def _review_owes_an_account(session: DraftSession, brief: str | None) -> bool:
+    """Is this a review round that repaired nothing and said nothing about repairing nothing?
+
+    Three mechanical facts, all required. It is a REVIEW round (a compile round that found
+    nothing to record is an ordinary empty round and always was). It was given findings — a
+    library the check reads clean asks this round for nothing, and demanding a brief for
+    having repaired nothing there would be demanding an account of a fact the task itself
+    states. And it holds no brief: the round's one other legitimate product, which is a
+    sentence saying why a finding was left (`pkc draft finish --brief`).
+    """
+    return (
+        session.kind == REVIEW_JOB_KIND
+        and int(session.context.get("findings") or 0) > 0
+        and not (brief or "").strip()
+    )
+
+
 async def _persist(
     rt: DraftRuntime, session: DraftSession, result: CompileResult
 ) -> None:
@@ -917,6 +1096,23 @@ async def _persist(
     code the langchain worker runs — so an agent-compiled job leaves the same events, the same
     projection delta, the same digestion and the same job row behind. Without one (the unit
     tests) the job is simply completed with the same outcome and detail."""
+    if session.kind == REVIEW_JOB_KIND and result.status == "noop":
+        # A review round that wrote nothing has no delta for the derived layers to follow and
+        # no source to stamp digested — it read the library and answered for it. The job is
+        # ended here, saying which of the two legitimate nothings it was, rather than through
+        # a compile tail whose `projection:{…unchanged…}` says nothing about either.
+        await rt.jobs.complete(
+            rt.user_id,
+            session.job_id,
+            ok=True,
+            detail=(
+                REVIEW_CLEAN_DETAIL
+                if int(session.context.get("findings") or 0) == 0
+                else REVIEW_NOTHING_DETAIL
+            ),
+            executor=rt.executor,
+        )
+        return
     if rt.persist is not None:
         job = await rt.jobs.get_job(rt.user_id, session.job_id)
         await rt.persist(job, result)
@@ -963,7 +1159,7 @@ async def cmd_abandon(rt: DraftRuntime, *, take_over: bool = False) -> int:
         print("no open draft", file=rt.err)
         return EXIT_NOTHING
     kind = (state.get("session") or {}).get("kind", "compile")
-    if kind != rt.kind:
+    if not same_door(kind, rt.kind):
         print(f"the open draft is {kind}; use `{draft_door(kind)}`.", file=rt.err)
         return EXIT_NOTHING
     audit = await rt.drafts.abandon(

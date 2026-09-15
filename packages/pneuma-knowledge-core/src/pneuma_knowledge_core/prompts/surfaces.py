@@ -495,13 +495,26 @@ SURFACES: tuple[Surface, ...] = (
             ),
             f(
                 "check.form.unordered_chronology.impact",
-                "Shown when a chronology's dated sections do not ascend, or repeat a date.",
-                "历程页的日期小节不升序，或有重复日期时出现。",
+                "Shown when a chronology's dated sections do not ascend.",
+                "历程页的日期小节不升序时出现。",
             ),
             f(
                 "check.form.unordered_chronology.action",
                 "The repair: reorder_chronology, which moves whole sections and touches no claim.",
                 "修复动作：reorder_chronology，整个小节移动，不碰任何断言（claim）。",
+            ),
+            f(
+                "check.form.repeated_dates.impact",
+                "Shown when a chronology carries two dated sections under one date — a "
+                "separate finding from the inversion above, because it has a separate repair.",
+                "历程页在同一个日期下有两个日期小节时出现——与上面的乱序分开报告，因为修复方式不同。",
+            ),
+            f(
+                "check.form.repeated_dates.action",
+                "The repair: fold the day into one section with an ordinary edit. Stated "
+                "apart from reorder_chronology, which sorts and therefore cannot repair it.",
+                "修复动作：用一次普通编辑把那一天并成一个小节。与 reorder_chronology 分开陈述："
+                "那个动词只排序，修不了这件事。",
             ),
             f(
                 "check.form.overview_restates.impact",
@@ -5128,6 +5141,8 @@ SURFACES: tuple[Surface, ...] = (
             f("steward.unattended.episodes_task", "The episodes door: rules, procedure or write-time refusal.", "片段门：规则、流程或写入时拒绝。"),
             f('steward.unattended.evolve_task', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
             f("steward.review.task", "Heads the review round's task, under the check report the round is about.", "置于自查轮任务的报告之下，说明这一轮要做什么。"),
+            f("steward.finish.handed_off", "Answers `pkc draft finish` inside a launched harness, where the commit belongs to the worker.", "在被拉起的 harness 内响应 `pkc draft finish`——此时提交归 worker。"),
+            f("steward.review.clean", "Replaces it when the check found nothing: the round is told there is nothing to repair.", "自查没有发现时取而代之：告诉这一轮没有要修的东西。"),
             f('steward.evolve.packs', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
             f('steward.evolve.unnamed_drop', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
             f('steward.evolve.proposal_required', "The evolve draft door: evidence, procedure or write-time refusal.", "演进草稿门：证据、流程或写入时拒绝。"),
