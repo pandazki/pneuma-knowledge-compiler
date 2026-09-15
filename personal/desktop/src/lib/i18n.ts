@@ -41,6 +41,8 @@ const en = {
   directories: 'Watched directories', directoryHint: 'Add a project to bring its coding sessions into this library.',
   directoryPlaceholder: '~/projects/notes', remove: 'remove', removeDirectory: 'Remove {path}',
   removed: 'Directory removed', add: 'Add', added: 'Directory added', login: 'Launch at login',
+  loginHelp: 'On from the first launch, because nothing syncs while the tray is closed. Turn it off and it stays off.',
+  loginRefused: 'Not registered with your system: {reason}',
   on: 'on', off: 'off', switched: 'Switched to {name}', choosePreferences: 'Choose a library to set retrieval and compile preferences.',
   loadFailed: 'PKC could not load its cached state: {error}',
 } as const;
@@ -86,6 +88,8 @@ const zh: Record<keyof typeof en, string> = {
   directories: '监看目录', directoryHint: '添加项目目录，将其中的编程会话同步到这座库。',
   directoryPlaceholder: '~/projects/notes', remove: '移除', removeDirectory: '移除 {path}',
   removed: '目录已移除', add: '添加', added: '目录已添加', login: '登录时启动',
+  loginHelp: '首次启动即开启：托盘不运行时什么都不会同步。关闭后将保持关闭。',
+  loginRefused: '未能向系统注册：{reason}',
   on: '开', off: '关', switched: '已切换到 {name}', choosePreferences: '选择知识库以设置检索和编译偏好。',
   loadFailed: 'PKC 无法载入缓存状态：{error}',
 };

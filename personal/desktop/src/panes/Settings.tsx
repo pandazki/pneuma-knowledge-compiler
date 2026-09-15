@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { autostartEnabled, openConsole, runAction, setAutostart, type Perform } from '../lib/commands';
+import { loginStatus, openConsole, runAction, setLogin, type Perform } from '../lib/commands';
 import { t, type Locale, type Message } from '../lib/i18n';
-import { consoleHome, consolePreferences, credentialName, currentLibrary, deepLibrary, keyReadout, timeLabel, type Backend, type KeyReadout, type Snapshot } from '../lib/state';
+import { consoleHome, consolePreferences, credentialName, currentLibrary, deepLibrary, keyReadout, loginReadout, timeLabel, type Backend, type KeyReadout, type LoginStatus, type Snapshot } from '../lib/state';
 import { LedgerSelect, Leader, SettingRow } from './Ledger';
 
 const verdicts: Record<Exclude<KeyReadout, 'absent' | 'unknown'>, Message> = {
@@ -28,16 +28,17 @@ export default function Settings({ state, busy, perform, locale, preference, onL
   const [key, setKey] = useState('');
   const [keyName, setKeyName] = useState('OPENROUTER_API_KEY');
   const [replacing, setReplacing] = useState(false);
-  const [login, setLogin] = useState<boolean | null>(null);
+  const [login, setLoginState] = useState<LoginStatus | null>(null);
   const [directory, setDirectory] = useState('');
   const [interval, setInterval] = useState('15');
   const intervalMinutes = Number(interval);
   const validInterval = Number.isSafeInteger(intervalMinutes) && intervalMinutes >= 1;
   useEffect(() => { setInterval(String(state.shallow.sync_config?.interval_minutes ?? 15)); }, [state.shallow.sync_config?.interval_minutes]);
-  useEffect(() => { void perform(async () => { setLogin(await autostartEnabled()); }); }, [perform]);
+  useEffect(() => { void perform(async () => { setLoginState(await loginStatus()); }); }, [perform]);
   const deep = library ? deepLibrary(state, library) : undefined;
   const storedName = credentialName(library?.choices.embedding);
   const readout = keyReadout(library, deep);
+  const loginRow = loginReadout(login);
   // A stored key is a readout, not a waiting field; the field is revealed to replace it.
   const editing = readout === 'absent' || replacing;
   const stamped = (deep ?? library)?.steps.credentials;
@@ -155,10 +156,12 @@ export default function Settings({ state, busy, perform, locale, preference, onL
 
     <section className="setting-group" aria-label={t(locale, 'login')}>
       <SettingRow id="login" label={t(locale, 'login')}>
-        <TextToggle id="login" value={login} disabled={busy} locale={locale} onChange={enabled => {
-          void perform(async () => { await setAutostart(enabled); setLogin(enabled); });
+        <TextToggle id="login" value={loginRow.value} disabled={busy} locale={locale} describedBy="login-help" onChange={enabled => {
+          void perform(async () => { setLoginState(await setLogin(enabled)); });
         }} />
       </SettingRow>
+      <p id="login-help" className="muted setting-help">
+        {loginRow.error ? t(locale, 'loginRefused', { reason: loginRow.error }) : t(locale, 'loginHelp')}</p>
       <button disabled={busy || !library?.engine.up} onClick={() => { if (library) void perform(() => openConsole(consoleHome(library.engine.port, consolePreferences(locale)))); }}>{t(locale, 'openConsole')}</button>
       <p className="muted home-path" title={state.shallow.home.path}>{state.shallow.home.path}</p>
     </section>

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "panel",
-  "description": "The bundled tray UI can receive state, open local console links, and manage login startup.",
+  "description": "The bundled tray UI can receive state and open local console links. Launch at login is the app's own decision, settled in Rust, so the webview never reaches the autostart plugin directly.",
   "windows": ["panel"],
-  "permissions": ["core:default", "shell:allow-open", "autostart:allow-enable", "autostart:allow-disable", "autostart:allow-is-enabled"]
+  "permissions": ["core:default", "shell:allow-open"]
 }

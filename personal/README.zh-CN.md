@@ -62,7 +62,8 @@ pkchome skill install [--backend codex|claude-code|all] [--force]
 然后运行 `pkchome tray`；未安装时，该命令会打印发布页面。开发时运行
 `cd personal/desktop && pnpm install`，再运行 `pnpm tauri dev`；使用 `pnpm tauri build`
 构建安装包。即使引擎未运行，托盘仍会独立探测 home；详细健康信息来自各运行中引擎的
-`/home/status`。
+`/home/status`。同步依赖托盘运行，因此「登录时启动」默认开启：首次启动由应用自己向操作系统
+注册，并记录这次决定；此后只由你决定——在设置中关闭后，之后的启动都不会再打开它。
 
 Setup 回答字段：`library: notes`、`language: en`、`backend: codex`、
 `semantic_retrieval: off`；可选的 `embedding_key` 只进入凭据文件；可选的 `owner:` 映射
