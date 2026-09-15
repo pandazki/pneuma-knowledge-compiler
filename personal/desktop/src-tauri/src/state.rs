@@ -234,9 +234,20 @@ impl Shallow {
         }
     }
 }
+/// What the Settings pane may say about launch at login: what the operating system does
+/// now, and — when it refused — the reason, so a refusal never reads as a success.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct LoginState {
+    pub enabled: bool,
+    pub error: Option<String>,
+}
 pub struct Runtime {
     pub home: PathBuf,
     pub login_path: String,
+    /// The tray's own preference directory, where the login decision is recorded.
+    pub preferences: PathBuf,
+    /// Login as this launch left it, including a refusal the pane has yet to show.
+    pub login: RwLock<LoginState>,
     pub client: reqwest::Client,
     pub cache: RwLock<Snapshot>,
     /// The pane a pending open asked for, kept until the frontend is ready to receive it.

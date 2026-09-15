@@ -6,7 +6,12 @@ A Tauri 2 menu-bar client for a personal knowledge home. The 360 × 520 panel ha
 Dashboard, Search and Settings panes. It reads `~/.pkc` (or `PKC_HOME`), probes the
 machine itself, and overlays each engine's `/home/status` response. It never writes
 home files: start, stop, restart, library selection, credentials and preferences go
-through `pkchome`. Launch at login uses the operating system via Tauri's autostart plugin.
+through `pkchome`. Launch at login uses the operating system via Tauri's autostart plugin,
+and is on by default: the first launch registers the app itself and records that it did, in
+`login` inside `preferences.json` in the app's config directory. Any record — the app's own
+default or the Settings toggle — ends the app's say, so login the Owner turned off stays off;
+a registration the system refuses records nothing, and Settings shows the switch off with the
+system's reason.
 
 ## Development
 
