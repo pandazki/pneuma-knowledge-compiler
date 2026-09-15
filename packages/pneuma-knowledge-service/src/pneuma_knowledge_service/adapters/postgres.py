@@ -42,6 +42,14 @@ from psycopg_pool import AsyncConnectionPool
 
 from ..access_stats import RECALL_PROJECTION_JOB_KIND, RECALL_REBUILD_JOB_KIND
 from ..infra_faults import infrastructure_fault
+from ..job_retry import (
+    PAUSED_STATUS,
+    paused_reason,
+    paused_reasons,
+    resumed_detail,
+    resumed_payload,
+    waiting_reasons,
+)
 from ..job_lanes import (
     CANONICAL_LANE,
     COMPILE_KIND,
@@ -95,7 +103,9 @@ JOB_STATUS_SQL: dict[str, str] = {
 }
 
 #: Everything `?status=` accepts, for the API's own validation and for the docs.
-JOB_STATUS_QUERY_VALUES = ("queued", "claimed", "done", "succeeded", "failed")
+JOB_STATUS_QUERY_VALUES = (
+    "queued", "claimed", "paused", "done", "succeeded", "failed",
+)
 
 #: Advisory-lock key for schema application. An arbitrary fixed constant in the
 #: bigint space — its only job is that every process picks the SAME number.
@@ -1387,9 +1397,15 @@ class PostgresStore:
                     )
                     jobs = await (await conn.execute(
                         "SELECT id, claimed_by FROM compile_jobs "
-                        "WHERE user_id = %s AND completed_at IS NULL AND (status = 'claimed' "
+                        # A paused row is nobody's orphan: it is out of schedule and waiting
+                        # for a person. The requeue below is written `AND status = 'claimed'`
+                        # and would no-op on it anyway; it is excluded HERE so the sweep does
+                        # not delete the draft of a round somebody may yet resume.
+                        "WHERE user_id = %s AND completed_at IS NULL AND status <> %s "
+                        "AND (status = 'claimed' "
                         "OR id IN (SELECT job_id FROM compile_drafts WHERE user_id = %s))"
-                        + one + spare + " FOR UPDATE", (uid, uid, *only, *spared),
+                        + one + spare + " FOR UPDATE",
+                        (uid, PAUSED_STATUS, uid, *only, *spared),
                     )).fetchall()
                     for claimed_id, claimed_by in jobs:
                         owner = await drafts.owner(UserId(uid), claimed_id)
@@ -1564,7 +1580,11 @@ class PostgresStore:
                 "AND jsonb_typeof(payload->'source_ids') = 'array' AND EXISTS ("
                 "  SELECT 1 FROM compile_jobs e "
                 "  WHERE e.user_id = compile_jobs.user_id AND e.kind = ANY(%s) "
-                "    AND e.status IN ('queued', 'claimed') AND e.completed_at IS NULL "
+                # `paused` among them: a compile whose source's episodes judgement is out of
+                # schedule must not overtake it and compile a source whose semantic episodes
+                # were never judged. It waits with it, and one resume frees both.
+                "    AND e.status IN ('queued', 'claimed', 'paused') "
+                "    AND e.completed_at IS NULL "
                 "    AND e.payload->>'source_id' IN ("
                 "      SELECT jsonb_array_elements_text(compile_jobs.payload->'source_ids'))))"
             )
@@ -1704,6 +1724,163 @@ class PostgresStore:
                 (executor, str(user_id), job_id, str(user_id), derived, derived, job_id),
             )
             return cur.rowcount == 1
+
+    async def park(
+        self,
+        user_id: UserId,
+        job_id: str,
+        *,
+        payload: dict[str, Any],
+        not_before: datetime | None,
+        detail: str,
+        paused: bool = False,
+        claimed_by: str | None = None,
+        harness_output: str | None = None,
+    ) -> None:
+        """Return this job to the queue, waiting, on its own row (`job_retry.park`).
+
+        One UPDATE: the status goes back to `queued` — or to `paused` when the schedule is
+        spent — the claim is dropped, the retry history and the wait land on the row, and
+        `completed_at` / `ok` are never touched: a parked job has not finished, so nothing
+        that counts finished work counts it. `order_at` and `created_at` are untouched too,
+        which is what keeps the job at the place it had.
+
+        `paused` is enforced by the absence of a claim rather than by a rule anybody has to
+        remember: `claim_next` takes `status = 'queued'` rows only, and the self-heal's
+        requeue is written `AND status = 'claimed'`, so a paused row is invisible to both
+        without either of them naming the status.
+
+        `WHERE completed_at IS NULL` is the one refusal: a job whose round DID end must never
+        be resurrected by a late failure path, exactly as `complete` refuses to restate a
+        terminal outcome.
+        """
+        async with self._pool.connection() as conn:
+            await conn.execute(
+                "UPDATE compile_jobs SET status = %s, claimed_at = NULL, "
+                "claimed_by = NULL, payload = %s, not_before = %s, detail = %s, "
+                # What the harness said about the attempt that is being parked. COALESCE for
+                # the same reason `complete` has it: a later path that knows nothing must not
+                # erase the words the launcher read.
+                "harness_output = coalesce(%s, harness_output) "
+                "WHERE user_id = %s AND id = %s AND completed_at IS NULL"
+                + (" AND claimed_by = %s" if claimed_by is not None else ""),
+                (
+                    PAUSED_STATUS if paused else "queued",
+                    Json(dict(payload or {})),
+                    None if paused else not_before,
+                    detail,
+                    harness_output or None,
+                    str(user_id),
+                    job_id,
+                    *((claimed_by,) if claimed_by is not None else ()),
+                ),
+            )
+
+    async def resume_jobs(
+        self,
+        user_id: UserId,
+        *,
+        job_id: str | None = None,
+        reason_like: str = "",
+        every: bool = False,
+    ) -> int:
+        """Start paused jobs again with a fresh schedule; return how many (`job_retry.py`).
+
+        Selected and rewritten row by row rather than in one statement, because the reset is
+        a change INSIDE each payload (`retry.attempts` back to 0, `retry.history` kept) and
+        the selector matches the reason phrase inside each detail. Both are Python's to read;
+        the write is still one guarded UPDATE per row, so a row that stopped being paused
+        between the read and the write is left exactly as it now stands.
+        """
+        if not (job_id or reason_like or every):
+            return 0
+        wanted = reason_like.strip().casefold()
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT id, payload, detail FROM compile_jobs "
+                "WHERE user_id = %s AND status = %s"
+                + (" AND id = %s" if job_id else ""),
+                (str(user_id), PAUSED_STATUS, *((job_id,) if job_id else ())),
+            )).fetchall()
+            resumed = 0
+            for row_id, payload, detail in rows:
+                if wanted and wanted not in paused_reason(detail).casefold():
+                    continue
+                cur = await conn.execute(
+                    "UPDATE compile_jobs SET status = 'queued', not_before = NULL, "
+                    "payload = %s, detail = %s, claimed_at = NULL, claimed_by = NULL "
+                    "WHERE user_id = %s AND id = %s AND status = %s",
+                    (
+                        Json(resumed_payload(payload or {})),
+                        resumed_detail(payload or {}),
+                        str(user_id),
+                        row_id,
+                        PAUSED_STATUS,
+                    ),
+                )
+                resumed += cur.rowcount
+        return resumed
+
+    @staticmethod
+    def _instant(value: str | None) -> datetime | None:
+        """One ISO instant out of jsonb, or None when the row cannot say."""
+        try:
+            return datetime.fromisoformat(str(value)) if value else None
+        except ValueError:
+            return None
+
+    async def job_summary(self, user_id: UserId) -> dict[str, Any]:
+        """This user's queue in two reads: the four counts, and why the waiting ones wait.
+
+        The counts are disjoint — `queued` is what a claim could take right now, `waiting` is
+        the queued rows still behind their `not_before` — so a face can print them side by
+        side without a reader having to know which contains which.
+        """
+        async with self._pool.connection() as conn:
+            counts = await (await conn.execute(
+                "SELECT "
+                "count(*) FILTER (WHERE status = 'queued' AND completed_at IS NULL "
+                "  AND (not_before IS NULL OR not_before <= now())), "
+                "count(*) FILTER (WHERE status = 'queued' AND completed_at IS NULL "
+                "  AND not_before > now()), "
+                "count(*) FILTER (WHERE status = 'claimed' AND completed_at IS NULL), "
+                "count(*) FILTER (WHERE status = 'done' AND ok IS FALSE), "
+                "count(*) FILTER (WHERE status = 'done' AND ok IS TRUE), "
+                "count(*) FILTER (WHERE status = %s AND completed_at IS NULL) "
+                "FROM compile_jobs WHERE user_id = %s",
+                (PAUSED_STATUS, str(user_id)),
+            )).fetchone()
+            # The reasons are grouped in Python and not in SQL: the grouping key is the reason
+            # PHRASE inside the detail, and the rest of that detail (the instant, the attempt
+            # number) differs per row by construction, so a GROUP BY on the column would
+            # produce one group per row. Bounded, because a summary must not grow into a scan.
+            waiting = await (await conn.execute(
+                "SELECT detail, not_before FROM compile_jobs "
+                "WHERE user_id = %s AND status = 'queued' AND completed_at IS NULL "
+                "AND not_before > now() ORDER BY not_before LIMIT 1000",
+                (str(user_id),),
+            )).fetchall()
+            # A paused row has no instant of its own on the table — it is waiting for a
+            # person, not for a clock — so `since` is read out of the failure that paused it,
+            # which is exactly the moment the pause began.
+            paused = await (await conn.execute(
+                "SELECT detail, payload #>> '{retry,last_failure,at}' FROM compile_jobs "
+                "WHERE user_id = %s AND status = %s AND completed_at IS NULL LIMIT 1000",
+                (str(user_id), PAUSED_STATUS),
+            )).fetchall()
+        return {
+            "queued": counts[0],
+            "waiting": {"count": counts[1], "reasons": waiting_reasons(waiting)},
+            "paused": {
+                "count": counts[5],
+                "reasons": paused_reasons(
+                    [(detail, self._instant(at)) for detail, at in paused]
+                ),
+            },
+            "claimed": counts[2],
+            "failed": counts[3],
+            "succeeded": counts[4],
+        }
 
     async def release(self, user_id: UserId, job_id: str) -> None:
         """Put a claimed job back in the queue, unfinished (`pkc draft abandon`).
@@ -1889,7 +2066,12 @@ class PostgresStore:
             rows = await (await conn.execute(
                 "SELECT id, kind, payload, status, created_at, claimed_at, "
                 "completed_at, ok, detail, snapshot_ref, token_usage, executor, "
-                "harness_output "
+                # `not_before` with the rest, because a queued row that is WAITING and a
+                # queued row that is next are different facts and the status column cannot
+                # tell them apart. The in-memory double has always answered it; a reading
+                # written against that double and not against this one would pass here and
+                # fail live.
+                "harness_output, not_before "
                 "FROM compile_jobs WHERE user_id = %s ORDER BY created_at DESC",
                 (str(user_id),),
             )).fetchall()
@@ -1908,6 +2090,7 @@ class PostgresStore:
                 "token_usage": r[10] or {},
                 "executor": r[11],
                 "harness_output": r[12],
+                "not_before": r[13],
             }
             for r in rows
         ]
@@ -2349,10 +2532,13 @@ class PostgresStore:
                 "ORDER BY created_at",
                 (str(user_id),),
             )).fetchall()
+            # `paused` counts as in flight for the same reason `queued` does: the row IS
+            # this material's compile, waiting for a person rather than for a worker, and a
+            # second job for the same sources would compile them twice the moment it resumes.
             active = await (await conn.execute(
                 "SELECT payload FROM compile_jobs "
-                "WHERE user_id = %s AND status IN ('queued', 'claimed')",
-                (str(user_id),),
+                "WHERE user_id = %s AND status IN ('queued', 'claimed', %s)",
+                (str(user_id), PAUSED_STATUS),
             )).fetchall()
         in_flight: set[str] = set()
         for (payload,) in active:

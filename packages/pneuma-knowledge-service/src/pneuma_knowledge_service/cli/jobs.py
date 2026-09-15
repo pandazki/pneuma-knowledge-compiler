@@ -175,4 +175,50 @@ async def cmd_jobs_requeue(
     return EXIT_OK
 
 
-__all__ = ["cmd_jobs_requeue"]
+async def cmd_jobs_resume(
+    ctx,  # noqa: ANN001
+    user_id: UserId,
+    *,
+    job_id: str = "",
+    reason_like: str = "",
+    every: bool = False,
+    as_json: bool = False,
+    out=None,  # noqa: ANN001
+    err=None,  # noqa: ANN001
+) -> int:
+    """Start paused jobs again with a fresh retry schedule (`job_retry.py`).
+
+    The end of the retry schedule is a pause, not a verdict: a job that failed six times over
+    a day and a half stops asking and waits for a person, because what it is waiting for — an
+    account with no money on it, a harness nobody logged in, a tree somebody left dirty —
+    does not change by being asked a seventh time. This command is the person saying they
+    have done that thing, so the schedule starts over from one minute.
+
+    Exit codes: 0 ok, 1 nothing matched, 2 refused (no selector).
+
+    A selector is required for the same reason `requeue` requires one: `pkc jobs resume` with
+    nothing stated would restart a whole library's paused work by accident, and the place to
+    refuse an accident is before it happens.
+    """
+    if not (job_id or reason_like or every):
+        print(
+            "resume needs a selector: --job, --reason-like or --all",
+            file=err,
+        )
+        return EXIT_REFUSED
+
+    resumed = await ctx.store.resume_jobs(
+        user_id, job_id=job_id or None, reason_like=reason_like, every=every
+    )
+    if not resumed:
+        print("no paused job matches those selectors", file=err)
+        return EXIT_NOTHING
+    line = f"resumed {resumed} paused job{'s' if resumed != 1 else ''}"
+    if as_json:
+        print(json.dumps({"resumed": resumed, "summary": line}, ensure_ascii=False), file=out)
+    else:
+        print(line, file=out)
+    return EXIT_OK
+
+
+__all__ = ["cmd_jobs_requeue", "cmd_jobs_resume"]

@@ -854,22 +854,104 @@ async def cmd_jobs(
         }
         for r in rows
     ]
+    # Why anything is WAITING, under the rows. A job that did not finish goes back to the
+    # queue behind a `not_before` with its reason on the row (`job_retry.py`), and without
+    # this line a library whose provider is refusing payment reads as a queue that simply
+    # stopped — every row `queued`, nothing failed, nothing moving.
+    reader = getattr(rt.ctx.store, "job_summary", None)
+    summary = await reader(rt.user_id) if reader is not None else {}
+    lines = [
+        f"{i['job_id']}  {i['kind']:<10} {i['status']:<8} "
+        f"{'' if i['ok'] is None else ('ok' if i['ok'] else 'failed')}  "
+        f"{', '.join(i['source_ids'])}"
+        + (
+            f"  {(i['token_usage'] or {}).get('total_tokens', 0)} tok"
+            if i["token_usage"]
+            else ""
+        )
+        for i in items
+    ]
+    waiting_line = render_waiting(summary.get("waiting") or {})
+    if waiting_line:
+        lines.append(waiting_line)
+    # PAUSED rows get a heading of their own rather than a count on one line, because they
+    # are the only rows in the queue that are waiting for the READER: the schedule is spent
+    # and nothing starts them again until this person types the command named under them.
+    lines.extend(render_paused(summary.get("paused") or {}, items))
     _emit(
         rt,
-        {"jobs": items, "total": total},
-        [
-            f"{i['job_id']}  {i['kind']:<10} {i['status']:<8} "
-            f"{'' if i['ok'] is None else ('ok' if i['ok'] else 'failed')}  "
-            f"{', '.join(i['source_ids'])}"
-            + (
-                f"  {(i['token_usage'] or {}).get('total_tokens', 0)} tok"
-                if i["token_usage"]
-                else ""
-            )
-            for i in items
-        ],
+        {
+            "jobs": items,
+            "total": total,
+            "waiting": _group_json(summary, "waiting", "next_retry_at"),
+            "paused": _group_json(summary, "paused", "since"),
+        },
+        lines,
     )
     return EXIT_OK
+
+
+def _group_json(summary: dict, half: str, stamp: str) -> dict:
+    """One half of `GET /jobs/summary` (`waiting` / `paused`), instants as strings."""
+    group = summary.get(half) or {}
+    return {
+        "count": int(group.get("count", 0)),
+        "reasons": [
+            {
+                "reason": str(entry["reason"]),
+                "count": int(entry["count"]),
+                stamp: (
+                    entry[stamp].isoformat() if entry.get(stamp) is not None else None
+                ),
+            }
+            for entry in (group.get("reasons") or [])
+        ],
+    }
+
+
+def render_waiting(waiting: dict) -> str:
+    """`waiting: 13 · codex usage limit ×9 (next 14:05) · …`, or "" when nothing waits.
+
+    One line, the same grouping the summary endpoint publishes, so the CLI and the console
+    cannot disagree about what a library is waiting for.
+    """
+    from ..job_retry import reason_line
+
+    count = int(waiting.get("count", 0) or 0)
+    if not count:
+        return ""
+    parts = [f"waiting: {count}"]
+    for entry in (waiting.get("reasons") or [])[:5]:
+        when = entry.get("next_retry_at")
+        at = f" (next {when.strftime('%H:%M')})" if hasattr(when, "strftime") else ""
+        parts.append(f"{reason_line(entry['reason'])} ×{entry['count']}{at}")
+    return " · ".join(parts)
+
+
+def render_paused(paused: dict, items: list[dict] | None = None) -> list[str]:
+    """The paused rows under their own heading, with the command that starts them again.
+
+    The ids come from the page that was listed, so a reader can copy one straight into
+    `pkc jobs resume --job <id>`; the counts come from the summary, which is about the whole
+    queue, so a paused job on page four is still named in the heading."""
+    from ..job_retry import PAUSED_STATUS, reason_line
+
+    count = int(paused.get("count", 0) or 0)
+    if not count:
+        return []
+    out = [
+        "",
+        f"paused — waiting for you, not for a clock ({count}); "
+        "start them again with `pkc jobs resume`",
+    ]
+    for entry in (paused.get("reasons") or [])[:5]:
+        since = entry.get("since")
+        seen = f" (since {since.strftime('%Y-%m-%d %H:%M')})" if hasattr(since, "strftime") else ""
+        out.append(f"  {reason_line(entry['reason'])} ×{entry['count']}{seen}")
+    named = [i["job_id"] for i in (items or []) if i.get("status") == PAUSED_STATUS]
+    if named:
+        out.append("  on this page: " + ", ".join(named))
+    return out
 
 
 async def cmd_history(rt: ReadRuntime, *, limit: int = 25, kind: str | None = None) -> int:

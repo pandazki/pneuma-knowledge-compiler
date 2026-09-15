@@ -30,8 +30,18 @@ def _jobs(library: Library, *, timeout: float = 1.0, **query: str | int) -> dict
         return json.load(response)
 
 
+def _summary(library: Library, *, timeout: float = 1.0) -> dict:
+    """`GET /jobs/summary` — the queue's four counts and why the waiting ones wait."""
+    if timeout <= 0:
+        raise TimeoutError("the queue probe spent its budget")
+    url = (f"http://127.0.0.1:{library.state.engine.port}"
+           f"/v1/users/{library.state.tenant}/jobs/summary")
+    with urlopen(url, timeout=timeout) as response:
+        return json.load(response)
+
+
 def queue_status(library: Library) -> dict | None:
-    """Counts and the latest compile, in four bounded reads inside one second."""
+    """Counts and the latest compile, in five bounded reads inside one second."""
     deadline = time.monotonic() + QUEUE_BUDGET_SECONDS
 
     def left() -> float:
@@ -65,9 +75,18 @@ def queue_status(library: Library) -> dict | None:
         # succeeded history to be exact would make every status call grow with the library.
         page = _jobs(library, timeout=left(), limit=20, status="succeeded", kind="compile")
         stamps = [item["completed_at"] for item in page["items"] if item.get("completed_at")]
+        # Why anything is WAITING. A job that did not finish goes back to the queue behind a
+        # `not_before` with the reason on its row (the engine's `job_retry.py`), so a library
+        # whose provider is refusing payment must read as "13 waiting on a payment refusal"
+        # rather than as a queue that has silently stopped.
+        summary = _summary(library, timeout=left())
         return {"pending": pending, "failed": failed, "failed_by_kind": failed_by_kind,
                 "succeeded": succeeded, "last_compile_at": max(stamps, default=None),
-                "cooling": cooling}
+                "cooling": cooling, "waiting": summary.get("waiting") or {},
+                # The end of that road: work that used up the retry schedule and is now
+                # waiting for THIS PERSON. It is the only line in a status report that is a
+                # request, so it carries the command that answers it.
+                "paused": summary.get("paused") or {}}
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -259,6 +278,55 @@ def local_time(stamp: str) -> str:
     return moment.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
+def clock_time(stamp: str) -> str:
+    """An ISO instant as a clock reads it — `14:05` today, `09-16 14:05` any other day.
+
+    The question a waiting line answers is "how long do I wait", and a full date on every
+    entry of a five-entry line is four dates nobody needed.
+    """
+    rendered = local_time(stamp)
+    today = datetime.now().astimezone().strftime("%Y-%m-%d")
+    if rendered.startswith(today + " "):
+        return rendered[len(today) + 1:]
+    return rendered[5:] if rendered[:4].isdigit() else rendered
+
+
+def waiting_line(library: dict) -> str:
+    """`13 · codex usage limit ×9 (next 14:05) · …`, or "" when nothing is waiting.
+
+    Reasons as the engine grouped them, biggest first, bounded to the five that matter: a
+    line that names every distinct provider sentence is a line nobody finishes reading.
+    """
+    waiting = (library.get("queue") or {}).get("waiting") or {}
+    count = int(waiting.get("count", 0) or 0)
+    if not count:
+        return ""
+    parts = [str(count)]
+    for entry in (waiting.get("reasons") or [])[:5]:
+        when = entry.get("next_retry_at")
+        parts.append(
+            f"{entry.get('reason') or 'unstated'} ×{entry.get('count', 0)}"
+            + (f" (next {clock_time(when)})" if when else "")
+        )
+    return " · ".join(parts)
+
+
+def paused_line(library: dict) -> str:
+    """`3 · codex usage limit ×3 — pkc jobs resume`, or "" when nothing is paused.
+
+    A paused job is the one thing in a library that will not move until the Owner does
+    something, so the line ends in the command rather than leaving them to find it.
+    """
+    paused = (library.get("queue") or {}).get("paused") or {}
+    count = int(paused.get("count", 0) or 0)
+    if not count:
+        return ""
+    parts = [str(count)]
+    for entry in (paused.get("reasons") or [])[:5]:
+        parts.append(f"{entry.get('reason') or 'unstated'} ×{entry.get('count', 0)}")
+    return " · ".join(parts) + " — pkc jobs resume"
+
+
 def worker_line(library: dict) -> str:
     """The worker's posture, and what is holding it back when something is.
 
@@ -309,7 +377,13 @@ def render_text(document: dict) -> str:
                       f"  Embedding key: {'present' if library['key'] else 'absent'}",
                       f"  Canonical HEAD: {library['canonical_head'] or 'empty'}",
                       f"  Skill: {'unknown' if library['skill_fresh'] is None else 'fresh' if library['skill_fresh'] else 'drifted'}",
-                      f"  Queue: {json.dumps(library['queue']) if library['queue'] is not None else 'unknown'}",
-                      f"  Last used: {library['last_used'] or 'never'}"])
+                      f"  Queue: {json.dumps(library['queue']) if library['queue'] is not None else 'unknown'}"])
+        waiting = waiting_line(library)
+        if waiting:
+            lines.append(f"  Waiting: {waiting}")
+        paused = paused_line(library)
+        if paused:
+            lines.append(f"  Paused: {paused}")
+        lines.append(f"  Last used: {library['last_used'] or 'never'}")
         lines.extend(f"  {name}: {step(stamp)}" for name, stamp in library["steps"].items())
     return "\n".join(lines)

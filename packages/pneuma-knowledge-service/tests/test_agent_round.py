@@ -50,6 +50,7 @@ from pneuma_knowledge_service.coding_agent.round_runner import (
     failure_line,
 )
 from pneuma_knowledge_service.settings import Settings
+from pneuma_knowledge_service.job_retry import RETRY_BACKOFF_S
 from pneuma_knowledge_service.workers import compile_worker
 
 from test_draft_cli import CALLS, PERSON, harness, source  # noqa: E402
@@ -548,8 +549,13 @@ async def test_a_second_rejection_aborts_the_job_and_leaves_canonical_untouched(
 
     assert result.launches == 2
     assert h.store.commits == [], "an aborted round must not commit"
-    assert h.jobs.completed[0]["ok"] is False
-    assert "citation" in (h.jobs.completed[0]["detail"] or "")
+    # Nothing was written and the material is untouched, so the round did not succeed rather
+    # than the material being uncompilable: the job waits with the gate's own words on it.
+    assert h.jobs.completed == []
+    row = await job_row(h.jobs, h.rt.user_id, h.job_id)
+    assert row["status"] == "queued" and row["not_before"] is not None
+    assert row["detail"].startswith("waiting: gate refused: ")
+    assert "citation" in row["detail"]
     assert await h.drafts.get(h.rt.user_id, h.job_id) is None
 
 
@@ -781,10 +787,13 @@ async def test_the_drain_records_a_dirty_library_on_the_job_rather_than_a_worker
     await compile_worker.drain_user(
         WorkerCtx(worker_settings(), jobs), None, SimpleNamespace(), user
     )
-    done = jobs.completed[-1]
-    assert done["job_id"] == job_id
-    assert done["ok"] is False
-    assert done["detail"] == "canonical_dirty:data/canonical/u-agent/work/aurora.md"
+    # It WAITS: a person commits or stashes what they left in the tree and the next attempt
+    # succeeds, so failing the row would mean the Owner has to requeue it by hand after doing
+    # the one thing that fixes it.
+    assert jobs.completed == []
+    row = await waiting(jobs, user)
+    assert row["job_id"] == job_id
+    says(row, "canonical_dirty:data/canonical/u-agent/work/aurora.md")
 
 
 @pytest.mark.parametrize("harness_finishes", [True, False])
@@ -953,6 +962,25 @@ class NoTurnLaunch(UnavailableLaunch):
         )
 
 
+async def waiting(jobs, user) -> dict:  # noqa: ANN001
+    """The one row this tenant has waiting, and a failure that says so when there is not one.
+
+    A parked job is the SAME row it always was: queued again, behind a `not_before`, with
+    `waiting: <reason>; retry at <instant> (attempt n)` on it. Nothing is completed, so
+    `jobs.completed` stays empty — which is what every count of failed work reads."""
+    rows = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
+    parked = [r for r in rows if r["not_before"] is not None]
+    assert len(parked) == 1, f"expected one waiting row, got {rows}"
+    return parked[0]
+
+
+def says(row: dict, reason: str, attempt: int = 1) -> None:
+    """The parked row says exactly what it waits for, when, and which attempt this is."""
+    assert row["detail"] == (
+        f"waiting: {reason}; retry at {row['not_before'].isoformat()} (attempt {attempt})"
+    ), row["detail"]
+
+
 async def _refused(ctx, jobs, user, result, *, executor="worker:codex:0001", kind="compile"):
     """One agent-path job, claimed by a launch that then refused. Returns its id."""
     from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
@@ -970,13 +998,13 @@ async def _refused(ctx, jobs, user, result, *, executor="worker:codex:0001", kin
     return job_id
 
 
-async def test_a_refused_launch_fails_its_job_digests_nothing_and_comes_back_later(caplog):
+async def test_a_refused_launch_parks_its_job_digests_nothing_and_comes_back_later(caplog):
     """The whole repair, in one job's life.
 
     What the night produced: `done ok=true`, `projection:{…"upserted":0…}`, sources digested,
-    nothing written. What it produces now: a failed job naming the provider's refusal, the
-    material still undigested, and the SAME payload queued again behind the hour the provider
-    itself named.
+    nothing written. What it produces now: the SAME row back in the queue, naming the
+    provider's refusal, the material still undigested, waiting until the hour the provider
+    itself named — and nothing at all in the failed count, because nothing failed.
     """
     user = UserId("u-agent")
     when = datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Shanghai")) + timedelta(hours=9)
@@ -988,17 +1016,14 @@ async def test_a_refused_launch_fails_its_job_digests_nothing_and_comes_back_lat
             ctx, jobs, user, UnavailableLaunch(output=usage_limit_saying(when))
         )
 
-    done = jobs.completed[-1]
-    assert done["job_id"] == job_id and done["ok"] is False
-    assert done["detail"].startswith("rate_limited: Codex usage limit; retry after ")
-    assert when.isoformat() in done["detail"], "the provider's own hour was not read"
-
-    rows = await jobs.list_jobs(user)
-    queued = [r for r in rows if r["status"] == "queued"]
-    assert len(queued) == 1, "the work was dropped, or duplicated"
-    assert queued[0]["payload"]["source_ids"] == ["src-01"]
-    assert queued[0]["payload"]["cooling_reason"] == "codex usage limit"
-    assert queued[0]["not_before"] == when
+    assert jobs.completed == [], "a round that never ran ended a job"
+    row = await waiting(jobs, user)
+    assert row["job_id"] == job_id, "the Owner's job id changed under them"
+    says(row, "codex usage limit")
+    assert row["payload"]["source_ids"] == ["src-01"]
+    assert row["payload"]["cooling_reason"] == "codex usage limit"
+    assert row["payload"]["retry"]["attempts"] == 1
+    assert row["not_before"] == when, "the provider's own hour was not read"
 
     # And the queue itself refuses to hand it out before then — the wait is a row, not a
     # sleeping worker, so nothing is spent while it lasts and a restart reads the same answer.
@@ -1082,12 +1107,12 @@ async def test_a_model_at_capacity_is_named_as_itself_and_not_as_a_spent_quota()
     await _refused(ctx, jobs, user, UnavailableLaunch(
         output='{"type":"turn.failed","error":{"message":"Selected model is at capacity."}}'
     ))
-    assert "Codex at capacity" in jobs.completed[-1]["detail"]
-    row = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"][0]
+    row = await waiting(jobs, user)
+    says(row, "codex at capacity")
     assert row["payload"]["cooling_reason"] == "codex at capacity"
 
 
-async def test_a_provider_that_refused_the_connection_cools_instead_of_striking_the_job_out():
+async def test_a_provider_that_refused_the_connection_cools_instead_of_blaming_the_job():
     """The thirteen jobs, and what happens to them now.
 
     `failed to connect to websocket: HTTP error: 401 Unauthorized` is four minutes of an auth
@@ -1103,26 +1128,24 @@ async def test_a_provider_that_refused_the_connection_cools_instead_of_striking_
         output=WEBSOCKET_401, harness_reason=UNAVAILABLE_AT_CAPACITY,
     ))
 
-    done = jobs.completed[-1]
-    assert done["ok"] is False
-    assert "Codex provider refused" in done["detail"], done["detail"]
-    assert "harness_failed" not in done["detail"]
-
-    (queued,) = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
-    assert queued["payload"]["source_ids"] == ["src-01"], "the work was dropped"
-    assert queued["payload"]["cooling_reason"] == "codex provider refused"
-    assert round((queued["not_before"] - before).total_seconds()) == 120
+    row = await waiting(jobs, user)
+    says(row, "codex provider refused")
+    assert "harness_failed" not in row["detail"]
+    assert row["payload"]["source_ids"] == ["src-01"], "the work was dropped"
+    assert row["payload"]["cooling_reason"] == "codex provider refused"
+    assert round((row["not_before"] - before).total_seconds()) == 120
     assert compile_worker.agent_cooling(user) is not None, "the tenant kept feeding a dead token"
 
 
-async def test_a_harness_that_never_took_a_turn_cools_and_then_surfaces_at_the_ceiling():
-    """The six rounds at 00:40, and the bound that keeps them from becoming six hundred.
+async def test_a_harness_that_never_took_a_turn_waits_longer_and_then_waits_at_the_ceiling():
+    """The six rounds at 00:40, and what keeps them from becoming six hundred.
 
     A harness that died before its first turn is waited out like any other non-round — 120 s,
-    doubling. But this is the one member of that family that can be permanent, so the
-    escalation is also the bound: once the wait reaches `AGENT_UNAVAILABLE_COOLDOWN_MAX_S` the
-    row stops coming back and says so, instead of looping behind a fifteen-minute wall for
-    ever.
+    doubling to `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`. At the ceiling it goes on waiting AT the
+    ceiling: a crash that survives the longest wait is probably a broken install, and
+    "probably" is a reason to ask once a quarter-hour rather than a reason to strike the
+    Owner's work out. The row says what it is waiting for the whole time, which is the thing
+    a person can act on.
     """
     from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
 
@@ -1131,11 +1154,11 @@ async def test_a_harness_that_never_took_a_turn_cools_and_then_surfaces_at_the_c
     ctx = WorkerCtx(worker_settings(), jobs)
     job_id = await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
     waits: list[int] = []
-    details: list[str] = []
-    while job_id is not None:
-        job = await jobs.claim(user, job_id)
-        assert job is not None
-        executor = f"worker:codex:{len(details)}"
+    for attempt in range(1, 6):
+        job = await jobs.get_job(user, job_id)
+        job.status, job.not_before = "queued", None  # the wait has passed
+        assert await jobs.claim(user, job_id) is not None
+        executor = f"worker:codex:{attempt}"
         assert await jobs.attach_executor(user, job_id, executor)
         before = datetime.now(timezone.utc)
         await compile_worker._harness_unavailable(
@@ -1143,27 +1166,17 @@ async def test_a_harness_that_never_took_a_turn_cools_and_then_surfaces_at_the_c
             rt=SimpleNamespace(drafts=InMemoryDraftStore(jobs)),
             executor=executor, manifest=CODEX,
         )
-        details.append(jobs.completed[-1]["detail"])
-        queued = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
-        if not queued:
-            job_id = None
-            continue
-        waits.append(round((queued[0]["not_before"] - before).total_seconds()))
-        job_id = queued[0]["job_id"]
+        row = await waiting(jobs, user)
+        says(row, "codex harness died before its first turn", attempt)
+        waits.append(round((row["not_before"] - before).total_seconds()))
 
-    assert waits == [120, 240, 480], "the wait did not escalate on the capacity clock"
-    assert len(details) == 4
-    for detail in details[:3]:
-        assert detail.startswith(
-            "rate_limited: Codex harness died before its first turn; retry after "
-        ), detail
-    assert details[-1] == (
-        "harness_failed: Codex harness died before its first turn on 4 consecutive "
-        "launches; not coming back"
-    )
-    assert [r["status"] for r in await jobs.list_jobs(user)] == ["done"] * 4
-    # The tenant is still cooling: the next launch would die the same way, and the job that
-    # stopped coming back is a row to read rather than a reason to hand out more work.
+    assert waits == [120, 240, 480, 900, 900], "the wait did not escalate, or did not stop"
+    assert jobs.completed == [], "a harness that never ran was blamed for the round"
+    assert [r["job_id"] for r in await jobs.list_jobs(user)] == [job_id], "one job, one row"
+    # Five failures, and the payload carries all five: the same sentence every time is a
+    # different fact from five different ones.
+    row = await waiting(jobs, user)
+    assert len(row["payload"]["retry"]["history"]) == 5
     assert compile_worker.agent_cooling(user) is not None
 
 
@@ -1178,9 +1191,13 @@ async def test_one_dead_launch_before_a_turn_never_reads_as_a_compiled_source():
     assert stamped == []
 
 
-async def test_a_requeued_job_takes_the_original_jobs_place_not_the_end_of_the_queue():
-    """A round that never ran has not had its turn. The retry sorts where the original did —
-    ahead of a compile queued after it — and a provider's `not_before` still gates it."""
+async def test_a_parked_job_keeps_its_own_row_its_place_and_its_wait():
+    """A round that never ran has not had its turn. It waits on the row it already had —
+    same id, same place in the queue, ahead of a compile queued after it — and the wait on
+    that row is what stops the drain from picking it straight back up.
+
+    The row is the whole point: the queue used to complete this one and enqueue a second,
+    so one piece of work grew a chain of ids and every count of failed work counted it."""
     from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
 
     user = UserId("u-agent")
@@ -1189,6 +1206,7 @@ async def test_a_requeued_job_takes_the_original_jobs_place_not_the_end_of_the_q
 
     async def refuse(result):  # noqa: ANN001
         job = await jobs.claim_next(user)
+        assert job is not None
         assert await jobs.attach_executor(user, job.job_id, "worker:codex:0001")
         await compile_worker._harness_unavailable(
             ctx, user, job, result,
@@ -1197,22 +1215,24 @@ async def test_a_requeued_job_takes_the_original_jobs_place_not_the_end_of_the_q
         )
         return job
 
-    await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
-    await jobs.enqueue(user, "compile", {"source_ids": ["src-02"]})
+    first = await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
+    second = await jobs.enqueue(user, "compile", {"source_ids": ["src-02"]})
     died = await refuse(FailedLaunch(output="fatal: no such file", exit_code=2))
-    retry = await jobs.claim_next(user)
-    assert retry.payload["source_ids"] == ["src-01"], "the retry dropped to the end"
-    assert retry.order_at == died.order_at
-    await jobs.complete(user, retry.job_id, ok=True)
+    assert died.job_id == first
 
-    compile_worker._COOLING.pop(str(user), None)
-    limited = await refuse(UnavailableLaunch(output="stream error: 429 Too Many Requests"))
-    compile_worker._COOLING.pop(str(user), None)
-    queued = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
-    assert len(queued) == 1 and queued[0]["payload"]["source_ids"] == ["src-02"]
-    assert queued[0]["not_before"] is not None, "the provider's wait no longer gates it"
-    assert (await jobs.get_job(user, queued[0]["job_id"])).order_at == limited.order_at
-    assert await jobs.claim_next(user) is None, "a job on ice was handed out"
+    # Its wait gates it, so the queue hands out the one behind it meanwhile…
+    assert (await jobs.claim_next(user)).job_id == second
+    await jobs.complete(user, second, ok=True)
+    row = await waiting(jobs, user)
+    assert row["job_id"] == first and row["payload"]["source_ids"] == ["src-01"]
+    assert [r["job_id"] for r in await jobs.list_jobs(user)] == [second, first], "a row was added"
+
+    # …and once the wait passes it is claimed at its own place, which it never left.
+    parked = await jobs.get_job(user, first)
+    assert parked.order_at == died.order_at
+    parked.not_before = None
+    again = await jobs.claim_next(user)
+    assert again is not None and again.job_id == first
 
 
 async def test_one_launch_that_simply_died_does_not_take_the_tenant_off_the_air():
@@ -1222,7 +1242,7 @@ async def test_one_launch_that_simply_died_does_not_take_the_tenant_off_the_air(
     jobs = InMemoryJobQueue()
     ctx = WorkerCtx(worker_settings(), jobs)
     await _refused(ctx, jobs, user, FailedLaunch(output="fatal: no such file", exit_code=2))
-    assert jobs.completed[-1]["detail"] == "harness_failed: exit 2 — fatal: no such file"
+    says(await waiting(jobs, user), "harness_failed: exit 2 — fatal: no such file")
     assert compile_worker.agent_cooling(user) is None
 
 
@@ -1407,69 +1427,112 @@ def test_the_failure_line_is_bounded_so_a_job_listing_stays_a_listing():
     assert len(failure_line("x" * 5000)) == 200
 
 
-async def test_a_harness_that_merely_failed_cools_nothing_and_comes_straight_back():
+async def test_a_harness_that_merely_failed_cools_nothing_and_waits_on_the_schedule():
     """The bug this repairs, in one job.
 
     An `agent-session/v1` part of 24,439 blocks killed every launch it was given. Each
     failure was treated as a rate limit: the row came back behind a fifteen-minute wall with
     `cooling_reason` on it, so the console announced a cooling tenant, and the next failure
-    pushed the wall out again. Nothing about that source was ever going to be fixed by
-    waiting, and nothing about it says anything about the rest of the queue.
+    pushed the wall out again. One dead launch is evidence about THIS job and about nothing
+    else in the queue: the tenant keeps working and the job waits its own minute.
     """
     user = UserId("u-agent")
     jobs = InMemoryJobQueue()
-    ctx = WorkerCtx(worker_settings(agent_retries=3), jobs)
+    ctx = WorkerCtx(worker_settings(), jobs)
+    before = datetime.now(timezone.utc)
     await _refused(
         ctx, jobs, user,
-        FailedLaunch(output="Error: input is too long for the selected model\n  at run()"),
+        FailedLaunch(output="Error: the model refused the request\n  at run()"),
     )
 
-    done = jobs.completed[-1]
-    assert done["ok"] is False
-    assert done["detail"] == (
-        "harness_failed: exit 1 — Error: input is too long for the selected model"
-    )
+    assert jobs.completed == []
     assert compile_worker.agent_cooling(user) is None, "one dead launch iced the tenant"
-
-    (queued,) = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
-    assert queued["not_before"] is None, "a failure that waiting cannot fix was made to wait"
-    assert "cooling_reason" not in queued["payload"]
-    assert queued["payload"]["harness_failures"] == 1
-    # And the queue hands it straight back out: nothing is held back by a plain failure.
-    assert await jobs.claim_next(user) is not None
+    row = await waiting(jobs, user)
+    says(row, "harness_failed: exit 1 — Error: the model refused the request")
+    assert "cooling_reason" not in row["payload"], "one job's failure stated a tenant's wait"
+    assert round((row["not_before"] - before).total_seconds()) == RETRY_BACKOFF_S[0]
+    assert await jobs.claim_next(user) is None, "a job that is waiting was handed out"
 
 
-async def test_a_round_that_keeps_failing_stops_coming_back_after_the_bound():
-    """`AGENT_RETRIES` bounds it. A job that cannot run is a thing for a person to read, not
-    a thing to hand the same harness forever."""
+async def test_a_round_that_keeps_failing_waits_longer_each_time_and_then_pauses():
+    """No bound and no strike-out, and then no asking for ever either.
+
+    The schedule is the escalation — a minute, five, fifteen, an hour, four, a day — and its
+    END is a pause, not a seventh attempt: whatever a job is waiting for after six failures
+    across that span is not going to change by itself, and a row that goes on asking is a row
+    the Owner learns to scroll past. The job stops, says what it waited for and how hard it
+    tried, and names the command that starts it again."""
     from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+    from pneuma_knowledge_service.job_retry import PAUSED_STATUS
 
     user = UserId("u-agent")
     jobs = InMemoryJobQueue()
-    ctx = WorkerCtx(worker_settings(agent_retries=3), jobs)
+    ctx = WorkerCtx(worker_settings(), jobs)
     job_id = await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
-    details: list[str] = []
-    while job_id is not None:
-        job = await jobs.claim(user, job_id)
-        assert job is not None
-        executor = f"worker:codex:{len(details)}"
+    said = "harness_failed: exit 1 — Error: the model refused the request"
+    waits: list[int] = []
+
+    async def fail_once(attempt: int) -> None:
+        job = await jobs.get_job(user, job_id)
+        job.status, job.not_before = "queued", None  # the wait has passed
+        assert await jobs.claim(user, job_id) is not None
+        executor = f"worker:codex:{attempt}"
         assert await jobs.attach_executor(user, job_id, executor)
         await compile_worker._harness_unavailable(
-            ctx, user, job, FailedLaunch(output="Error: input is too long"),
+            ctx, user, job, FailedLaunch(output="Error: the model refused the request"),
             rt=SimpleNamespace(drafts=InMemoryDraftStore(jobs)),
             executor=executor,
             manifest=CODEX,
         )
-        details.append(jobs.completed[-1]["detail"])
-        queued = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
-        job_id = queued[0]["job_id"] if queued else None
 
-    assert len(details) == 3, "the bound was not the one AGENT_RETRIES states"
-    assert details[:2] == ["harness_failed: exit 1 — Error: input is too long"] * 2
-    assert details[-1] == (
-        "harness_failed: exit 1 after 3 attempts — Error: input is too long"
+    for attempt in range(1, len(RETRY_BACKOFF_S) + 1):
+        before = datetime.now(timezone.utc)
+        await fail_once(attempt)
+        row = await waiting(jobs, user)
+        says(row, said, attempt)
+        waits.append(round((row["not_before"] - before).total_seconds()))
+
+    assert waits == list(RETRY_BACKOFF_S)
+
+    # One more, and the schedule is spent.
+    await fail_once(len(RETRY_BACKOFF_S) + 1)
+    (row,) = await jobs.list_jobs(user)
+    assert row["job_id"] == job_id, "the Owner's job id changed under them"
+    assert row["status"] == PAUSED_STATUS and row["not_before"] is None
+    assert row["detail"] == (
+        f"paused: {said}; 7 attempts over <1m; resume with pkc jobs resume"
     )
-    assert [r["status"] for r in await jobs.list_jobs(user)] == ["done"] * 3
+    assert row["payload"]["retry"]["attempts"] == 7
+    assert len(row["payload"]["retry"]["history"]) == 7, "the history was not kept"
+    assert jobs.completed == [], "a job waiting for a person was struck out"
+    # Nothing picks it up — not the queue, not the self-heal. A person does.
+    assert await jobs.claim_next(user) is None
+    assert await jobs.claim(user, job_id) is None
+    assert await jobs.requeue_claimed_jobs(draft_ttl=0) == 0
+    assert (await jobs.get_job(user, job_id)).status == PAUSED_STATUS
+
+
+async def test_material_that_will_not_fit_is_the_one_refusal_that_does_not_come_back():
+    """The enumerated exception (`job_retry.TERMINAL_FAILURES`).
+
+    The framework has already windowed an episodes job and bounded a compile task, so a
+    harness that still says the input is too long is stating a fact about the material, and
+    the material is the same length on every later attempt. Asking again once a day for ever
+    would spend a launch each time to be told the same thing — so this one ends, saying so.
+    """
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(), jobs)
+    await _refused(
+        ctx, jobs, user,
+        FailedLaunch(output="Error: input is too long for the selected model"),
+    )
+
+    done = jobs.completed[-1]
+    assert done["ok"] is False
+    assert done["detail"] == "input_too_large: the harness said: input is too long"
+    assert [r["status"] for r in await jobs.list_jobs(user)] == ["done"]
+    assert compile_worker.agent_cooling(user) is None
 
 
 async def test_the_harnesss_own_words_are_kept_on_the_job_and_read_back_through_the_api():
@@ -1486,11 +1549,11 @@ async def test_the_harnesss_own_words_are_kept_on_the_job_and_read_back_through_
     ctx = WorkerCtx(config, store)
     await _refused(
         ctx, store, user,
-        FailedLaunch(output="Error: input is too long for the selected model"),
+        FailedLaunch(output="Error: the model refused the request"),
     )
 
-    (row,) = [r for r in await store.list_jobs(user) if r["status"] == "done"]
-    assert row["harness_output"] == "Error: input is too long for the selected model"
+    (row,) = [r for r in await store.list_jobs(user) if r["status"] == "queued"]
+    assert row["harness_output"] == "Error: the model refused the request"
 
     app = create_app()
     app.state.ctx = SimpleNamespace(
@@ -1501,9 +1564,11 @@ async def test_the_harnesss_own_words_are_kept_on_the_job_and_read_back_through_
     ) as client:
         response = await client.get(f"/v1/users/{user}/jobs")
     assert response.status_code == 200, response.text
-    (item,) = [i for i in response.json()["items"] if i["status"] == "done"]
-    assert item["harness_output"] == "Error: input is too long for the selected model"
-    assert item["detail"].startswith("harness_failed: exit 1 — ")
+    (item,) = [i for i in response.json()["items"] if i["status"] == "queued"]
+    assert item["harness_output"] == "Error: the model refused the request"
+    assert item["detail"].startswith(
+        "waiting: harness_failed: exit 1 — Error: the model refused the request; retry at "
+    )
 
 
 async def test_what_the_steward_said_is_kept_on_a_round_that_succeeded(monkeypatch, tmp_path):

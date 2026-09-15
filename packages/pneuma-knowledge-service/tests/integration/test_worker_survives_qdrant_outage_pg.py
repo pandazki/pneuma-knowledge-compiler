@@ -85,7 +85,7 @@ async def test_the_worker_rides_out_a_qdrant_outage_under_an_episodes_job(
     monkeypatch.setattr(compile_worker, "INFRA_BACKOFF_START_S", 0.5)
     monkeypatch.setattr(compile_worker, "INFRA_BACKOFF_MAX_S", 2.0)
     monkeypatch.setattr(compile_worker, "IDLE_SWEEP_S", 0.1)
-    compile_worker._INFRA_STRIKES.clear()
+    compile_worker._INFRA_INTERRUPTIONS.clear()
     compile_worker._IN_FLIGHT.clear()
 
     stopped = asyncio.Event()

@@ -57,6 +57,19 @@ pkchome skill install [--backend codex|claude-code|all] [--force]
 
 `register` 与 `forget` 是 v2 占位命令。`down` 保留中间件数据。
 
+当知识库里有没跑完的活时，`status` 会在 `Queue:` 下面印一行 `Waiting:`：`Waiting: 13 ·
+OpenRouter 402 payment required ×9 (next 14:05) · codex provider refused ×4 (next 13:52)`。
+失败的作业不会被划掉——它带着写在行上的理由回到队列里等待，引擎把这些理由分组
+（`GET /jobs/summary`）。于是服务商没钱了、harness 倒了的知识库会把话说出来，并在原因消失后
+自己把活捡起来，而不是看上去像一个悄悄停住的队列。
+
+其下还有一行 `Paused:`：`Paused: 5 · OpenRouter 402 payment required ×4 — pkc jobs resume`。
+等待会变长——一分钟、五分钟、十五分钟、一小时、四小时、一天——然后它停下来，因为一个作业连着
+一天半都在同一件事上失败，再问第七次也不会有变化。能改变它的是你：把账户充上、把 harness 登录
+好、把你留在库里的改动提交掉，然后运行 `pkc jobs resume`（`--job <id>`、`--reason-like <文字>`
+或 `--all`）。等待从一分钟重新开始；没有东西丢失，也没有东西被编译两次。`Failed:` 只计那少数
+几种重试也修不好的失败——不认识的作业种类、读不出的载荷、任何一轮都装不下的材料。
+
 可选的 [PKC 桌面托盘](desktop/README.zh-CN.md) 显示机器与知识库状态、提供带引用的搜索，
 并通过 `pkchome` 修改设置。将 `PKC.app` 安装到 `~/Applications` 或 `/Applications`，
 然后运行 `pkchome tray`；未安装时，该命令会打印发布页面。开发时运行

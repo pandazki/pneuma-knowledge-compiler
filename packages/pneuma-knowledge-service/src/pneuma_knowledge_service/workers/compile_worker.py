@@ -61,8 +61,9 @@ from .archive_job import run_archive_job
 from ..groom_service import GROOM_JOB_KIND, maybe_trigger_rollover, run_groom_job
 from ..review_service import REVIEW_JOB_KIND
 from ..infra_faults import InfraFault, InfrastructureInterrupted, infrastructure_fault
+from ..job_retry import PAUSED_STATUS, TerminalJobFailure, park
 from ..ingest_document import _summary_chunks
-from ..job_lanes import CANONICAL_LANE, LANES, lane_of
+from ..job_lanes import CANONICAL_LANE, JOB_LANES, LANES, lane_of
 from ..projection import sync_projection
 from ..settings import Settings, get_settings
 from ..skills import skill_for_user
@@ -191,12 +192,16 @@ INFRA_BACKOFF_START_S = 2.0
 INFRA_BACKOFF_MAX_S = 60.0
 #: The pause between sweeps of an idle queue.
 IDLE_SWEEP_S = 2.0
-#: How many times one job may be interrupted by an infrastructure failure and put back. An
-#: outage is not the job's fault, so it is not failed for one; but a job that meets the same
-#: "transient" error on every attempt while the stack answers every probe is not meeting an
-#: outage, and after this many it is failed as any other error fails it.
-INFRA_JOB_INTERRUPTIONS = 3
-_INFRA_STRIKES: dict[str, int] = {}
+#: How many times ONE job may be put straight back by an infrastructure fault before it waits
+#: on the retry schedule instead. An outage is not the job's fault and the first few are
+#: waited out in place (`ride_out`), which costs the job nothing and gets the whole lane
+#: moving the second the stack answers. But the same fault on every attempt while every probe
+#: answers is not an outage for THIS job — a vector write one store will never accept — and
+#: putting it straight back forever is a hot loop with no reason written anywhere. Past this
+#: count the job parks like every other failure: it says what interrupted it and comes back on
+#: `RETRY_BACKOFF_S`. Nothing is struck out at any count.
+INFRA_PUT_BACKS = 3
+_INFRA_INTERRUPTIONS: dict[str, int] = {}
 
 
 def agent_cooling(user_id: UserId) -> tuple[datetime, str] | None:
@@ -478,7 +483,14 @@ async def compile_inputs(
     """
     payload = getattr(job, "payload", {}) or {}
     job_id = getattr(job, "job_id")
-    source_ids: list[str] = [str(s) for s in payload.get("source_ids", [])]
+    named = payload.get("source_ids", [])
+    if not isinstance(named, list):
+        # Not a compile payload at all. Terminal: the same bytes parse the same way on every
+        # later attempt, and a round over a payload nobody can read compiles nothing.
+        raise TerminalJobFailure(
+            "payload_invalid", "a compile job's `source_ids` must be a list"
+        )
+    source_ids: list[str] = [str(s) for s in named]
 
     sources: list[NormalizedSource] = []
     for sid in source_ids:
@@ -486,6 +498,13 @@ async def compile_inputs(
             sources.append(await ctx.store.get(user_id, SourceId(sid)))
         except KeyError:
             continue  # source deleted since enqueue; skip it
+    if source_ids and not sources:
+        # Every source this job names has been deleted since it was queued. Waiting brings
+        # none of them back, and a round with no material is a round that can only write
+        # nothing while claiming it read something.
+        raise TerminalJobFailure(
+            "source_gone", f"none of {', '.join(source_ids)} is in this library any more"
+        )
 
     # Per-source treatment: payload override, else the source's stored IntakePlan.
     payload_treatments = payload.get("treatments") or {}
@@ -726,16 +745,27 @@ async def persist_compile_result(
         ):
             await maybe_trigger_evolve(ctx, user_id)
     else:  # aborted
-        detail = "; ".join(v.render() for v in result.violations)
-        # An aborted round spent its tokens too — arguably the spend most worth seeing.
-        await ctx.store.complete(
-            user_id,
-            job_id,
-            ok=False,
-            detail=_with_run_facts(detail, result),
-            token_usage=result.token_usage,
-            executor=executor,
+        # The gate still refuses after the repair round. Nothing was written and the material
+        # is untouched, so this is a round that did not succeed rather than material that
+        # cannot be compiled: a later round over the same sources — a better model, a changed
+        # contract, a schema the Owner has since evolved — can pass the gate the same
+        # material failed today. It waits, saying what the gate said.
+        #
+        # An aborted round spent its tokens too — arguably the spend most worth seeing — and
+        # that is recorded on the row before it goes back, because `park` does not end the job
+        # and `record_job_usage` is what states a cost without stating an outcome.
+        detail = _with_run_facts(
+            "; ".join(v.render() for v in result.violations), result
         )
+        if result.token_usage:
+            await ctx.store.record_job_usage(
+                user_id, job_id, token_usage=result.token_usage, executor=executor
+            )
+        parked = await park(
+            ctx.store, user_id, job_id, payload=dict(job_payload or {}),
+            reason=f"gate refused: {detail}",
+        )
+        _said(job_id, parked)
 
 
 async def process_job(
@@ -1065,16 +1095,16 @@ async def _harness_unavailable(
     executor: str,
     manifest: object,
 ) -> None:
-    """End a job whose harness never ran it, and queue the same work for later.
+    """Park a job whose harness never ran it, and stop claiming work no harness can run.
 
     Three things happen here and each of them is the opposite of what happened the night this
     was written, when a spent quota produced 296 compile jobs recorded `done ok=True` with
     nothing written and their sources stamped digested:
 
-    1. the job is completed `ok=False`, naming the harness's own refusal;
+    1. the job goes back to `queued` on its own row, saying what it waits for and when it
+       comes back (`job_retry.park`);
     2. its sources are NOT marked digested — nothing was compiled, so nothing is claimed;
-    3. the same payload is queued again as a new row, held back by `not_before` until the
-       provider said the room comes back (or a doubling cooldown when it said nothing).
+    3. the draft the launch opened is dropped, so the lane is free.
 
     And one more, which is what keeps the other three from being paid for 315 times: the
     tenant is put on ice, so this body stops claiming work no harness can run.
@@ -1082,21 +1112,23 @@ async def _harness_unavailable(
     **What the ice is for, and what it is not for** (`round_runner.UNAVAILABLE_*`). A spent
     subscription and a model at capacity are facts about the PROVIDER: nothing else this
     tenant has queued can run either, so the tenant waits and the job comes back behind a
-    `not_before`. A harness that simply died is a fact about THIS JOB. Cooling on it was a
-    real bug with a real cost: an `agent-session/v1` part of 24,439 blocks killed every
-    launch it was given, and each failure re-queued itself behind a fifteen-minute wall and
-    wrote `cooling_reason` onto the row the API reads — so the console announced a cooling
-    tenant that the drain was not honouring (the ice was never laid: `_COOLING` was only ever
-    set on the rate-limit branch), and every retry pushed the wall out again. A failure now
-    cools nothing, states the harness's own first line on the job, and is retried at most
-    `AGENT_RETRIES` times before the row is left failed for a person to read.
+    `not_before` the provider itself named, or the doubling cooldown when it named none. A
+    harness that simply died is a fact about THIS JOB. Cooling on it was a real bug with a
+    real cost: an `agent-session/v1` part of 24,439 blocks killed every launch it was given,
+    and each failure pushed the whole tenant's wall out again. A failure cools nothing, states
+    the harness's own first line on the job, and waits on the ordinary schedule.
 
     Between the two sits `no_turn`: the harness came up and was gone before a turn started,
     with nothing but its own `thread.started` to show for it. Nothing about THIS JOB is
     implicated — no material was read — so it takes the provider family's treatment on the
-    capacity clock rather than a strike. But it is the one member of that family that can be
-    permanent, so it is bounded: once the doubling reaches `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`,
-    the row stops coming back and says so.
+    capacity clock. At the ceiling it keeps waiting AT the ceiling, saying so: a crash that
+    survives the longest wait is probably permanent, but "probably permanent" is a reason to
+    ask once an hour rather than a reason to strike a job out, and the row that says what it
+    is waiting for is the one a person can act on.
+
+    The one refusal that does not come back is the harness telling us the material will not
+    fit: `input_too_large` is terminal, because the framework has already windowed and bounded
+    what it sends and the same material is the same length on every later attempt.
     """
     from ..coding_agent.backends import unavailable_reason, usage_limit_deadline
     from ..coding_agent.round_runner import (
@@ -1109,10 +1141,11 @@ async def _harness_unavailable(
     )
 
     job_id = getattr(job, "job_id")
-    kind = getattr(job, "kind", COMPILE_JOB_KIND)
     payload = dict(getattr(job, "payload", {}) or {})
     now = datetime.now(timezone.utc)
-    label = getattr(manifest, "display_label", "") or getattr(manifest, "name", "harness")
+    # The provider's own vocabulary, in the spelling the summary groups on: one lower-case
+    # phrase per refusal (`codex usage limit`), so nine jobs held by one spent subscription
+    # read as one line rather than nine.
     backend_name = getattr(manifest, "name", "harness")
     # What the harness said, bounded and already scrubbed by the runner. Kept on the row
     # because `exit 1` is not a diagnosis, and the words that were a diagnosis lived only in
@@ -1123,7 +1156,8 @@ async def _harness_unavailable(
         UNAVAILABLE_RATE_LIMITED if getattr(result, "rate_limited", False)
         else UNAVAILABLE_FAILED
     )
-    requeue = True
+    not_before: datetime | None = None
+    cooling_until: datetime | None = None
 
     if refusal in (UNAVAILABLE_RATE_LIMITED, UNAVAILABLE_AT_CAPACITY, UNAVAILABLE_NO_TURN):
         no_turn = refusal == UNAVAILABLE_NO_TURN
@@ -1153,89 +1187,56 @@ async def _harness_unavailable(
         )
         if stated is not None and stated > now:
             not_before = stated
-            detail = f"rate_limited: {label} {said}; retry after {stated.isoformat()}"
         else:
             # A spent subscription is a guess about hours; a model at capacity is back within
             # minutes more often than not, and waiting it out like a quota kept the tenant off
-            # the air long after the model had room. Each doubles on its own base and ceiling.
+            # the air long after the model had room. Each doubles on its own base and ceiling,
+            # and at the ceiling it keeps asking at the ceiling interval rather than giving up.
             if capacity:
                 base = int(ctx.settings.agent_unavailable_cooldown_s)
                 ceiling = int(ctx.settings.agent_unavailable_cooldown_max_s)
             else:
                 base = int(ctx.settings.agent_rate_limit_cooldown_s)
                 ceiling = int(ctx.settings.agent_rate_limit_cooldown_max_s)
-            seconds = min(base * (2 ** (hits - 1)), ceiling)
-            not_before = now + timedelta(seconds=seconds)
-            detail = (
-                f"rate_limited: {label} {said}; retry after "
-                f"{not_before.isoformat()} (cooldown {seconds}s)"
-            )
-            if no_turn and seconds >= ceiling:
-                # The one bound on this family, and the reason it is a bound rather than a
-                # retry count: a harness that still cannot take a turn after the longest wait
-                # the cooling knows is not meeting jitter, it is broken — and a job re-queued
-                # forever behind a fifteen-minute wall is a job nobody ever reads. The tenant
-                # still cools (the next launch would die the same way); this ROW stops here.
-                requeue = False
-                detail = (
-                    f"harness_failed: {label} {said} on {hits} consecutive launches; "
-                    "not coming back"
-                )
+            not_before = now + timedelta(seconds=min(base * (2 ** (hits - 1)), ceiling))
         reason = f"{backend_name} {said}"
-        started = agent_cooling(user_id) is None
-        _COOLING[str(user_id)] = (not_before, reason)
+        cooling_until = not_before
+        payload["cooling_reason"] = reason
     else:
         # A harness that died for its own reasons. No ice, no wall: one launch failing is
-        # evidence about this job and about nothing else in the queue. It comes straight back
-        # a bounded number of times, and then it stays failed — a job that cannot run is a
-        # thing to read, not a thing to retry forever.
-        attempts = int(payload.get("harness_failures", 0) or 0) + 1
-        bound = max(1, int(ctx.settings.agent_retries))
-        requeue = attempts < bound
-        not_before = None
-        reason = ""
-        started = False
+        # evidence about this job and about nothing else in the queue. It waits on the
+        # ordinary schedule, saying what the harness said.
         said = failure_line(harness_output)
-        detail = f"harness_failed: exit {getattr(result, 'exit_code', 0)}"
-        if not requeue:
-            detail += f" after {attempts} attempt{'s' if attempts != 1 else ''}"
+        reason = f"harness_failed: exit {getattr(result, 'exit_code', 0)}"
         if said:
-            detail += f" — {said}"
-        if requeue:
-            payload["harness_failures"] = attempts
+            reason += f" — {said}"
         # A cooling reason left by an earlier rate limit is not this row's; the queue reads
-        # it back as the tenant's wait and this job states no wait at all.
+        # it back as the tenant's wait and this job states no wait of the tenant's at all.
         payload.pop("cooling_reason", None)
+        too_large = input_too_large(getattr(result, "output", "") or "", harness_output)
+        if too_large:
+            # The one refusal in this family that a retry cannot fix.
+            await ctx.store.complete(
+                user_id, job_id, ok=False, detail=too_large.detail, claimed_by=executor,
+                harness_output=harness_output or None,
+            )
+            await _drop_round_draft(ctx, rt, user_id, job_id, executor)
+            log.warning("[compile-worker] job %s will not come back: %s", job_id, too_large.detail)
+            return
 
-    await ctx.store.complete(
-        user_id, job_id, ok=False, detail=detail, claimed_by=executor,
-        harness_output=harness_output or None,
+    started = cooling_until is not None and agent_cooling(user_id) is None
+    parked = await park(
+        ctx.store, user_id, job_id, payload=payload, reason=reason, not_before=not_before,
+        now=now, claimed_by=executor, harness_output=harness_output or None,
     )
-    # The draft this launch opened reserves the tenant's whole queue while it exists, and it
+    _said(job_id, parked)
+    # The draft this launch opened reserves the tenant's whole lane while it exists, and it
     # holds a round nobody is going to continue. Dropped here, under the same lock the error
     # tail uses, and only while this launch still owns it.
-    drafts = getattr(rt, "drafts", None)
-    if drafts is not None:
-        async with drafts.lock(user_id):
-            owner = await drafts.owner(user_id, job_id)
-            current = await ctx.store.get_job(user_id, job_id)
-            if owner is not None and owner.executor == executor and (
-                current is not None and getattr(current, "status", "") == "done"
-            ):
-                await drafts.delete(user_id, job_id, executor=executor)
+    await _drop_round_draft(ctx, rt, user_id, job_id, executor)
 
-    if requeue:
-        if reason:
-            payload["cooling_reason"] = reason
-        # Back at the ORIGINAL job's place, not at the end: a round that never ran has not
-        # had its turn. `not_before`, when the provider named one, still gates it.
-        await ctx.store.enqueue(
-            user_id, kind, payload, not_before=not_before,
-            order_at=getattr(job, "order_at", None),
-        )
-    else:
-        log.warning("[compile-worker] job %s is not coming back: %s", job_id, detail)
-
+    if cooling_until is not None:
+        _COOLING[str(user_id)] = (cooling_until, reason)
     if started:
         waiting = sum(
             1
@@ -1245,9 +1246,52 @@ async def _harness_unavailable(
         log.warning(
             "[compile-worker] %s: cooling until %s; %d job(s) wait",
             reason,
-            not_before.isoformat(),
+            cooling_until.isoformat(),
             waiting,
         )
+
+
+#: What a harness says when the material will not fit in one round. Scanned only on a
+#: `failed` refusal, and terminal when it matches: the framework has already windowed an
+#: episodes job and bounded a compile task, so the same material is the same length next time
+#: and every later attempt spends a launch to be told the same thing.
+INPUT_TOO_LARGE_MARKERS: tuple[str, ...] = (
+    "input is too long",
+    "prompt is too long",
+    "context length exceeded",
+    "maximum context length",
+    "context_length_exceeded",
+    "too many tokens",
+)
+
+
+def input_too_large(*texts: str) -> TerminalJobFailure | None:
+    """The terminal failure a harness's own words state, when they state that one."""
+    for text in texts:
+        lowered = str(text or "").lower()
+        for marker in INPUT_TOO_LARGE_MARKERS:
+            if marker in lowered:
+                return TerminalJobFailure(
+                    "input_too_large", f"the harness said: {marker}"
+                )
+    return None
+
+
+async def _drop_round_draft(
+    ctx: AppContext, rt: object, user_id: UserId, job_id: str, executor: str
+) -> None:
+    """Drop the draft a launch opened, once that launch's job is no longer claimed by it."""
+    drafts = getattr(rt, "drafts", None)
+    if drafts is None:
+        return
+    async with drafts.lock(user_id):
+        owner = await drafts.owner(user_id, job_id)
+        current = await ctx.store.get_job(user_id, job_id)
+        if owner is not None and owner.executor == executor and (
+            current is not None
+            and getattr(current, "status", "") in ("done", "queued", PAUSED_STATUS)
+        ):
+            await drafts.delete(user_id, job_id, executor=executor)
 
 
 def failure_reason(exc: BaseException) -> str:
@@ -1266,57 +1310,72 @@ def failure_reason(exc: BaseException) -> str:
 
 
 class Interruption(NamedTuple):
-    """What the strike guard decided about one failure of one job.
+    """What the infrastructure guard decided about one failure of one job.
 
-    Three states, and the third is why this is not just a fault: `put_back` set (wait the
-    outage out), `struck_out` set (it WAS an outage every time, and this job has now met one
-    once too often — it is failed, and the row must say that rather than name a class), or
-    neither (the error was never infrastructure and takes the path it always took)."""
+    Three states: `put_back` set (wait the outage out in place, the job's turn is not spent),
+    `waited_out` set (it WAS infrastructure every time, and this job has now met it once too
+    often for waiting in place to be the answer — it parks on the retry schedule with the
+    fault named), or neither (the error was never infrastructure and takes the ordinary
+    path). Nothing here fails a job: an outage is never the job's fault, at any count."""
 
     put_back: InfraFault | None = None
-    struck_out: InfraFault | None = None
-    strikes: int = 0
+    waited_out: InfraFault | None = None
+    interruptions: int = 0
 
-    def detail(self) -> str:
-        """The sentence a struck-out job's row carries, and the one the log repeats."""
-        fault = self.struck_out
+    def reason(self) -> str:
+        """What a job parked by repeated infrastructure says it is waiting for."""
+        fault = self.waited_out
         return (
             f"infrastructure repeated: {fault.kind} ({fault.reason}) "
-            f"interrupted this job {self.strikes} times; failed"
+            f"interrupted this job {self.interruptions} times"
         )
 
 
 def _interrupting_fault(job_id: str, exc: BaseException) -> Interruption:
-    """The infrastructure fault that interrupted this job, while it may still be put back.
+    """The infrastructure fault that interrupted this job, and whether to wait in place.
 
-    Counts the interruptions per job: the first `INFRA_JOB_INTERRUPTIONS` are an outage and
-    the job goes back; one more means waiting is no longer an answer for THIS job, and it is
-    failed — saying so, because `worker error: qdrant_client.ResponseHandlingException` is
-    what a real row said about a job that had in fact been interrupted three times by a
-    Qdrant write it could not finish, and nothing on it said so."""
+    Counts the interruptions per job: the first `INFRA_PUT_BACKS` are an outage and the job
+    goes straight back; one more means waiting in place is no longer the answer for THIS job,
+    and it waits on the schedule instead — saying what interrupted it, because `worker error:
+    qdrant_client.ResponseHandlingException` is what a real row said about a job that had in
+    fact been interrupted three times by a Qdrant write it could not finish, and nothing on it
+    said so."""
     fault = infrastructure_fault(exc)
     if fault is None:
         return Interruption()
-    strikes = _INFRA_STRIKES.get(job_id, 0) + 1
-    _INFRA_STRIKES[job_id] = strikes
-    if strikes > INFRA_JOB_INTERRUPTIONS:
-        _INFRA_STRIKES.pop(job_id, None)
-        return Interruption(struck_out=fault, strikes=strikes)
-    return Interruption(put_back=fault, strikes=strikes)
+    seen = _INFRA_INTERRUPTIONS.get(job_id, 0) + 1
+    _INFRA_INTERRUPTIONS[job_id] = seen
+    if seen > INFRA_PUT_BACKS:
+        _INFRA_INTERRUPTIONS.pop(job_id, None)
+        return Interruption(waited_out=fault, interruptions=seen)
+    return Interruption(put_back=fault, interruptions=seen)
 
 
-async def _fail_or_interrupt(
-    ctx: AppContext, user_id: UserId, job: object, exc: Exception, detail: str
+async def _end_or_interrupt(
+    ctx: AppContext,
+    user_id: UserId,
+    job: object,
+    exc: Exception,
+    *,
+    reason: str = "",
+    terminal: str = "",
 ) -> None:
-    """Fail the job — unless recording the failure is what the outage stopped.
+    """End this job's attempt — unless writing that down is what the outage stopped.
 
-    The completion that records a failure is a database write like any other. When the
-    database is what is gone, the job is left to the outage recovery (which writes the kept
-    completion once it can: `PostgresStore.write_unwritten_completions`) instead of taking
-    the drain down with it."""
+    One of two writes, and the choice is the whole rule (`job_retry.py`): a failure whose code
+    is in `TERMINAL_FAILURES` is completed `ok=False` and never comes back; everything else is
+    PARKED — queued again on its own row, behind the retry schedule, with the reason on it.
+
+    Either write is a database write like any other. When the database is what is gone, the
+    job is left to the outage recovery (which puts the claim back once it can) instead of
+    taking the drain down with it.
+    """
     job_id = getattr(job, "job_id")
     try:
-        await _fail_job(ctx, user_id, job_id, exc, detail)
+        if terminal:
+            await _fail_job(ctx, user_id, job_id, exc, terminal)
+        else:
+            await _park_job(ctx, user_id, job, exc, reason)
     except Exception as fail_exc:
         fault = infrastructure_fault(fail_exc)
         if fault is None:
@@ -1324,58 +1383,86 @@ async def _fail_or_interrupt(
         raise InfrastructureInterrupted(fault, user_id=str(user_id), job_id=job_id) from fail_exc
 
 
+def _said(job_id: str, parked: object) -> None:
+    """One line per park — a WARNING when the schedule ran out, because that one needs a
+    person and every other one does not."""
+    line = "[compile-worker] job %s: %s"
+    if getattr(parked, "paused", False):
+        log.warning(line, job_id, getattr(parked, "detail", ""))
+    else:
+        log.info(line, job_id, getattr(parked, "detail", ""))
+
+
+async def _park_job(
+    ctx: AppContext, user_id: UserId, job: object, exc: Exception, reason: str
+) -> None:
+    """Park this job, dropping the draft an agent round left open behind it.
+
+    The draft is the one thing a park has to clean up that a completion also had to: it
+    reserves the tenant's lane while it exists and it holds a round nobody is going to
+    continue. Dropped under the same lock, and only while this launch still owns it.
+    """
+    job_id = getattr(job, "job_id")
+    rt = getattr(exc, "draft_runtime", None)
+    executor = getattr(exc, "draft_executor", "")
+    payload = dict(getattr(job, "payload", {}) or {})
+    if rt is None or not executor:
+        parked = await park(ctx.store, user_id, job_id, payload=payload, reason=reason)
+        _said(job_id, parked)
+        return
+    async with rt.drafts.lock(user_id):
+        parked = await park(
+            ctx.store, user_id, job_id, payload=payload, reason=reason, claimed_by=executor
+        )
+        row = await ctx.store.get_job(user_id, job_id)
+        owner = await rt.drafts.owner(user_id, job_id)
+        if (
+            row is not None
+            and row.status in ("queued", PAUSED_STATUS)
+            and owner
+            and owner.executor == executor
+        ):
+            await rt.drafts.delete(user_id, job_id, executor=executor)
+    _said(job_id, parked)
+
+
 async def _round_incomplete(
     ctx: AppContext, user_id: UserId, job: object, result: object, *, executor: str
 ) -> None:
-    """End a round that accounted for nothing, and queue it again.
+    """Park a round that accounted for nothing.
 
     What happened the night this was written: a 940k-character source's round timed out,
     the worker's finish found nothing to commit, and the job was recorded `ok=True`,
     `projection:{…"upserted":0…}; rounds:1`, its sources stamped digested — success reported
-    about a round that never reached the end of its material. Here the job fails with the
-    reason, its sources stay undigested (nothing called `persist_compile_result`), and the
-    same payload comes back at the job's own place, a bounded number of times — the same
-    `harness_failures` counter and `AGENT_RETRIES` bound as a harness that died.
+    about a round that never reached the end of its material. Here the job waits instead, with
+    the reason on it, and its sources stay undigested (nothing called `persist_compile_result`).
 
     The same ending, and for the same reason, when a REVIEW round exits cleanly having
     repaired none of the findings it was given and said nothing about why: the process ended,
     but nothing was done and nothing was said, and a job row claiming otherwise is the one
-    defect this whole path exists to make impossible. Which of the two it was is the detail's
+    defect this whole path exists to make impossible. Which of the two it was is the reason's
     first word (`round_incomplete` / `review_incomplete`).
     """
     from ..cli.draft import REVIEW_INCOMPLETE_DETAIL, ROUND_INCOMPLETE_DETAIL
     from ..coding_agent.round_runner import REVIEW_INCOMPLETE
 
     job_id = getattr(job, "job_id")
-    kind = getattr(job, "kind", COMPILE_JOB_KIND)
     payload = dict(getattr(job, "payload", {}) or {})
+    payload.pop("cooling_reason", None)
     why = str(getattr(result, "incomplete", "") or "") or (
         "timed out" if getattr(result, "timed_out", False)
         else f"exit {getattr(result, 'exit_code', 0)}"
     )
-    detail = (
+    reason = (
         REVIEW_INCOMPLETE_DETAIL
         if getattr(result, "outcome", "") == REVIEW_INCOMPLETE
         else ROUND_INCOMPLETE_DETAIL.format(why=why)
     )
-    attempts = int(payload.get("harness_failures", 0) or 0) + 1
-    requeue = attempts < max(1, int(ctx.settings.agent_retries))
-    harness_output = _harness_output(result)
-    await ctx.store.complete(
-        user_id, job_id, ok=False, detail=detail, claimed_by=executor,
-        harness_output=harness_output or None,
+    parked = await park(
+        ctx.store, user_id, job_id, payload=payload, reason=reason, claimed_by=executor,
+        harness_output=_harness_output(result) or None,
     )
-    if requeue:
-        payload["harness_failures"] = attempts
-        payload.pop("cooling_reason", None)
-        await ctx.store.enqueue(
-            user_id, kind, payload, order_at=getattr(job, "order_at", None)
-        )
-    else:
-        log.warning(
-            "[compile-worker] job %s is not coming back: %s (%d attempts)",
-            job_id, detail, attempts,
-        )
+    _said(job_id, parked)
 
 
 async def _fail_job(ctx: AppContext, user_id: UserId, job_id: str, exc: Exception, detail: str) -> None:
@@ -1793,10 +1880,19 @@ async def drain_user(
                 )
             elif kind == COMPILE_JOB_KIND and unattended(ctx):
                 await process_agent_job(ctx, user_id, job)
-            else:
+            elif kind in JOB_LANES:
                 if resolved is None:
                     resolved = await _resolve_user_skill(ctx, user_id, skill_cache)
                 await process_job(ctx, chat_model, resolved, user_id, job)
+            else:
+                # Every kind this build can run is classified in `job_lanes.py`, so a kind
+                # that is not there has no body here — and the fallthrough used to hand it to
+                # `process_job`, which compiled the sources of a row that meant something
+                # else entirely. It is terminal because a retry dispatches to the same
+                # nothing: what has to change is the build, not the wait.
+                raise TerminalJobFailure(
+                    "unknown_kind", f"no body in this worker runs a {kind!r} job"
+                )
         except CanonicalDirtyError as exc:
             # STATED, not swallowed into "worker error: …". The canonical repository holds
             # somebody else's uncommitted changes, the adapter refused rather than discarding
@@ -1804,7 +1900,23 @@ async def drain_user(
             # they can see it named. Every job kind that commits arrives here (compile,
             # groom, evolve adopt); the archive job states the same code in its own detail,
             # because it also has a proposal row to fail.
-            await _fail_or_interrupt(ctx, user_id, job, exc, exc.detail)
+            #
+            # It WAITS rather than failing, and it is the clearest case for the rule: a
+            # person commits or stashes what they left in the tree and the very next attempt
+            # succeeds. Failing it would mean the Owner has to find the row and requeue it by
+            # hand after doing the one thing that fixes it. The ordinary schedule and not the
+            # ceiling, for the same reason: a tree fixed within the minute is compiled within
+            # the minute, and a tree nobody fixes settles into one attempt a day by itself.
+            log.warning("[compile-worker] %s lane: job %s — %s",
+                        lane or "queued", job.job_id, exc.detail)
+            await _end_or_interrupt(ctx, user_id, job, exc, reason=exc.detail)
+        except TerminalJobFailure as exc:
+            # The enumerated exception to the rule (`job_retry.TERMINAL_FAILURES`): a retry
+            # cannot succeed until the input changes, so the row is left for a person to read
+            # rather than asked again every day forever.
+            log.warning("[compile-worker] %s lane: job %s will not come back: %s",
+                        lane or "queued", job.job_id, exc.detail)
+            await _end_or_interrupt(ctx, user_id, job, exc, terminal=exc.detail)
         except Exception as exc:  # noqa: BLE001 — never leave a job stuck 'claimed'
             verdict = _interrupting_fault(job.job_id, exc)
             if verdict.put_back is not None:
@@ -1819,25 +1931,29 @@ async def drain_user(
             # nobody anything to read. Named by lane and job, because two lanes fail
             # independently.
             #
-            # A job the strike guard gave up on says THAT, in both places. `worker error:
+            # A job that has met the same infrastructure fault too often to go on waiting in
+            # place says THAT, in both places. `worker error:
             # qdrant_client.ResponseHandlingException` is what such a row said live, and it
             # named the class of the last of four interruptions rather than the fact that
             # there had been four.
-            if verdict.struck_out is not None:
+            if verdict.waited_out is not None:
                 log.warning(
                     "[compile-worker] %s lane: job %s — %s",
-                    lane or "queued", job.job_id, verdict.detail(), exc_info=True,
+                    lane or "queued", job.job_id, verdict.reason(), exc_info=True,
                 )
             else:
                 log.exception(
-                    "[compile-worker] %s lane: job %s failed",
+                    "[compile-worker] %s lane: job %s did not finish",
                     lane or "queued", job.job_id,
                 )
-            detail = (
-                verdict.detail() if verdict.struck_out is not None
+            # Whatever it was — a 402 from a provider on an index job, a network error, a
+            # library that raised something nobody has seen — the job waits and says so. The
+            # only failures that end here are the ones the enumeration above named.
+            reason = (
+                verdict.reason() if verdict.waited_out is not None
                 else f"worker error: {failure_reason(exc)}"
             )
-            await _fail_or_interrupt(ctx, user_id, job, exc, detail)
+            await _end_or_interrupt(ctx, user_id, job, exc, reason=reason)
         finally:
             # Short-lived per-job trace flush: a worker sweep may exit right after, so
             # never rely on the background batch surviving process end.
@@ -1846,7 +1962,7 @@ async def drain_user(
         # the failure path, or re-queued by it. An exception on its way out (an outage above
         # all) skips this line on purpose: the claim is still open, and the mark is what says
         # so to the recovery.
-        _INFRA_STRIKES.pop(job.job_id, None)
+        _INFRA_INTERRUPTIONS.pop(job.job_id, None)
         _IN_FLIGHT.pop(_lane_key(lane), None)
         processed += 1
 

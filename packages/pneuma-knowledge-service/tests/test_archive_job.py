@@ -150,6 +150,8 @@ class _Ctx:
         self.on_proposal_write = None
         self.lexical_error: Exception | None = None
         self.completed: list[tuple] = []
+        #: What the job parked instead of ending (`job_retry.park`).
+        self.parked: list[tuple] = []
         #: The canonical tree the job reads to render records and to find the records an
         #: unarchive removes. Empty by default: most of these tests are about the ORDER of
         #: the steps, and a proposal whose items carry no `record` writes no record.
@@ -236,6 +238,10 @@ class _Ctx:
 
             async def complete(self, user_id, job_id, *, ok=True, detail=None, snapshot_ref=None):
                 outer.completed.append((job_id, ok, detail, snapshot_ref))
+
+            async def park(self, user_id, job_id, *, payload, not_before, detail,
+                           claimed_by=None, harness_output=None):
+                outer.parked.append((job_id, detail, not_before, dict(payload)))
 
         class _Lexical:
             async def set_source_archived(self, user_id, source_id, block_count, archived):
@@ -426,62 +432,58 @@ async def test_a_refused_move_fails_the_proposal_and_touches_no_index(stubbed):
     assert ctx.completed[0][1] is False
 
 
-async def test_a_library_holding_somebody_else_s_changes_fails_canonical_dirty(stubbed):
+async def test_a_library_holding_somebody_else_s_changes_waits_on_canonical_dirty(stubbed):
     """The adapter refused to discard uncommitted work it could not prove was its own, and
-    the job STATES that rather than burying it under a class name.
+    the job STATES that rather than burying it under a class name — and then WAITS.
+
+    Nothing about the proposal is wrong: the Owner's decision still stands, nothing moved,
+    and the one thing that fixes this is a person committing or stashing what they left in
+    the tree. So the proposal keeps its `confirmed` status and the job goes back in the queue
+    saying what it waits for; the next attempt executes the same decision without the Owner
+    having to make it again (`job_retry.py`).
 
     One code across every face (`canonical_dirty`), because the fix is one command and the
-    operator has to be able to find it: the proposal's `error`, the job's completion detail
-    and the API's 409 body all spell it the same way. Nothing moved, so the proposal is
-    `failed` over a tree that is byte-for-byte what it was and the same decision runs again
-    once the library is clean.
+    operator has to be able to find it: the reason phrase here, the shared worker's branch
+    and the API's 409 body all spell it the same way.
     """
     ctx = _Ctx(_row([_item("document", "work/aurora.md"), _item("source", "src-a")]))
     ctx.move_error = CanonicalDirtyError(["work/aurora.md", "work/scratch.md"])
 
     await run_archive_job(ctx, USER, _job())
 
-    assert [call[0] for call in ctx.calls] == ["move", "proposal"]
-    assert ctx.row["status"] == "failed"
-    detail = json.loads(ctx.row["detail"])
-    assert detail["error"] == "canonical_dirty"
-    assert "work/scratch.md" in detail["message"]
-    # …and the job's own completion STARTS WITH the machine form. The shared worker's branch
-    # for this fault completes with exactly `exc.detail`, and this job is the one kind that
-    # does not pass through it (it has a proposal row to fail first): an `archive: ` PREFIX
-    # here would make one fault two strings depending on which job met it. The contract is
-    # therefore the prefix — which is what leaves room for the one honest suffix below.
-    assert ctx.completed[0][1] is False
-    assert ctx.completed[0][2].startswith("canonical_dirty:")
-    assert ctx.completed[0][2].startswith(
-        CanonicalDirtyError(["work/aurora.md", "work/scratch.md"]).detail
+    assert [call[0] for call in ctx.calls] == ["move"], "the proposal was decided about"
+    assert ctx.row["status"] == "confirmed", "the Owner's decision was thrown away"
+    assert ctx.completed == [], "a dirty tree ended the job"
+    (job_id, detail, not_before, payload) = ctx.parked[-1]
+    assert job_id == "job-1"
+    assert detail == (
+        "waiting: "
+        + CanonicalDirtyError(["work/aurora.md", "work/scratch.md"]).detail
+        + f"; retry at {not_before.isoformat()} (attempt 1)"
     )
-    # Nothing else here, because the terminal write kept its predicate.
-    assert ctx.completed[0][2] == "canonical_dirty:work/aurora.md,work/scratch.md"
+    assert payload["retry"]["attempts"] == 1
     # No L0 mark, no index flip: the authorities were never touched.
     assert [call[0] for call in ctx.calls if call[0] in ("l0", "l1", "l2", "l3")] == []
 
 
-async def test_a_dirty_library_whose_row_moved_still_leads_with_canonical_dirty(stubbed):
-    """The contract is the PREFIX, and this is the one case that needs it to be.
-
-    A terminal write that lost its predicate is a second fact about the same failure — the
-    work's row was moved by somebody else while the job ran — and it is appended rather than
-    dropped: an operator told only `canonical_dirty` over a row that says `dropped` would
-    have no way to see the two are one event. Suppressing the suffix to keep the string
-    byte-exact would be trading a true statement for a tidy one. The grep still works,
-    because what every reader matches on is the front of the string.
+async def test_a_failed_proposal_whose_row_moved_still_says_the_write_lost_its_predicate(
+    stubbed,
+):
+    """A terminal write that lost its predicate is a second fact about the same failure —
+    the work's row was moved by somebody else while the job ran — and it is appended rather
+    than dropped: an operator told only what refused the move, over a row that says
+    `dropped`, would have no way to see the two are one event.
     """
     ctx = _Ctx(_row([_item("document", "work/aurora.md")]))
     ctx.during_move = lambda: ctx.row.update(status="dropped")
-    ctx.move_error = CanonicalDirtyError(["work/aurora.md"])
+    ctx.move_error = CanonicalMoveError("destination path already exists", "archive/x.md")
 
     await run_archive_job(ctx, USER, _job())
 
     assert ctx.row["status"] == "dropped"
     job_id, ok, detail, _ref = ctx.completed[-1]
     assert (job_id, ok) == ("job-1", False)
-    assert detail.startswith("canonical_dirty:work/aurora.md")
+    assert detail.startswith("archive: destination path already exists")
     assert "no longer confirmed" in detail
 
 

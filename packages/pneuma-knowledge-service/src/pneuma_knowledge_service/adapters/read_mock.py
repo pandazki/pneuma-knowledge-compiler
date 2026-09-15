@@ -160,8 +160,17 @@ class InMemoryLibraryStore(InMemoryJobQueue):
                 # "no executor, no usage" made the queue's own report untestable keyless,
                 # which is how a job row that stored neither went unnoticed for a whole
                 # end-to-end run (docs/design/coding-agent-mode.md §9). One reader, shared
-                # with `list_jobs` on the queue itself.
-                **self._outcome_of(user_id, job.job_id),
+                # with `list_jobs` on the queue itself. A row that was PARKED has no outcome
+                # and still has a detail: it is queued, and what it says is what it waits for.
+                **{
+                    **self._outcome_of(user_id, job.job_id),
+                    **(
+                        {"detail": job.detail, "harness_output": job.harness_output}
+                        if job.status != "done" and job.detail
+                        else {}
+                    ),
+                },
+                "not_before": job.not_before,
             }
             for job in reversed(self.jobs)
             if str(job.user_id) == str(user_id)

@@ -61,6 +61,23 @@ pkchome skill install [--backend codex|claude-code|all] [--force]
 
 `register` and `forget` are v2 placeholders. `down` keeps middleware data.
 
+`status` prints a `Waiting:` line under `Queue:` when the library has work that did not
+finish: `Waiting: 13 · OpenRouter 402 payment required ×9 (next 14:05) · codex provider
+refused ×4 (next 13:52)`. A job that fails is not struck out — it goes back to the queue
+behind a wait with its reason on the row, and the engine groups those reasons
+(`GET /jobs/summary`). So a library whose provider is out of money or whose harness fell over
+says so and picks the work up by itself once the cause is gone, instead of looking like a
+queue that has quietly stopped.
+
+Under it, a `Paused:` line: `Paused: 5 · OpenRouter 402 payment required ×4 — pkc jobs
+resume`. The wait grows — a minute, five, fifteen, an hour, four, a day — and then it stops,
+because whatever a job has been failing on for a day and a half is not going to change by
+being asked a seventh time. What changes it is you: top the account up, log the harness in,
+commit what you left in the library, and then run `pkc jobs resume` (`--job <id>`,
+`--reason-like <text>` or `--all`). The waiting starts over from one minute; nothing was lost
+and nothing was compiled twice. `Failed:` counts only the handful of failures a retry cannot
+fix — an unknown job kind, an unreadable payload, material no round can take.
+
 The optional [PKC desktop tray](desktop/README.md) shows machine and library health,
 searches with citations, and changes settings through `pkchome`. Install `PKC.app` in
 `~/Applications` or `/Applications`, then run `pkchome tray`; if it is absent, the command

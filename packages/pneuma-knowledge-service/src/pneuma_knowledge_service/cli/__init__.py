@@ -434,6 +434,22 @@ def _add_read_commands(top) -> None:  # noqa: ANN001
                    help=prompt("steward.cli.jobs_requeue_dry_run"))
     r.add_argument("--job", dest="jobs", action="append", default=None, metavar="JOB_ID",
                    help=prompt("steward.cli.jobs_requeue_job"))
+    # The third write under `jobs`, and the only way a PAUSED job starts again: the retry
+    # schedule ends in a pause, and what ends a pause is a person (`job_retry.py`). Its own
+    # name, not `r`: the `--json` below belongs to the requeue parser.
+    rs = jsub.add_parser(
+        "resume",
+        help=prompt("steward.cli.jobs_resume"),
+        description=prompt("steward.cli.jobs_resume_description"),
+    )
+    rs.add_argument("--job", dest="resume_job", default=None, metavar="JOB_ID",
+                    help=prompt("steward.cli.jobs_resume_job"))
+    rs.add_argument("--reason-like", dest="reason_like", default=None, metavar="SUBSTR",
+                    help=prompt("steward.cli.jobs_resume_reason_like"))
+    rs.add_argument("--all", dest="resume_all", action="store_true",
+                    help=prompt("steward.cli.jobs_resume_all"))
+    rs.add_argument("--json", dest="as_json", action="store_true",
+                    default=argparse.SUPPRESS, help=prompt("steward.read.json_paging"))
     # The other write under `jobs`, and the only door the review round has: the Owner asks
     # for one, nothing else in this version does (docs/design/structure-lens.md §3.2).
     e = jsub.add_parser("enqueue", help=prompt("steward.cli.jobs_enqueue"))
@@ -873,6 +889,20 @@ async def dispatch(ctx, args: argparse.Namespace, *, out=None, err=None) -> int:
         else:
             print(f"queued {args.kind} job {job_id}", file=out)
         return draft_cmd.EXIT_OK
+
+    if group == "jobs" and command == "resume":
+        from . import jobs as jobs_cmd
+
+        return await jobs_cmd.cmd_jobs_resume(
+            ctx,
+            user,
+            job_id=getattr(args, "resume_job", None) or "",
+            reason_like=getattr(args, "reason_like", None) or "",
+            every=bool(getattr(args, "resume_all", False)),
+            as_json=as_json,
+            out=out,
+            err=err,
+        )
 
     if group == "jobs" and command == "requeue":
         from . import jobs as jobs_cmd

@@ -326,6 +326,8 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 |---|---|---|
 | POST | `/…/compile` | 为每个未消化的 source 各入队一个编译任务（幂等） |
 | GET | `/…/jobs` | 队列分页（`status`、`kind` 过滤）；每个任务带 `token_usage`（编译循环在各轮上的求和）与算出来的 `cost`。编译循环只数输入、输出与总量，不拆缓存，所以给编译算出的钱是按「一点缓存都没命中」算的——服务商实际命中了缓存时，这个数偏高 |
+| GET | `/…/jobs/summary` | 队列此刻在做什么，一次读取——见下 |
+| POST | `/…/jobs/resume` | 让暂停的作业重新开始，并重置退避表（`{job_id?, reason_like?, all?}`，必须给其一） |
 | GET | `/…/history` | patch、job、快照三类混排的统一时间线，带计数 |
 | GET | `/…/history/activity` | 时间线日历 |
 
@@ -335,12 +337,51 @@ null，再被 coalesce 成 0——求和之后，一次没被计量的调用与�
 
 | `status=` | 选出 |
 |---|---|
-| `queued` / `claimed` / `done` | 存储值本身；`done` 仍然同时含两种结果 |
+| `queued` / `claimed` / `paused` / `done` | 存储值本身；`done` 仍然同时含两种结果 |
 | `succeeded` | `done` 且 `ok=true`——该任务提交了 |
 | `failed` | `done` 且 `ok=false`——该任务收尾但没有提交（闸门驳回、中止的一轮） |
 
 `GET /…/summary` 以 `jobs_failed` 给出同一个集合的计数，于是「这个工作区的编译全在中止」不必翻
 队列就能看见。`status` 会被绑进分页游标：翻页途中改它会返回 422，请从第一页重新提问。
+
+`GET /…/jobs/summary` 回答状态页要问、而列表答不了的那个问题：
+
+```json
+{
+  "queued": 4,
+  "waiting": {
+    "count": 13,
+    "reasons": [
+      {"reason": "OpenRouter 402 payment required", "count": 9, "next_retry_at": "2026-09-15T14:05:00+00:00"},
+      {"reason": "codex provider refused", "count": 4, "next_retry_at": "2026-09-15T13:52:00+00:00"}
+    ]
+  },
+  "paused": {
+    "count": 5,
+    "reasons": [
+      {"reason": "OpenRouter 402 payment required", "count": 4, "since": "2026-09-14T09:00:00+00:00"},
+      {"reason": "canonical_dirty:work/aurora.md", "count": 1, "since": "2026-09-14T11:00:00+00:00"}
+    ]
+  },
+  "claimed": 1,
+  "failed": 0,
+  "succeeded": 212
+}
+```
+
+五个计数**互不重叠**。`queued` 是此刻就能被认领的那些；`waiting` 是其余的排队行——`not_before`
+还没到的那些，因为没跑完的作业不会被划掉，而是带着写在行上的理由回到队列里等待；`paused` 是这条
+路的尽头——用完整张退避表的作业不再发问，改为等一个人（`job_retry.py`，见
+[coding-agent-mode](../design/coding-agent-mode.zh-CN.md)）。两份 `reasons` 都按行上 detail 里的
+原因短语分组，最多的一组在前；`next_retry_at` 是该组里最早的一次重试，`since` 是该组里最早的一次
+暂停。没有这些，一个服务商在拒付的知识库，读起来和一个队列悄悄停住的知识库一模一样：每一行都是
+`queued`，没有失败，什么也不动。`pkc jobs` 与 `pkchome status` 印的是同一份分组。
+
+`POST /…/jobs/resume` 终结一次暂停。请求体只接受一个选择器——`{"job_id": "…"}`、
+`{"reason_like": "payment"}` 或 `{"all": true}`——一个都不给返回 **422**，因为什么都不说的 resume
+会把整个知识库暂停的活一次性重启。它回答 `{"resumed": <n>}`。每一行被选中的作业回到 `queued`，
+`payload.retry.attempts` 归零，于是下一次失败等一分钟，而不是用完的表末尾那一天；
+`payload.retry.history` 保留，因为已经发生在这个作业身上的事，不会因为它被恢复而没有发生过。
 
 两个字段说明一个任务归谁。**`executor`** 是谁**跑**的：worker 自己的循环驱动这一轮时为
 `langchain:<模型规格>`，编码代理通过 `pkc draft` 敲出这些调用时为 `agent:<后端>`（见

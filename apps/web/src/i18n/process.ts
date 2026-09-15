@@ -16,6 +16,7 @@ export const process = defineMessages({
     "process.status.failed": "失败",
     "process.status.running": "运行中",
     "process.status.queued": "排队中",
+    "process.status.paused": "已暂停",
 
     "process.noUser.title": "未选择用户",
     "process.noUser.description": "在右上角选择一个 user_id，再查看它的编译任务账页。",
@@ -52,6 +53,22 @@ export const process = defineMessages({
 
     "process.steward.waiting":
       "有 {count} 个 compile job 在等 Steward——在项目目录里打开你的编码代理。",
+
+    // The queue's parked jobs. The reason text is the server's own word for what is
+    // unavailable and is printed as it comes; only the frame around it is translated.
+    "process.waiting.line": "{count} 个作业在等待",
+    "process.waiting.reason": "{reason} ×{count}",
+    "process.waiting.reasonNext": "{reason} ×{count}（下次 {time}）",
+    "process.row.waiting": "等待中",
+
+    // Retries exhausted: the job stopped trying and is waiting for a person. Its own line
+    // and its own act — nothing failed, and putting it back is reversible, so no confirm.
+    "process.paused.line": "{count} 个作业已暂停",
+    "process.paused.reason": "{reason} ×{count}",
+    "process.paused.reasonSince": "{reason} ×{count}（自 {time}）",
+    "process.paused.resumeAll": "全部恢复",
+    "process.paused.resume": "恢复",
+    "process.paused.resumeFailed": "恢复失败",
   },
   en: {
     "process.description":
@@ -61,6 +78,7 @@ export const process = defineMessages({
     "process.status.failed": "Failed",
     "process.status.running": "Running",
     "process.status.queued": "Queued",
+    "process.status.paused": "Paused",
 
     "process.noUser.title": "No user selected",
     "process.noUser.description":
@@ -100,5 +118,17 @@ export const process = defineMessages({
 
     "process.steward.waiting":
       "{count} compile jobs are waiting for the Steward — open your coding agent in the project directory.",
+
+    "process.waiting.line": "{count} job{count||s} waiting",
+    "process.waiting.reason": "{reason} ×{count}",
+    "process.waiting.reasonNext": "{reason} ×{count} (next {time})",
+    "process.row.waiting": "waiting",
+
+    "process.paused.line": "{count} job{count||s} paused",
+    "process.paused.reason": "{reason} ×{count}",
+    "process.paused.reasonSince": "{reason} ×{count} (since {time})",
+    "process.paused.resumeAll": "Resume all",
+    "process.paused.resume": "Resume",
+    "process.paused.resumeFailed": "Could not resume",
   },
 });

@@ -583,7 +583,10 @@ async def test_finish_with_violations_keeps_the_job_and_stores_a_repair_budget()
     assert h.store.commits == []
 
 
-async def test_a_second_failed_finish_aborts_the_job_and_deletes_the_draft():
+async def test_a_second_failed_finish_ends_the_round_and_brings_the_job_back():
+    """One repair round, as the langchain executor gets. A second refusal ends the ROUND —
+    the draft goes, canonical is untouched — and the job waits with the gate's own words on
+    it, because the same material can pass a later round (`job_retry.py`)."""
     h = await harness([source()], base=_broken_base())
     await draft_cmd.cmd_open(h.rt, h.job_id)
     await draft_cmd.run_tool(h.rt, *CALLS[0])
@@ -593,8 +596,10 @@ async def test_a_second_failed_finish_aborts_the_job_and_deletes_the_draft():
 
     assert await h.drafts.get(USER, h.job_id) is None
     assert h.store.commits == []  # canonical untouched, exactly as run_compile aborts
-    assert h.jobs.completed[-1]["ok"] is False
-    assert (await h.jobs.get_job(USER, h.job_id)).status == "done"
+    assert h.jobs.completed == []
+    row = await h.jobs.get_job(USER, h.job_id)
+    assert row.status == "queued" and row.not_before is not None
+    assert row.detail.startswith("waiting: gate refused: ")
 
 
 async def test_the_same_broken_library_aborts_the_langchain_loop_too():

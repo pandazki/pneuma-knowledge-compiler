@@ -35,7 +35,7 @@ from pneuma_knowledge_core.domain.source import ConversationTurn
 from pneuma_knowledge_service.cli.runtime import build_runtime
 from pneuma_knowledge_service.coding_agent.backends import CODEX
 from pneuma_knowledge_service.coding_agent.round_runner import (
-    COMMITTED_BY_HARNESS,
+    HANDED_OFF,
     AgentRoundRunner,
 )
 from pneuma_knowledge_service.ingest import ingest_conversation
@@ -169,8 +169,13 @@ async def test_one_unattended_round_commits_through_a_launched_process(
     )
     result = await runner.run_job(rt, job_id)
 
-    # The subprocess finished its own round: the draft is gone and the job is done.
-    assert result.outcome == COMMITTED_BY_HARNESS, result
+    # The subprocess JUDGED its own round and handed the commit to the worker (PR #39): its
+    # `pkc draft finish` ran the overview floor and the gate inside the harness's session and
+    # then stopped, because a process that cannot commit must not end a job either. The
+    # worker's own finish made the one commit below. From here the round is over either way —
+    # the draft is gone and the job is done — and WHICH of them typed the commit is exactly
+    # what the canonical layer never learns.
+    assert result.outcome == HANDED_OFF, result
     assert result.usage == {"input_tokens": 900, "output_tokens": 250, "total_tokens": 1150}
     from pneuma_knowledge_service.adapters.postgres import PostgresDraftStore
 
@@ -183,8 +188,12 @@ async def test_one_unattended_round_commits_through_a_launched_process(
     # A real commit in a real per-user repository, carrying the trailer the next round's
     # `open` audit reads back.
     snapshots = await ctx.canonical.snapshots(user)
-    assert snapshots
-    assert await ctx.canonical.commit_trailer(user, snapshots[0], "Skill-Version")
+    # ONE commit for one round, whoever typed it: the harness judged and the worker committed,
+    # and a hand-off that committed on both sides would show up here as two. (The other
+    # commit in this repository is the per-user schema manifest the first round materializes.)
+    compiles = [s for s in snapshots if s.label.startswith(f"compile {job_id}")]
+    assert len(compiles) == 1, snapshots
+    assert await ctx.canonical.commit_trailer(user, compiles[0], "Skill-Version")
     documents = {doc.path for doc in await ctx.canonical.list(user)}
     assert PAGE in documents
     events = await ctx.store.list_compile_events(user)

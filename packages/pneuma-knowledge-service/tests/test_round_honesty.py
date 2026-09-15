@@ -15,6 +15,7 @@ re-runs.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -31,6 +32,7 @@ from pneuma_knowledge_service.coding_agent.round_runner import (
     ROUND_INCOMPLETE,
     AgentRoundResult,
 )
+from pneuma_knowledge_service.job_retry import RETRY_BACKOFF_S
 from pneuma_knowledge_service.workers import compile_worker
 
 from test_agent_round import FakeHarness, WorkerCtx, runner, worker_settings
@@ -117,11 +119,19 @@ async def _claimed(jobs, user, executor):  # noqa: ANN001
     return job
 
 
-async def test_the_worker_fails_an_incomplete_round_and_brings_the_work_back():
+def _parked(jobs, user) -> dict:  # noqa: ANN001
+    """The one row this tenant has waiting — a parked job is queued, never completed."""
+    rows = [r for r in jobs.jobs if str(r.user_id) == str(user) and r.status == "queued"]
+    assert len(rows) == 1, f"expected one waiting row, got {rows}"
+    return {"job_id": rows[0].job_id, "payload": rows[0].payload,
+            "not_before": rows[0].not_before, "detail": rows[0].detail}
+
+
+async def test_the_worker_parks_an_incomplete_round_and_brings_the_work_back():
     user = UserId("u-agent")
     jobs = InMemoryJobQueue()
     jobs.mark_digested = AsyncMock()
-    ctx = WorkerCtx(worker_settings(agent_retries=3), jobs)
+    ctx = WorkerCtx(worker_settings(), jobs)
     job = await _claimed(jobs, user, "worker:codex:0001")
     result = AgentRoundResult(
         job_id=job.job_id, outcome=ROUND_INCOMPLETE, timed_out=True, exit_code=-1,
@@ -129,39 +139,50 @@ async def test_the_worker_fails_an_incomplete_round_and_brings_the_work_back():
     )
     await compile_worker._round_incomplete(ctx, user, job, result, executor="worker:codex:0001")
 
-    done = jobs.completed[-1]
-    assert done["job_id"] == job.job_id and done["ok"] is False
-    assert done["detail"] == INCOMPLETE
-    assert done["snapshot_ref"] is None
+    # Nothing was accounted for, so nothing is recorded as having happened — and nothing is
+    # failed either: the same source judged again is an ordinary round.
+    assert jobs.completed == []
     jobs.mark_digested.assert_not_awaited()
-    (queued,) = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
-    assert queued["payload"]["source_ids"] == ["src-01"]
-    assert queued["payload"]["harness_failures"] == 1
-    assert queued["not_before"] is None
-    assert await jobs.claim_next(user) is not None
+    row = _parked(jobs, user)
+    assert row["job_id"] == job.job_id
+    assert row["payload"]["source_ids"] == ["src-01"]
+    assert row["payload"]["retry"]["attempts"] == 1
+    assert row["detail"] == (
+        f"waiting: {INCOMPLETE}; retry at {row['not_before'].isoformat()} (attempt 1)"
+    )
+    assert await jobs.claim_next(user) is None, "a job that is waiting was handed out"
 
 
-async def test_an_incomplete_round_stops_coming_back_after_the_bound():
+async def test_an_incomplete_round_waits_longer_each_time_and_keeps_its_row():
+    """No bound and no strike-out: the wait grows on `RETRY_BACKOFF_S`, the row stays the
+    row the Owner is tracking, and every attempt is on it."""
     user = UserId("u-agent")
     jobs = InMemoryJobQueue()
-    ctx = WorkerCtx(worker_settings(agent_retries=3), jobs)
+    ctx = WorkerCtx(worker_settings(), jobs)
     job_id = await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
-    details: list[str] = []
-    while job_id is not None:
-        job = await jobs.claim(user, job_id)
-        executor = f"worker:codex:{len(details)}"
+    waits: list[int] = []
+    for attempt in range(1, 4):
+        job = await jobs.get_job(user, job_id)
+        job.status, job.not_before = "queued", None  # the wait has passed
+        assert await jobs.claim(user, job_id) is not None
+        executor = f"worker:codex:{attempt}"
         assert await jobs.attach_executor(user, job_id, executor)
+        before = datetime.now(timezone.utc)
         result = AgentRoundResult(job_id=job_id, outcome=ROUND_INCOMPLETE, incomplete="exit 137")
         await compile_worker._round_incomplete(ctx, user, job, result, executor=executor)
-        details.append(jobs.completed[-1]["detail"])
-        queued = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
-        job_id = queued[0]["job_id"] if queued else None
+        row = _parked(jobs, user)
+        assert row["detail"] == (
+            "waiting: round_incomplete: exit 137; nothing was committed; "
+            f"retry at {row['not_before'].isoformat()} (attempt {attempt})"
+        )
+        waits.append(round((row["not_before"] - before).total_seconds()))
 
-    assert details == ["round_incomplete: exit 137; nothing was committed"] * 3
-    assert [r["status"] for r in await jobs.list_jobs(user)] == ["done"] * 3
+    assert waits == list(RETRY_BACKOFF_S[:3])
+    assert jobs.completed == []
+    assert [r["job_id"] for r in await jobs.list_jobs(user)] == [job_id]
 
 
-async def test_the_unattended_job_records_an_incomplete_round_as_a_failure(monkeypatch):
+async def test_the_unattended_job_parks_an_incomplete_round_rather_than_reporting_it(monkeypatch):
     """`process_agent_job`'s own branch: the runner said the round did not reach its end."""
     from pneuma_knowledge_service.cli import runtime as runtime_module
 
@@ -185,11 +206,12 @@ async def test_the_unattended_job_records_an_incomplete_round_as_a_failure(monke
     monkeypatch.setattr(round_runner.AgentRoundRunner, "run_job", run_job)
     await compile_worker.process_agent_job(ctx, user, job)
 
-    assert jobs.completed[-1]["job_id"] == job_id
-    assert jobs.completed[-1]["ok"] is False
-    assert jobs.completed[-1]["detail"] == INCOMPLETE
+    assert jobs.completed == []
+    row = _parked(jobs, user)
+    assert row["job_id"] == job_id
+    assert row["detail"].startswith(f"waiting: {INCOMPLETE}; retry at ")
     jobs.mark_digested.assert_not_awaited()
-    assert [r["status"] for r in await jobs.list_jobs(user)] == ["queued", "done"]
+    assert [r["status"] for r in await jobs.list_jobs(user)] == ["queued"]
 
 
 # ─────────────────────────────────────── (b) a crashed launch's round is continued

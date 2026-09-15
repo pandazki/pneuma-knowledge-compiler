@@ -524,6 +524,8 @@ list.
 |---|---|---|
 | POST | `/…/compile` | enqueue one compile job per undigested source (idempotent) |
 | GET | `/…/jobs` | queue pagination (`status`, `kind` filters); each job carries `token_usage` (the compile loop's own sum over its rounds) and the derived `cost`. The compile loop counts input, output and total only — no cache split — so a priced compile is billed as if none of its prompt was cached, which OVERSTATES it wherever the provider did cache |
+| GET | `/…/jobs/summary` | what the queue is doing now, in one read — see below |
+| POST | `/…/jobs/resume` | start paused jobs again with a fresh retry schedule (`{job_id?, reason_like?, all?}`, one required) |
 | GET | `/…/history` | unified timeline of patches, jobs and snapshots, with counts |
 | GET | `/…/history/activity` | timeline calendar |
 
@@ -534,13 +536,57 @@ ones:
 
 | `status=` | Selects |
 |---|---|
-| `queued` / `claimed` / `done` | the stored value, verbatim; `done` is still both outcomes |
+| `queued` / `claimed` / `paused` / `done` | the stored value, verbatim; `done` is still both outcomes |
 | `succeeded` | `done` and `ok=true` — the job committed |
 | `failed` | `done` and `ok=false` — the job finished without committing (a gate rejection, an aborted round) |
 
 `GET /…/summary` carries the same set as `jobs_failed`, so a workspace whose compiles are all
 aborting is visible without listing the queue. The `status` value is bound into the pagination
 cursor: changing it mid-page is a 422, ask again from the first page.
+
+`GET /…/jobs/summary` answers the question a status page asks and a listing cannot:
+
+```json
+{
+  "queued": 4,
+  "waiting": {
+    "count": 13,
+    "reasons": [
+      {"reason": "OpenRouter 402 payment required", "count": 9, "next_retry_at": "2026-09-15T14:05:00+00:00"},
+      {"reason": "codex provider refused", "count": 4, "next_retry_at": "2026-09-15T13:52:00+00:00"}
+    ]
+  },
+  "paused": {
+    "count": 5,
+    "reasons": [
+      {"reason": "OpenRouter 402 payment required", "count": 4, "since": "2026-09-14T09:00:00+00:00"},
+      {"reason": "canonical_dirty:work/aurora.md", "count": 1, "since": "2026-09-14T11:00:00+00:00"}
+    ]
+  },
+  "claimed": 1,
+  "failed": 0,
+  "succeeded": 212
+}
+```
+
+The five counts are **disjoint**. `queued` is what a claim could take right now; `waiting` is
+the rest of the queued rows — those whose `not_before` is still ahead, because a job that did
+not finish goes back to the queue behind a wait with its reason on the row rather than being
+struck out; `paused` is where that road ends — a job that used up the retry schedule stops
+asking and waits for a person (`job_retry.py`,
+[coding-agent-mode](../design/coding-agent-mode.md)). Both `reasons` lists group by the phrase
+the row's detail carries, biggest group first; `next_retry_at` is the soonest retry in the
+group and `since` the oldest pause in it. Without this a library whose provider is refusing
+payment reads exactly like a library whose queue has silently stopped: every row `queued`,
+nothing failed, nothing moving. `pkc jobs` and `pkchome status` print the same grouping.
+
+`POST /…/jobs/resume` ends a pause. Its body takes exactly one selector — `{"job_id": "…"}`,
+`{"reason_like": "payment"}` or `{"all": true}` — and a body with none is **422**, because a
+resume with nothing stated would restart a whole library's paused work by accident. It answers
+`{"resumed": <n>}`. Each selected row goes back to `queued` with `payload.retry.attempts` reset
+to 0, so the next failure waits a minute rather than the day the exhausted schedule ended on;
+`payload.retry.history` is kept, because what already happened to the job is not undone by
+resuming it.
 
 Two fields say who a job belongs to. **`executor`** is who RAN it: `langchain:<model spec>`
 when the worker's own loop drove the round, `agent:<backend>` when a coding agent typed the

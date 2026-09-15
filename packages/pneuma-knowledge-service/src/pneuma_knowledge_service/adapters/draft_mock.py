@@ -22,6 +22,14 @@ from typing import Any
 from pneuma_knowledge_core.ports.draft_store import DraftOwner, DraftOwnershipError
 
 from ..job_lanes import CANONICAL_LANE, COMPILE_KIND, SOURCE_DERIVED_KINDS, lane_of
+from ..job_retry import (
+    PAUSED_STATUS,
+    paused_reason,
+    paused_reasons,
+    resumed_detail,
+    resumed_payload,
+    waiting_reasons,
+)
 from .postgres import CLAIM_FIRST_KINDS, adoptable, draft_holds_work
 
 
@@ -165,6 +173,10 @@ class _Job:
         self.order_at = order_at or self.created_at
         self.inherited = order_at is not None
         self.seq = seq
+        #: What the last attempt said, when one was parked (`InMemoryJobQueue.park`). The
+        #: `detail` column of a row that is queued rather than finished.
+        self.detail: str | None = None
+        self.harness_output: str | None = None
 
     def claim_key(self) -> tuple:
         """The claim query's ORDER BY, in Python (adapters/postgres.py `claim_next`). The
@@ -253,7 +265,7 @@ class InMemoryJobQueue:
         return any(
             j.kind in SOURCE_DERIVED_KINDS
             and str(j.user_id) == str(job.user_id)
-            and j.status in ("queued", "claimed")
+            and j.status in ("queued", "claimed", PAUSED_STATUS)
             and str((j.payload or {}).get("source_id", "")) in wanted
             for j in self.jobs
         )
@@ -324,6 +336,8 @@ class InMemoryJobQueue:
                 if owner:
                     await self.drafts.delete(job.user_id, job.job_id)
                 continue
+            if job.status == PAUSED_STATUS:
+                continue  # waiting for a person, not for this process
             if job.status != "claimed" and owner is None:
                 continue
             executor = owner.executor if owner else (getattr(job, "claimed_by", "") or "")
@@ -348,21 +362,29 @@ class InMemoryJobQueue:
     async def list_jobs(self, user_id) -> list[dict[str, Any]]:  # noqa: ANN001
         """This user's jobs, newest first — the shape `PostgresStore.list_jobs` returns, and
         the peek a drain uses to see what it is leaving behind."""
-        return [
-            {
-                "job_id": job.job_id,
-                "kind": job.kind,
-                "payload": dict(job.payload),
-                "status": job.status,
-                "not_before": job.not_before,
-                "created_at": job.created_at,
-                # The OUTCOME as this queue recorded it, so a reader that selects on what a
-                # job DID — `pkc jobs requeue --empty-rounds` — is testable keyless.
-                **self._outcome_of(user_id, job.job_id),
-            }
-            for job in reversed(self.jobs)
-            if str(job.user_id) == str(user_id)
-        ]
+        rows = []
+        for job in reversed(self.jobs):
+            if str(job.user_id) != str(user_id):
+                continue
+            # The OUTCOME as this queue recorded it, so a reader that selects on what a job
+            # DID — `pkc jobs requeue --empty-rounds` — is testable keyless. A row that was
+            # PARKED has no outcome and still has a detail: it is queued, and what it says is
+            # what it is waiting for.
+            outcome = self._outcome_of(user_id, job.job_id)
+            outcome["detail"] = outcome["detail"] or job.detail
+            outcome["harness_output"] = outcome["harness_output"] or job.harness_output
+            rows.append(
+                {
+                    "job_id": job.job_id,
+                    "kind": job.kind,
+                    "payload": dict(job.payload),
+                    "status": job.status,
+                    "not_before": job.not_before,
+                    "created_at": job.created_at,
+                    **outcome,
+                }
+            )
+        return rows
 
     def _outcome_of(self, user_id, job_id: str) -> dict[str, Any]:  # noqa: ANN001
         for record in reversed(self.completed):
@@ -406,6 +428,109 @@ class InMemoryJobQueue:
             return False
         job.claimed_by = executor
         return True
+
+    async def park(  # noqa: ANN001
+        self,
+        user_id,
+        job_id: str,
+        *,
+        payload: dict,
+        not_before: datetime | None,
+        detail: str,
+        paused: bool = False,
+        claimed_by: str | None = None,
+        harness_output: str | None = None,
+    ) -> None:
+        """`PostgresStore.park`: the same row back in the queue, waiting, saying why.
+
+        The parked outcome is recorded where `_outcome_of` reads it, so a listing shows the
+        `waiting:` detail on the queued row exactly as the SQL column does — and it is NOT a
+        completion: nothing is appended to `completed`, which is what every count of finished
+        work reads. `paused` is the end of the schedule: the row takes the `paused` status
+        and no instant at all, which `claim_next` and the self-heal below both read as "not
+        mine" without either of them naming the status."""
+        for job in self.jobs:
+            if job.job_id != job_id or str(job.user_id) != str(user_id):
+                continue
+            if job.status == "done":
+                return
+            if claimed_by is not None and getattr(job, "claimed_by", None) != claimed_by:
+                return
+            job.status = PAUSED_STATUS if paused else "queued"
+            job.claimed_by = None
+            job.payload = dict(payload or {})
+            job.not_before = None if paused else not_before
+            job.detail = detail
+            if harness_output:
+                job.harness_output = harness_output
+            return
+
+    async def resume_jobs(  # noqa: ANN001
+        self, user_id, *, job_id: str | None = None, reason_like: str = "",
+        every: bool = False,
+    ) -> int:
+        """`PostgresStore.resume_jobs`: paused rows back in the queue, schedule restarted."""
+        if not (job_id or reason_like or every):
+            return 0
+        wanted = reason_like.strip().casefold()
+        resumed = 0
+        for job in self.jobs:
+            if str(job.user_id) != str(user_id) or job.status != PAUSED_STATUS:
+                continue
+            if job_id is not None and job.job_id != job_id:
+                continue
+            if wanted and wanted not in paused_reason(job.detail).casefold():
+                continue
+            # The detail is read off the payload BEFORE the reset, so it can name the
+            # attempts this row actually made (`PostgresStore.resume_jobs` does the same).
+            job.detail = resumed_detail(job.payload)
+            job.payload = resumed_payload(job.payload)
+            job.status = "queued"
+            job.not_before = None
+            job.claimed_by = None
+            resumed += 1
+        return resumed
+
+    async def job_summary(self, user_id) -> dict[str, Any]:  # noqa: ANN001
+        """`PostgresStore.job_summary` over the same rows — four disjoint counts and why the
+        waiting ones wait."""
+        now = datetime.now(timezone.utc)
+        mine = [job for job in self.jobs if str(job.user_id) == str(user_id)]
+        waiting = [
+            job for job in mine
+            if job.status == "queued" and job.not_before is not None and job.not_before > now
+        ]
+        paused = [job for job in mine if job.status == PAUSED_STATUS]
+        outcomes = [self._outcome_of(user_id, job.job_id) for job in mine if job.status == "done"]
+
+        def _since(job) -> datetime | None:  # noqa: ANN001
+            at = ((job.payload or {}).get("retry") or {}).get("last_failure", {}).get("at")
+            try:
+                return datetime.fromisoformat(str(at)) if at else None
+            except ValueError:
+                return None
+
+        return {
+            "queued": sum(
+                1 for job in mine
+                if job.status == "queued" and (job.not_before is None or job.not_before <= now)
+            ),
+            "waiting": {
+                "count": len(waiting),
+                "reasons": waiting_reasons(
+                    [(getattr(job, "detail", None), job.not_before) for job in waiting]
+                ),
+            },
+            "paused": {
+                "count": len(paused),
+                "reasons": paused_reasons(
+                    [(getattr(job, "detail", None), _since(job)) for job in paused]
+                ),
+            },
+            "claimed": sum(1 for job in mine if job.status == "claimed"),
+            "failed": sum(1 for o in outcomes if o.get("ok") is False),
+            "succeeded": sum(1 for o in outcomes if o.get("ok") is True),
+        }
 
     async def release(self, user_id, job_id: str) -> None:  # noqa: ANN001
         for job in self.jobs:
