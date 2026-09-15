@@ -81,12 +81,48 @@ RATE_LIMIT_MARKERS: tuple[str, ...] = (
 #: are different sentences and an operator reading `codex at capacity` on a cooling line
 #: should not be told their quota ran out.
 #:
+#: The THIRD sentence in that family, and the one that cost a night: the provider refusing
+#: the connection itself. Between 03:44 and 03:48 on a real library every Codex round died
+#: with `endpoint::responses_websocket: failed to connect to websocket: HTTP error: 401
+#: Unauthorized, url: wss://api.openai.com/v1/responses` — an auth-token refresh that did not
+#: land, on a harness that was logged in before it and logged in after it. Thirteen jobs were
+#: struck out as harness failures for four minutes of provider jitter.
+#:
+#: Why these two and not a 403: a 401 is the provider saying THIS TOKEN is not good right now,
+#: and a token is a thing that refreshes — which is exactly what the four minutes were. A 403
+#: is the provider saying this account may not do this at all (wrong organization, a model
+#: nobody enabled, a region): waiting does not fix it, and a marker that cooled the tenant on
+#: it would hide a misconfiguration behind an endless retry. It is deliberately absent.
+PROVIDER_REFUSED_MARKERS: tuple[str, ...] = (
+    "401 unauthorized",
+    "failed to connect to websocket",
+)
+
 #: Unlike a usage limit, none of these names an hour, so the cooldown is the only answer.
 UNAVAILABLE_MARKERS: tuple[str, ...] = (
     "at capacity",
     "temporarily unavailable",
     "service unavailable",
     "503",
+    *PROVIDER_REFUSED_MARKERS,
+)
+
+#: How a matched marker is NAMED to a person, where the family's default phrase would be
+#: vaguer than what was actually said. Everything not listed reads as "unavailable".
+_UNAVAILABLE_PHRASES: Mapping[str, str] = MappingProxyType(
+    {
+        "at capacity": "at capacity",
+        **{marker: "provider refused" for marker in PROVIDER_REFUSED_MARKERS},
+    }
+)
+
+#: Every phrase `unavailable_reason` can answer with for the NON-subscription family — what a
+#: caller asking "was this the provider having no room for me, rather than a spent quota?"
+#: compares against. A set rather than a tuple repeated at three call sites, because a fourth
+#: phrase added above and forgotten at one of them is a refusal that silently becomes a
+#: harness failure.
+UNAVAILABLE_REASONS: frozenset[str] = frozenset(
+    {"unavailable", *_UNAVAILABLE_PHRASES.values()}
 )
 
 
@@ -105,7 +141,7 @@ def unavailable_reason(text: str, manifest: "BackendManifest | None" = None) -> 
             return "usage limit" if marker in ("usage limit", "quota exceeded") else "rate limit"
     for marker in unavailable:
         if marker.lower() in haystack:
-            return "at capacity" if marker == "at capacity" else "unavailable"
+            return _UNAVAILABLE_PHRASES.get(marker, "unavailable")
     return ""
 
 

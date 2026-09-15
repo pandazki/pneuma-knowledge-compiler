@@ -10,7 +10,8 @@ It is driven entirely by environment variables, so one executable covers every c
 needs:
 
     PKC_FAKE_LOG          append one JSON line per invocation: argv, cwd, env, stdin
-    PKC_FAKE_MODE         ok (default) · rate-limit · at-capacity · hang · fail · silent
+    PKC_FAKE_MODE         ok (default) · rate-limit · at-capacity · provider-refused ·
+                          no-turn · hang · fail · silent
     PKC_FAKE_LIVE_AFTER   under `rate-limit`, the attempt number that finally succeeds
     PKC_FAKE_COUNTER      a file the attempt number is counted in (shared across processes)
     PKC_FAKE_SCRIPT       a JSON list of argv lists to RUN — the `pkc draft …` sequence a
@@ -72,6 +73,13 @@ RATE_LIMIT_MESSAGE = "stream error: 429 Too Many Requests (rate limit reached); 
 AT_CAPACITY_EVENT = (
     '{"type":"turn.failed","error":{"message":'
     '"Selected model is at capacity. Please try a different model."}}'
+)
+
+#: The provider refusing the CONNECTION, verbatim from the night it happened: a stderr line,
+#: exit 1, and a harness that was logged in before it and after it.
+PROVIDER_REFUSED_MESSAGE = (
+    "ERROR codex_core::client: endpoint::responses_websocket: failed to connect to "
+    "websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses"
 )
 
 
@@ -407,6 +415,15 @@ def main(family: str) -> int:
     if mode == "at-capacity" and attempt < live_after:
         print(AT_CAPACITY_EVENT)
         return 0  # the exit code a launcher would read as success
+    if mode == "provider-refused" and attempt < live_after:
+        print(PROVIDER_REFUSED_MESSAGE, file=sys.stderr)
+        return 1
+    if mode == "no-turn":
+        # The harness came up, opened its thread, and was gone: one lifecycle event, a
+        # non-zero exit, and nothing else on either stream. No script is run — a harness that
+        # never took a turn never typed a `pkc` command either.
+        print(json.dumps({"type": "thread.started", "thread_id": CODEX_THREAD}))
+        return int(os.environ.get("PKC_FAKE_EXIT", "1"))
 
     script_code = _run_script()
 

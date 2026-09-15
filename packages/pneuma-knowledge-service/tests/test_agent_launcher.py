@@ -675,6 +675,116 @@ def test_the_same_words_inside_a_round_that_succeeded_are_not_a_refusal():
     assert _is_rate_limited(CODEX, 0, prose, failed=True)
 
 
+async def test_a_provider_that_refused_the_connection_is_waited_out_inside_one_launch(
+    fake_path, tmp_path, monkeypatch, caplog
+):
+    """A token that did not refresh comes back the way capacity does — in seconds to minutes.
+
+    So it takes the same wider spacing, and the log line names what was actually met: an
+    operator reading `the model at capacity` for a 401 would go looking at a model that was
+    never busy.
+    """
+    from pneuma_knowledge_service.coding_agent.launcher import BACKOFF_JITTER, CAPACITY_BACKOFF_S
+
+    monkeypatch.setenv("PKC_FAKE_MODE", "provider-refused")
+    monkeypatch.setenv("PKC_FAKE_LIVE_AFTER", "3")  # the third attempt gets a connection
+    waits: list[float] = []
+
+    async def record(seconds: float) -> None:
+        waits.append(seconds)
+
+    with caplog.at_level("WARNING"):
+        result = await launch_round(
+            request(CODEX, tmp_path, retries=3), sleep=record, rng=random.Random(7)
+        )
+    assert result.ok and result.attempts == 3
+    assert len(waits) == 2, "one refusal was not waited out, or one wait too many"
+    for wait, base in zip(waits, CAPACITY_BACKOFF_S, strict=False):
+        assert base * (1 - BACKOFF_JITTER) <= wait <= base * (1 + BACKOFF_JITTER)
+    assert sum("reported provider refused" in r.getMessage() for r in caplog.records) == 2
+
+
+async def test_a_harness_that_died_before_its_first_turn_is_read_off_its_own_output(
+    fake_path, tmp_path, monkeypatch
+):
+    """The 00:40 shape end to end, through the real launcher: `{"type":"thread.started"}` on
+    stdout, exit 1, nothing else — no tokens counted, no message written, and no marker of
+    any kind to match on. Nothing was retried inside the launch (there is no refusal to wait
+    out) and the classification says the harness did not run the round."""
+    from pneuma_knowledge_service.coding_agent.round_runner import (
+        UNAVAILABLE_NO_TURN,
+        classify_refusal,
+    )
+
+    monkeypatch.setenv("PKC_FAKE_MODE", "no-turn")
+    result = await launch_round(request(CODEX, tmp_path, retries=3))
+
+    assert result.exit_code == 1 and not result.rate_limited
+    assert result.attempts == 1, "a crash with nothing to wait for was waited for"
+    assert result.usage is None and not result.last_message.strip()
+    assert classify_refusal(CODEX, result) == UNAVAILABLE_NO_TURN
+
+
+#: The line every Codex round died on between 03:44 and 03:48 on a real library, verbatim.
+WEBSOCKET_401 = (
+    "ERROR codex_core::client: endpoint::responses_websocket: failed to connect to "
+    "websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses"
+)
+
+
+@pytest.mark.parametrize("said", [
+    WEBSOCKET_401,
+    "stream error: HTTP error: 401 Unauthorized",
+    "failed to connect to websocket: connection reset",
+])
+def test_a_provider_refusing_the_connection_is_a_wait_and_says_so(said):
+    """Four minutes of an auth token that did not refresh, and thirteen jobs struck out.
+
+    The harness was logged in before it and logged in after it — nothing about the Owner's
+    material or their subscription changed. So a refused connection joins the family waiting
+    already fixes, and `unavailable_reason` names it as itself: a cooling line that said
+    `codex at capacity` would send an operator looking at a model that was never busy.
+    """
+    from pneuma_knowledge_service.coding_agent.launcher import _is_rate_limited
+
+    assert backends.unavailable_reason(said, CODEX) == "provider refused"
+    assert _is_rate_limited(CODEX, 1, said)
+
+
+def test_a_403_is_not_transient_and_is_deliberately_not_in_the_family():
+    """A 401 says THIS TOKEN is not good right now, and a token refreshes. A 403 says this
+    account may not do this at all — a wrong organization, a model nobody enabled, a blocked
+    region — and no amount of waiting changes it. Cooling a tenant on one would hide a
+    misconfiguration behind a retry that never ends, so it stays a failure a person reads."""
+    from pneuma_knowledge_service.coding_agent.launcher import _is_rate_limited
+
+    said = "stream error: HTTP error: 403 Forbidden, url: wss://api.openai.com/v1/responses"
+    assert backends.unavailable_reason(said, CODEX) == ""
+    assert not _is_rate_limited(CODEX, 1, said)
+
+
+def test_a_401_inside_a_round_that_succeeded_is_not_a_refusal_either():
+    """The same gate the capacity markers sit behind: a library about an API that answered
+    401 is not a harness whose provider refused it."""
+    from pneuma_knowledge_service.coding_agent.launcher import _is_rate_limited
+
+    prose = "the webhook answered 401 Unauthorized and the integration was dropped"
+    assert not _is_rate_limited(CODEX, 0, prose)
+
+
+def test_a_harness_that_printed_only_its_own_lifecycle_events_took_no_turn():
+    """The 00:40 shape, read off the output alone: `thread.started` and then the process was
+    gone. Silence counts; anything the harness actually said does not."""
+    from pneuma_knowledge_service.coding_agent.harness_output import only_lifecycle
+
+    assert only_lifecycle('{"type":"thread.started","thread_id":"th-01"}')
+    assert only_lifecycle("", "  \n")
+    assert only_lifecycle('{"type":"system","subtype":"init","session_id":"s-1"}')
+    assert not only_lifecycle('{"type":"thread.started"}\n{"type":"turn.started"}')
+    assert not only_lifecycle('{"type":"thread.started"}', "node: Cannot find module")
+    assert not only_lifecycle("Error: the harness could not start")
+
+
 def test_the_backoff_grows_with_jitter_and_stops_at_the_ceiling():
     rng = random.Random(11)
     waits = [backoff_wait(n, rng=rng) for n in range(1, 12)]

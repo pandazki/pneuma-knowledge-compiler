@@ -243,9 +243,53 @@ def read_no_output(stdout: str, last_message: str = "") -> HarnessReport:
     return HarnessReport()
 
 
+#: What a harness prints purely on its own account, BEFORE any turn exists: it came up, it
+#: opened a thread or a session. Observed as the whole of six real rounds' output — `codex
+#: exec --json` printed `{"type":"thread.started", …}` and then the process was gone, exit 1,
+#: nothing on stderr. A turn is anything else, `turn.started` included: a turn that started
+#: is a round that happened, however it ended.
+LIFECYCLE_EVENT_TYPES: tuple[str, ...] = (
+    "thread.started",
+    "session.started",
+    "system.init",
+)
+
+
+def only_lifecycle(*parts: str) -> bool:
+    """Did the harness print nothing but its own coming-up events — or nothing at all?
+
+    True for silence, and for a stream whose every line is a lifecycle event above. FALSE for
+    anything else, and the asymmetry is deliberate: a stack trace, a provider's sentence, an
+    event this version does not know are all CONTENT here, so an unrecognised surface degrades
+    into "the harness said something", which is the reading that costs nothing. Only an output
+    that is provably empty of a round can answer yes.
+    """
+    for part in parts:
+        for line in (part or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+            except ValueError:
+                return False
+            if not isinstance(parsed, dict):
+                return False
+            kind = str(parsed.get("type") or "")
+            subtype = str(parsed.get("subtype") or "")
+            # Two spellings of one name: `{"type": "thread.started"}` and the
+            # `{"type": "system", "subtype": "init"}` shape the other wire uses.
+            names = (kind, f"{kind}.{subtype}" if subtype else kind)
+            if not any(name in LIFECYCLE_EVENT_TYPES for name in names):
+                return False
+    return True
+
+
 __all__ = [
+    "LIFECYCLE_EVENT_TYPES",
     "USAGE_FIELDS",
     "HarnessReport",
+    "only_lifecycle",
     "read_claude_output",
     "read_codex_output",
     "read_no_output",

@@ -1120,20 +1120,39 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   **stdout** 上，退出码却可能是启动器会读作成功的那个。所以清单在限流列表之外再带一份
   （`UNAVAILABLE_MARKERS`），扫描同时读 stdout 和 stderr，并且只有在 harness 自己的协议说这一轮失败了
   的时候才在退出码 0 上扫——同样的字眼出现在一轮自己的输出里，说的是某个场地满了，不是 harness 挂了。
-  两份清单汇入同一次退避、同一个结局；`unavailable_reason` 负责在人要读的地方把两句话分开
-  （`codex usage limit` / `codex at capacity`）。
+  同一份清单里还有第三句话，代价是一整夜：提供方拒绝的是**连接本身**。某个真实知识库在 03:44 到
+  03:48 之间，每一轮都死在 `failed to connect to websocket: HTTP error: 401 Unauthorized,
+  url: wss://api.openai.com/v1/responses` 上——一次没有落地的令牌刷新，而 harness 在这之前登录着、
+  之后也登录着——四分钟的提供方抖动，让十三个作业以 harness 失败被划掉。所以
+  `401 unauthorized` 与 `failed to connect to websocket` 成为标记（`PROVIDER_REFUSED_MARKERS`）。
+  **403 是刻意不收的**：401 说的是"这个令牌此刻不好使"，而令牌会刷新；403 说的是这个账号根本不
+  被允许做这件事（组织不对、模型没开通、地区受限），在它上面冷却只会把一处配置错误藏在一场没有
+  尽头的重试后面。它们全都汇入同一次退避、同一个结局；`unavailable_reason` 负责在人要读的地方把
+  这几句话分开（`codex usage limit` / `codex at capacity` / `codex provider refused`）。
 
-  **三种答案，两种处置。** worker 动手之前，runner 先把每次拒绝分类（`classify_refusal` →
-  `rate_limited` / `unavailable` / `failed`），因为"harness 没有跑这一轮"底下是两件不同的事。
-  `rate_limited` 与 `unavailable` 是关于**提供方**的——这个租户排队的其他活同样跑不了——走下面那套
-  等待。`failed` 是非零退出（或自称 `turn.failed`）而 harness 打印的任何内容里都没有那两类标记：
-  它是关于**这一个作业**的，把它当成限流是一个有真实代价的缺陷。一份 24,439 个块、180 万字符的
-  `agent-session/v1` 分片让每一次启动都死掉；每次失败都把自己重新排到十五分钟的墙后面，行上还写着
-  `cooling_reason`，于是控制台宣告租户正在冷却，而 drain（它的冰只在限流分支上放）照样继续认领。
-  现在 `failed` 一轮以 `ok=false` 结束，带上 harness 自己的第一行
+  **四种答案，三种处置。** worker 动手之前，runner 先把每次拒绝分类（`classify_refusal` →
+  `rate_limited` / `unavailable` / `no_turn` / `failed`），因为"harness 没有跑这一轮"底下是三件
+  不同的事。`rate_limited` 与 `unavailable` 是关于**提供方**的——这个租户排队的其他活同样跑不了
+  ——走下面那套等待。
+
+  `no_turn` 是 harness 根本没开始一个回合就死了：非零退出，而它的全部输出只有自己的生命周期事件
+  （`{"type":"thread.started"}`，此外再无一行）或者干脆沉默，既没数出 token 也没写下消息——两分钟里
+  有六轮正是这样收场，却被当作失败划掉，而那时根本没有一轮被尝试过。这一判据只读进程本身
+  （`only_lifecycle`），而且那份不对称是刻意的：harness 真正打印出来的任何东西——栈回溯、不认识的
+  事件、提供方的句子——都算**内容**，仍归 `failed`，因为一个说得出诊断的 harness 该出现在人会读的
+  作业行上。`no_turn` 按容量那套时钟走提供方的处置，也是这一族里唯一**有界**的一种：当翻倍到达
+  `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`，这一行就不再回来，并且把话说明白
+  （`harness_failed: Codex harness died before its first turn on 4 consecutive launches; not
+  coming back`）——熬过冷却所知最长等待的崩溃不是抖动，而永远重新入队的作业没有人会读。
+
+  `failed` 是非零退出（或自称 `turn.failed`），harness 打印的内容里没有任何一类标记，而它确实打印了
+  自己的东西：它是关于**这一个作业**的，把它当成限流是一个有真实代价的缺陷。一份 24,439 个块、
+  180 万字符的 `agent-session/v1` 分片让每一次启动都死掉；每次失败都把自己重新排到十五分钟的墙后面，
+  行上还写着 `cooling_reason`，于是控制台宣告租户正在冷却，而 drain（它的冰只在限流分支上放）照样
+  继续认领。现在 `failed` 一轮以 `ok=false` 结束，带上 harness 自己的第一行
   （`harness_failed: exit 1 — Error: input is too long for the selected model`），不冻结任何东西，
   不等待任何东西，最多按 `AGENT_RETRIES` 重新入队；最后一次会说出来
-  （`… exit 1 after 3 attempts — …`），并把这行留给人读。三种情况下来源都不盖消化戳。
+  （`… exit 1 after 3 attempts — …`），并把这行留给人读。四种情况下来源都不盖消化戳。
 
   **harness 说了什么**与 worker 判了什么并排保存，而且是**每一轮**都保存，不只是被拒的那些：
   `compile_jobs.harness_output` 存下进程自身输出的约 2 KB——Codex 的事件流里带有 agent 最后一条
@@ -1142,8 +1161,8 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
   能说出原因的那些字，从前只活在一个随即被删掉的 per-job config home 和一个早已走远的 worker
   进程里。（`AGENT_KEEP_WORKDIR` 现在连同启动器的工作目录一起把那个 home 也留下，供人排查。）
 
-  对提供方的那两种答案，worker 把作业以 `ok=false` 结束（`rate_limited: Codex usage limit;
-  retry after <时刻>`），**不**给它的来源盖消化戳，丢掉这次启动打开
+  对提供方的那几种答案（`no_turn` 也在内），worker 把作业以 `ok=false` 结束
+  （`rate_limited: Codex usage limit; retry after <时刻>`），**不**给它的来源盖消化戳，丢掉这次启动打开
   的草稿，并把同一份载荷作为新行重新入队，带上 `not_before`——harness 自己说出的那个时刻
   （`try again at Sep 15th, 2026 9:23 AM`，按 `PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE` 解读），或者一个
   从 `AGENT_RATE_LIMIT_COOLDOWN_S` 起、每次连续命中翻倍、上限六小时的冷却。`claim_next` 会跳过

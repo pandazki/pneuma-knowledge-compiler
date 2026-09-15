@@ -154,6 +154,11 @@ _RATE_LIMIT_HITS: dict[str, int] = {}
 #: clocks (`AGENT_UNAVAILABLE_COOLDOWN_S` vs `AGENT_RATE_LIMIT_COOLDOWN_S`), so a capacity
 #: dip never lengthens the next usage-limit guess, nor the other way round.
 _CAPACITY_HITS: dict[str, int] = {}
+#: And again for a harness that died before its first turn. On the capacity clock, and still
+#: its own count: this one BOUNDS itself at the ceiling (a crash that survives the longest
+#: wait is not jitter), so borrowing the capacity count would let a busy afternoon decide how
+#: many launches a broken install is given.
+_NO_TURN_HITS: dict[str, int] = {}
 
 #: How much of a harness's own output is kept on the job row (`harness_output`). Enough to
 #: hold what the Steward said and the lines a failure ended on; small enough that a job
@@ -1027,6 +1032,7 @@ async def _run_agent_job(
     # over by definition — this body just claimed and ran one of its jobs.
     _RATE_LIMIT_HITS.pop(str(user_id), None)
     _CAPACITY_HITS.pop(str(user_id), None)
+    _NO_TURN_HITS.pop(str(user_id), None)
     _COOLING.pop(str(user_id), None)
     if result.outcome in (ROUND_INCOMPLETE, REVIEW_INCOMPLETE):
         # It ran, but it accounted for nothing — it did not reach the end of its material, or
@@ -1084,11 +1090,20 @@ async def _harness_unavailable(
     set on the rate-limit branch), and every retry pushed the wall out again. A failure now
     cools nothing, states the harness's own first line on the job, and is retried at most
     `AGENT_RETRIES` times before the row is left failed for a person to read.
+
+    Between the two sits `no_turn`: the harness came up and was gone before a turn started,
+    with nothing but its own `thread.started` to show for it. Nothing about THIS JOB is
+    implicated — no material was read — so it takes the provider family's treatment on the
+    capacity clock rather than a strike. But it is the one member of that family that can be
+    permanent, so it is bounded: once the doubling reaches `AGENT_UNAVAILABLE_COOLDOWN_MAX_S`,
+    the row stops coming back and says so.
     """
     from ..coding_agent.backends import unavailable_reason, usage_limit_deadline
     from ..coding_agent.round_runner import (
+        NO_TURN_REASON,
         UNAVAILABLE_AT_CAPACITY,
         UNAVAILABLE_FAILED,
+        UNAVAILABLE_NO_TURN,
         UNAVAILABLE_RATE_LIMITED,
         failure_line,
     )
@@ -1110,15 +1125,24 @@ async def _harness_unavailable(
     )
     requeue = True
 
-    if refusal in (UNAVAILABLE_RATE_LIMITED, UNAVAILABLE_AT_CAPACITY):
-        capacity = refusal == UNAVAILABLE_AT_CAPACITY
-        counter = _CAPACITY_HITS if capacity else _RATE_LIMIT_HITS
+    if refusal in (UNAVAILABLE_RATE_LIMITED, UNAVAILABLE_AT_CAPACITY, UNAVAILABLE_NO_TURN):
+        no_turn = refusal == UNAVAILABLE_NO_TURN
+        # One clock for both of the non-quota answers: minutes, not hours. A model with no
+        # room and a harness that fell over on its way up are back on the same timescale.
+        capacity = refusal == UNAVAILABLE_AT_CAPACITY or no_turn
+        counter = (
+            _NO_TURN_HITS if no_turn else (_CAPACITY_HITS if capacity else _RATE_LIMIT_HITS)
+        )
         hits = counter.get(str(user_id), 0) + 1
         counter[str(user_id)] = hits
         output = getattr(result, "output", "") or ""
-        # WHICH refusal it was, in the provider's own vocabulary — a spent subscription and a
-        # model with no capacity are one fact to this code and two sentences to a person.
-        said = unavailable_reason(output, manifest) or "usage limit"
+        # WHICH refusal it was, in the provider's own vocabulary — a spent subscription, a
+        # model with no capacity and a provider refusing the connection are one fact to this
+        # code and three sentences to a person. A harness that never took a turn printed no
+        # sentence at all, so this is the framework's own name for what it saw.
+        said = (
+            NO_TURN_REASON if no_turn else (unavailable_reason(output, manifest) or "usage limit")
+        )
         # The provider's own answer first. A parsed deadline is a fact; the cooldown below is
         # a guess, and a guess that runs short is what turns one rate limit into a night of
         # them. Only a usage limit ever names an hour; capacity never does.
@@ -1146,6 +1170,17 @@ async def _harness_unavailable(
                 f"rate_limited: {label} {said}; retry after "
                 f"{not_before.isoformat()} (cooldown {seconds}s)"
             )
+            if no_turn and seconds >= ceiling:
+                # The one bound on this family, and the reason it is a bound rather than a
+                # retry count: a harness that still cannot take a turn after the longest wait
+                # the cooling knows is not meeting jitter, it is broken — and a job re-queued
+                # forever behind a fifteen-minute wall is a job nobody ever reads. The tenant
+                # still cools (the next launch would die the same way); this ROW stops here.
+                requeue = False
+                detail = (
+                    f"harness_failed: {label} {said} on {hits} consecutive launches; "
+                    "not coming back"
+                )
         reason = f"{backend_name} {said}"
         started = agent_cooling(user_id) is None
         _COOLING[str(user_id)] = (not_before, reason)

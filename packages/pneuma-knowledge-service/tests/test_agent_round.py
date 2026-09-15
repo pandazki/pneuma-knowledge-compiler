@@ -41,6 +41,7 @@ from pneuma_knowledge_service.coding_agent.round_runner import (
     REPAIRED,
     UNAVAILABLE_AT_CAPACITY,
     UNAVAILABLE_FAILED,
+    UNAVAILABLE_NO_TURN,
     UNAVAILABLE_RATE_LIMITED,
     AgentRoundOpenRefused,
     AgentRoundResult,
@@ -294,6 +295,25 @@ USAGE_LIMIT = (
 )
 
 
+#: What every Codex round printed between 03:44 and 03:48 on a real library: the provider
+#: refusing the connection itself, on a harness that was logged in before it and after it.
+WEBSOCKET_401 = (
+    "ERROR codex_core::client: endpoint::responses_websocket: failed to connect to "
+    "websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses"
+)
+
+#: And what six of them printed at 00:40: the harness came up, opened its thread, and was
+#: gone. One line of stdout, exit 1, nothing on stderr.
+THREAD_STARTED_ONLY = '{"type":"thread.started","thread_id":"th-01"}'
+
+#: A round that DID take a turn and then fell over — the shape that must stay a failure.
+A_REAL_ROUND = "\n".join((
+    THREAD_STARTED_ONLY,
+    '{"type":"turn.started"}',
+    '{"type":"turn.completed","usage":{"input_tokens":900,"output_tokens":250}}',
+))
+
+
 def refused(**kwargs) -> LaunchResult:
     base = {"exit_code": 1, "stdout": "", "stderr": USAGE_LIMIT, "rate_limited": True}
     return LaunchResult(**{**base, **kwargs})
@@ -373,6 +393,73 @@ async def test_a_refusal_that_arrived_mid_round_leaves_the_written_work_to_the_g
     result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
     assert result.outcome == FINISHED_BY_WORKER
     assert len(h.store.commits) == 1 and h.jobs.completed[0]["ok"] is True
+
+
+async def test_the_provider_refusing_the_connection_is_the_same_kind_of_non_round(tmp_path):
+    """03:44 to 03:48 on a real library: `failed to connect to websocket: HTTP error: 401
+    Unauthorized`, on a harness that was logged in before it and logged in after it.
+
+    Four minutes of an auth token that did not refresh struck thirteen jobs out as harness
+    failures. Nothing was read and nothing was written on any of them — which is the same
+    non-round a spent quota produces, and takes the same treatment.
+    """
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [["nothing"]], result=lambda: LaunchResult(
+        exit_code=1, stdout="", stderr=WEBSOCKET_401, rate_limited=True,
+    ))
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+
+    assert result.outcome == HARNESS_UNAVAILABLE
+    assert result.harness_reason == UNAVAILABLE_AT_CAPACITY
+    assert "401 Unauthorized" in result.output
+    assert h.store.commits == [] and h.jobs.completed == []
+    assert await h.drafts.get(h.rt.user_id, h.job_id) is not None, "the draft was abandoned"
+
+
+async def test_a_harness_that_died_before_its_first_turn_is_not_a_round_that_failed(tmp_path):
+    """00:40 to 00:41, six rounds: one `thread.started` on stdout, exit 1, nothing else.
+
+    The harness came up and was gone before a turn started. There is no round here to judge
+    — the draft was never touched and the material was never read — so this is what the
+    harness not running the round looks like, not what a job that cannot be compiled looks
+    like.
+    """
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [["nothing"]], result=lambda: LaunchResult(
+        exit_code=1, stdout=THREAD_STARTED_ONLY, stderr="",
+    ))
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+
+    assert result.outcome == HARNESS_UNAVAILABLE
+    assert result.harness_reason == UNAVAILABLE_NO_TURN
+    assert h.store.commits == [], "an empty round was committed"
+    assert h.jobs.completed == []
+    job = await h.jobs.get_job(h.rt.user_id, h.job_id)
+    assert job.status == "claimed", "the job was released or ended by the runner"
+
+
+async def test_a_round_that_ran_and_then_died_is_still_the_harnesss_own_failure(tmp_path):
+    """The branch the two above must not swallow.
+
+    A turn started, the harness printed its own diagnosis, and the process exited non-zero
+    having written nothing. That is a fact about THIS job's material — it is reported on the
+    job, retried under `AGENT_RETRIES`, and it cools nothing.
+    """
+    h = await harness([source()])
+    assert await h.jobs.claim(h.rt.user_id, h.job_id) is not None
+    fake = FakeHarness(h.rt, [["nothing"]], result=lambda: LaunchResult(
+        exit_code=1,
+        stdout=A_REAL_ROUND,
+        stderr="Error: input is too long for the selected model",
+        usage=dict(USAGE),
+    ))
+    result = await runner(fake, tmp_path).run_job(h.rt, h.job_id)
+
+    assert result.outcome == HARNESS_UNAVAILABLE
+    assert result.harness_reason == UNAVAILABLE_FAILED
+    assert "input is too long" in result.output
 
 
 # ───────────────────────────────────────────────────────────── reading the harness's clock
@@ -799,10 +886,12 @@ def _forget_cooling():
     compile_worker._COOLING.clear()
     compile_worker._RATE_LIMIT_HITS.clear()
     compile_worker._CAPACITY_HITS.clear()
+    compile_worker._NO_TURN_HITS.clear()
     yield
     compile_worker._COOLING.clear()
     compile_worker._RATE_LIMIT_HITS.clear()
     compile_worker._CAPACITY_HITS.clear()
+    compile_worker._NO_TURN_HITS.clear()
 
 
 _MONTH_NAMES = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -850,6 +939,17 @@ class FailedLaunch(UnavailableLaunch):
         super().__init__(
             output=output, rate_limited=False, exit_code=exit_code,
             harness_reason=UNAVAILABLE_FAILED,
+        )
+
+
+class NoTurnLaunch(UnavailableLaunch):
+    """A harness that came up and was gone before a turn started: its own lifecycle event
+    on stdout, a non-zero exit, and nothing else anywhere."""
+
+    def __init__(self, *, output: str = THREAD_STARTED_ONLY, exit_code: int = 1) -> None:
+        super().__init__(
+            output=output, rate_limited=False, exit_code=exit_code,
+            harness_reason=UNAVAILABLE_NO_TURN,
         )
 
 
@@ -987,6 +1087,97 @@ async def test_a_model_at_capacity_is_named_as_itself_and_not_as_a_spent_quota()
     assert row["payload"]["cooling_reason"] == "codex at capacity"
 
 
+async def test_a_provider_that_refused_the_connection_cools_instead_of_striking_the_job_out():
+    """The thirteen jobs, and what happens to them now.
+
+    `failed to connect to websocket: HTTP error: 401 Unauthorized` is four minutes of an auth
+    token that did not refresh — infrastructure jitter, not a job that cannot be compiled. It
+    cools on the capacity clock, keeps the payload, and is named as what it was: an operator
+    told `harness_failed: exit 1` would go looking at their source.
+    """
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(), jobs)
+    before = datetime.now(timezone.utc)
+    await _refused(ctx, jobs, user, UnavailableLaunch(
+        output=WEBSOCKET_401, harness_reason=UNAVAILABLE_AT_CAPACITY,
+    ))
+
+    done = jobs.completed[-1]
+    assert done["ok"] is False
+    assert "Codex provider refused" in done["detail"], done["detail"]
+    assert "harness_failed" not in done["detail"]
+
+    (queued,) = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
+    assert queued["payload"]["source_ids"] == ["src-01"], "the work was dropped"
+    assert queued["payload"]["cooling_reason"] == "codex provider refused"
+    assert round((queued["not_before"] - before).total_seconds()) == 120
+    assert compile_worker.agent_cooling(user) is not None, "the tenant kept feeding a dead token"
+
+
+async def test_a_harness_that_never_took_a_turn_cools_and_then_surfaces_at_the_ceiling():
+    """The six rounds at 00:40, and the bound that keeps them from becoming six hundred.
+
+    A harness that died before its first turn is waited out like any other non-round — 120 s,
+    doubling. But this is the one member of that family that can be permanent, so the
+    escalation is also the bound: once the wait reaches `AGENT_UNAVAILABLE_COOLDOWN_MAX_S` the
+    row stops coming back and says so, instead of looping behind a fifteen-minute wall for
+    ever.
+    """
+    from pneuma_knowledge_service.adapters.draft_mock import InMemoryDraftStore
+
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    ctx = WorkerCtx(worker_settings(), jobs)
+    job_id = await jobs.enqueue(user, "compile", {"source_ids": ["src-01"]})
+    waits: list[int] = []
+    details: list[str] = []
+    while job_id is not None:
+        job = await jobs.claim(user, job_id)
+        assert job is not None
+        executor = f"worker:codex:{len(details)}"
+        assert await jobs.attach_executor(user, job_id, executor)
+        before = datetime.now(timezone.utc)
+        await compile_worker._harness_unavailable(
+            ctx, user, job, NoTurnLaunch(),
+            rt=SimpleNamespace(drafts=InMemoryDraftStore(jobs)),
+            executor=executor, manifest=CODEX,
+        )
+        details.append(jobs.completed[-1]["detail"])
+        queued = [r for r in await jobs.list_jobs(user) if r["status"] == "queued"]
+        if not queued:
+            job_id = None
+            continue
+        waits.append(round((queued[0]["not_before"] - before).total_seconds()))
+        job_id = queued[0]["job_id"]
+
+    assert waits == [120, 240, 480], "the wait did not escalate on the capacity clock"
+    assert len(details) == 4
+    for detail in details[:3]:
+        assert detail.startswith(
+            "rate_limited: Codex harness died before its first turn; retry after "
+        ), detail
+    assert details[-1] == (
+        "harness_failed: Codex harness died before its first turn on 4 consecutive "
+        "launches; not coming back"
+    )
+    assert [r["status"] for r in await jobs.list_jobs(user)] == ["done"] * 4
+    # The tenant is still cooling: the next launch would die the same way, and the job that
+    # stopped coming back is a row to read rather than a reason to hand out more work.
+    assert compile_worker.agent_cooling(user) is not None
+
+
+async def test_one_dead_launch_before_a_turn_never_reads_as_a_compiled_source():
+    """Whatever the classification does, the thing it must never do is claim the material."""
+    user = UserId("u-agent")
+    jobs = InMemoryJobQueue()
+    stamped: list[tuple] = []
+    jobs.mark_digested = lambda *a, **k: stamped.append(a)  # noqa: ARG005
+    ctx = WorkerCtx(worker_settings(), jobs)
+    await _refused(ctx, jobs, user, NoTurnLaunch())
+    assert stamped == []
+
+
 async def test_a_requeued_job_takes_the_original_jobs_place_not_the_end_of_the_queue():
     """A round that never ran has not had its turn. The retry sorts where the original did —
     ahead of a compile queued after it — and a provider's `not_before` still gates it."""
@@ -1121,7 +1312,7 @@ async def test_the_ice_is_laid_during_the_drain_and_stops_the_rest_of_the_queue(
     assert [(await jobs.get_job(user, j)).status for j in queued[1:]] == ["queued", "queued"]
 
 
-# ───────────────────────────── the three answers a refusal carries, and what each costs
+# ───────────────────────────── the four answers a refusal carries, and what each costs
 
 
 AT_CAPACITY = (
@@ -1140,7 +1331,38 @@ AT_CAPACITY = (
         UNAVAILABLE_AT_CAPACITY,
     ),
     (
+        # The provider refusing the connection: the same family, and the same wait.
+        LaunchResult(exit_code=1, stdout="", stderr=WEBSOCKET_401, rate_limited=True),
+        UNAVAILABLE_AT_CAPACITY,
+    ),
+    (
+        # The harness came up and went. No turn started, so there is no round to fail.
+        LaunchResult(exit_code=1, stdout=THREAD_STARTED_ONLY, stderr=""),
+        UNAVAILABLE_NO_TURN,
+    ),
+    (
+        # It said nothing at all, which is the same statement with fewer words.
+        LaunchResult(exit_code=1, stdout="", stderr=""),
+        UNAVAILABLE_NO_TURN,
+    ),
+    (
         LaunchResult(exit_code=1, stdout="", stderr="Error: prompt is too long"),
+        UNAVAILABLE_FAILED,
+    ),
+    (
+        # A turn happened and the process then died: a round that fell over, about THIS job.
+        LaunchResult(
+            exit_code=1,
+            stdout=A_REAL_ROUND,
+            stderr="Error: input is too long for the selected model",
+            usage=dict(USAGE),
+        ),
+        UNAVAILABLE_FAILED,
+    ),
+    (
+        # A turn happened and the harness printed nothing else. Still a round: the events say
+        # one started, whatever the exit code did afterwards.
+        LaunchResult(exit_code=1, stdout=A_REAL_ROUND, stderr="", usage=dict(USAGE)),
         UNAVAILABLE_FAILED,
     ),
     (
@@ -1149,11 +1371,27 @@ AT_CAPACITY = (
         UNAVAILABLE_FAILED,
     ),
 ])
-def test_a_refusal_states_which_of_the_three_it_was(launch, expected):
+def test_a_refusal_states_which_of_the_four_it_was(launch, expected):
     """The classification is mechanical, off the manifest's own markers — because the worker
-    does two different things with it, and guessing is how one unreadable source put a whole
+    does three different things with it, and guessing is how one unreadable source put a whole
     tenant to sleep for six hours."""
     assert classify_refusal(CODEX, launch) == expected
+
+
+def test_a_harness_that_wrote_its_own_diagnosis_is_never_read_as_one_that_died_silently():
+    """The boundary the no-turn reading rests on: a line the harness printed is CONTENT.
+
+    An unknown event, a stack trace, a provider sentence — each of them is a harness with
+    something to say, and something to say belongs on the job where a person reads it rather
+    than in a cooling window where nobody does.
+    """
+    for said in (
+        "node:internal/process: Cannot find module 'codex'",
+        '{"type":"turn.started"}',
+        '{"type":"some.event.this.version.never.heard.of"}',
+    ):
+        launch = LaunchResult(exit_code=1, stdout=said, stderr="")
+        assert classify_refusal(CODEX, launch) == UNAVAILABLE_FAILED, said
 
 
 @pytest.mark.parametrize("text, expected", [
