@@ -1446,24 +1446,50 @@ went around the gate is stopped before the next round builds on it, rather than 
   (`UNAVAILABLE_MARKERS`) beside the rate-limit one, the scan reads stdout as well as stderr,
   and it runs at exit 0 only when the harness's own protocol said the turn failed — the same
   words in a round's own output are a library about a venue, not a harness that is down.
-  Both lists route into one backoff and one outcome; `unavailable_reason` is what keeps the
-  two sentences apart where a person reads them (`codex usage limit` / `codex at capacity`).
+  The same list carries a third sentence, the one that cost a night: the provider refusing
+  the CONNECTION. Between 03:44 and 03:48 on a real library every round died with `failed to
+  connect to websocket: HTTP error: 401 Unauthorized, url: wss://api.openai.com/v1/responses`
+  — an auth token that did not refresh, on a harness logged in before it and after it —
+  and thirteen jobs were struck out as harness failures for four minutes of provider jitter.
+  `401 unauthorized` and `failed to connect to websocket` are therefore markers
+  (`PROVIDER_REFUSED_MARKERS`). A **403 is deliberately not**: a 401 says this TOKEN is not
+  good right now and a token refreshes, while a 403 says this account may not do this at all
+  (a wrong organization, a model nobody enabled, a region), and cooling on it would hide a
+  misconfiguration behind a retry that never ends. All of them route into one backoff and one
+  outcome; `unavailable_reason` is what keeps the sentences apart where a person reads them
+  (`codex usage limit` / `codex at capacity` / `codex provider refused`).
 
-  **Three answers, two treatments.** The runner classifies every refusal before the worker
-  acts on it (`classify_refusal` → `rate_limited` / `unavailable` / `failed`), because "the
-  harness did not run the round" covers two different facts. `rate_limited` and `unavailable`
-  are about the PROVIDER — nothing else this tenant has queued can run either — and get the
-  wait described below. `failed` is a non-zero exit (or a declared `turn.failed`) with
-  neither marker in anything the harness printed: it is about THIS JOB, and treating it as a
-  limit was a real bug with a real cost. An `agent-session/v1` part of 24,439 blocks and 1.8M
-  characters killed every launch it was given; each failure re-queued itself behind a
-  fifteen-minute wall with `cooling_reason` on the row, so the console announced a cooling
-  tenant while the drain — whose ice is set on the rate-limit branch only — went on claiming.
-  A `failed` round now completes `ok=false` with the harness's own first line
-  (`harness_failed: exit 1 — Error: input is too long for the selected model`), cools
+  **Four answers, three treatments.** The runner classifies every refusal before the worker
+  acts on it (`classify_refusal` → `rate_limited` / `unavailable` / `no_turn` / `failed`),
+  because "the harness did not run the round" covers three different facts. `rate_limited`
+  and `unavailable` are about the PROVIDER — nothing else this tenant has queued can run
+  either — and get the wait described below.
+
+  `no_turn` is the harness dying before it took a turn at all: a non-zero exit whose whole
+  output is the harness's own lifecycle events (`{"type":"thread.started"}` and nothing else)
+  or silence, with no tokens counted and no message written — six real rounds ended exactly
+  that way in two minutes, and were struck out as failures although no round had been
+  attempted. It is read off the process alone (`only_lifecycle`), and the asymmetry is
+  deliberate: anything the harness actually printed — a stack trace, an unknown event, a
+  provider's sentence — is CONTENT and stays `failed`, because a harness with a diagnosis
+  belongs on the job where a person reads it. A `no_turn` takes the provider treatment on the
+  capacity clock, and is the one member of that family that is BOUNDED: once the doubling
+  reaches `AGENT_UNAVAILABLE_COOLDOWN_MAX_S` the row stops coming back and says so
+  (`harness_failed: Codex harness died before its first turn on 4 consecutive launches; not
+  coming back`), because a crash that survives the longest wait the cooling knows is not
+  jitter and a job re-queued for ever is a job nobody reads.
+
+  `failed` is a non-zero exit (or a declared `turn.failed`) with no marker of any kind in
+  what the harness printed, and something of its own printed: it is about THIS JOB, and
+  treating it as a limit was a real bug with a real cost. An `agent-session/v1` part of
+  24,439 blocks and 1.8M characters killed every launch it was given; each failure re-queued
+  itself behind a fifteen-minute wall with `cooling_reason` on the row, so the console
+  announced a cooling tenant while the drain — whose ice is set on the rate-limit branch only
+  — went on claiming. A `failed` round now completes `ok=false` with the harness's own first
+  line (`harness_failed: exit 1 — Error: input is too long for the selected model`), cools
   nothing, waits for nothing, and is re-queued at most `AGENT_RETRIES` times; the last
   attempt says so (`… exit 1 after 3 attempts — …`) and the row is left for a person to read.
-  Sources stay undigested in all three cases.
+  Sources stay undigested in all four cases.
 
   **What the harness said** is kept beside what the worker decided, on EVERY round and not
   only on the ones it refused: `compile_jobs.harness_output` holds ~2 KB of the process's own
@@ -1475,8 +1501,8 @@ went around the gate is stopped before the next round builds on it, rather than 
   (`AGENT_KEEP_WORKDIR` keeps that home as well as the launcher's working directory, for a
   round somebody is diagnosing.)
 
-  For the two provider answers the worker completes the job `ok=false` (`rate_limited: Codex
-  usage limit; retry after <instant>`), leaves its sources
+  For the provider answers (`no_turn` included) the worker completes the job `ok=false`
+  (`rate_limited: Codex usage limit; retry after <instant>`), leaves its sources
   **undigested**, drops the draft the launch opened, and queues the same payload again as a
   new row carrying `not_before` — the instant the harness itself named (`try again at Sep
   15th, 2026 9:23 AM`, read in `PNEUMA_KNOWLEDGE_DEFAULT_TIMEZONE`), or a cooldown that

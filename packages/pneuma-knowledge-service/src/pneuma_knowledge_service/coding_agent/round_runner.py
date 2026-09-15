@@ -59,7 +59,8 @@ from ..cli.draft import (
     validate_brief,
 )
 from ..review_service import REVIEW_JOB_KIND
-from .backends import BackendManifest, unavailable_reason
+from .backends import UNAVAILABLE_REASONS, BackendManifest, unavailable_reason
+from .harness_output import only_lifecycle
 from .install import SKILL_HASH_ENV, installed_hash
 from .launcher import (
     LaunchRequest,
@@ -112,22 +113,37 @@ ROUND_INCOMPLETE = "the round did not run to its end and nothing was committed"
 #: same rule the worker's finish is. Retried under the same bound as a harness that died.
 REVIEW_INCOMPLETE = "the review round neither repaired a finding nor said why"
 
-#: WHY it did not — the three answers, because the worker does two different things about
-#: them and telling them apart is the difference between waiting for a subscription and
-#: waiting for a source that will never compile.
+#: WHY it did not — four answers, because the worker does three different things about them
+#: and telling them apart is the difference between waiting for a subscription and waiting
+#: for a source that will never compile.
 #:
 #: `rate_limited` and `unavailable` are the provider saying "not now": the Owner's
 #: subscription is out of room, or the model has none. Waiting is the only thing that helps,
 #: so the tenant goes on ice and the job comes back behind a `not_before`.
 #:
-#: `failed` is neither. The harness exited non-zero (or declared its turn failed) with no
-#: marker of either kind in its output — it fell over on this job's own account, and one
-#: oversized source that kills every launch would, treated as a rate limit, put the whole
-#: tenant to sleep for longer on every retry. So a failure is REPORTED on the job, retried a
-#: bounded number of times, and costs the rest of the queue nothing.
+#: `no_turn` is the harness dying before it took a turn at all: a non-zero exit whose whole
+#: output is the harness's own coming-up events — `{"type":"thread.started"}` and then
+#: nothing — or silence. Six real rounds ended that way in two minutes, and the worker struck
+#: their jobs out as failures although no round had been attempted. It says nothing about the
+#: material, exactly as a refusal says nothing about it, so it is waited out like one; and
+#: because it CAN be a harness that is permanently broken rather than jitter, the worker
+#: stops re-queuing it once the cooling escalation has reached its ceiling, instead of
+#: retrying a crash forever.
+#:
+#: `failed` is none of these. The harness exited non-zero (or declared its turn failed) with
+#: no marker of any kind in its output, and printed something of its own — it fell over on
+#: this job's own account, and one oversized source that kills every launch would, treated as
+#: a rate limit, put the whole tenant to sleep for longer on every retry. So a failure is
+#: REPORTED on the job, retried a bounded number of times, and costs the rest of the queue
+#: nothing.
 UNAVAILABLE_RATE_LIMITED = "rate_limited"
 UNAVAILABLE_AT_CAPACITY = "unavailable"
+UNAVAILABLE_NO_TURN = "no_turn"
 UNAVAILABLE_FAILED = "failed"
+
+#: What a person is told `no_turn` was, on the cooling line and on the job's own detail. The
+#: harness printed no sentence of its own here — this is the framework naming what it saw.
+NO_TURN_REASON = "harness died before its first turn"
 
 
 @dataclass(frozen=True)
@@ -686,19 +702,42 @@ def _round_output(launch: LaunchResult) -> str:
     return said if room <= 0 or not rest else f"{said}\n{rest[-room:]}"
 
 
+def _died_before_its_first_turn(launch: LaunchResult) -> bool:
+    """Did the harness come up and go, without a turn ever starting?
+
+    The same shape `_never_ran` reads on the DRAFT side — nothing was spent — asked of the
+    process instead: it exited non-zero, it counted no tokens, it wrote no message, and its
+    whole output is the events a harness prints before a round exists. All four, because each
+    one alone is something else: a non-zero exit after a real turn is a round that fell over,
+    counted tokens are a turn that happened, and a printed sentence is a harness with a
+    diagnosis of its own, which belongs on the job rather than in a cooling window.
+
+    A timeout is deliberately not here. The wall clock says the process was alive and busy
+    for the whole of it; that is a round that never ended, not one that never began.
+    """
+    return (
+        launch.exit_code != 0
+        and not launch.timed_out
+        and not launch.usage
+        and not (launch.last_message or "").strip()
+        and only_lifecycle(launch.stdout, launch.stderr)
+    )
+
+
 def classify_refusal(manifest: BackendManifest, launch: LaunchResult) -> str:
-    """Which of the three `UNAVAILABLE_*` answers this launch was.
+    """Which of the `UNAVAILABLE_*` answers this launch was.
 
     Mechanical, off the manifest's own marker lists — the same words `launcher._is_rate_limited`
     matched to decide there was anything transient here at all. The launcher answers "is
     waiting worth it"; this answers "waiting for WHAT", which is the question the worker has
-    to act on: a spent subscription and a busy model are a tenant-wide wait, and a harness
-    that fell over is one job's fault.
+    to act on: a spent subscription, a busy model and a provider refusing the connection are a
+    tenant-wide wait, a harness that never took a turn is a machine to wait on and then look
+    at, and a harness that fell over mid-round is one job's fault.
     """
     if not launch.rate_limited:
-        return UNAVAILABLE_FAILED
+        return UNAVAILABLE_NO_TURN if _died_before_its_first_turn(launch) else UNAVAILABLE_FAILED
     said = unavailable_reason(f"{launch.stderr}\n{launch.stdout}", manifest)
-    if said in ("at capacity", "unavailable"):
+    if said in UNAVAILABLE_REASONS:
         return UNAVAILABLE_AT_CAPACITY
     # A rate-limit EXIT CODE names no words at all; the launcher already read it as a limit,
     # and a limit is what it stays.
@@ -738,12 +777,14 @@ __all__ = [
     "COMMITTED_BY_HARNESS",
     "FINISHED_BY_WORKER",
     "HARNESS_UNAVAILABLE",
+    "NO_TURN_REASON",
     "REPAIRED",
     "REVIEW_INCOMPLETE",
     "ROUND_INCOMPLETE",
     "RoundLeftIncomplete",
     "UNAVAILABLE_AT_CAPACITY",
     "UNAVAILABLE_FAILED",
+    "UNAVAILABLE_NO_TURN",
     "UNAVAILABLE_RATE_LIMITED",
     "AgentRoundOpenRefused",
     "AgentRoundResult",

@@ -56,6 +56,7 @@ from .backends import (
     SKILL_NAME,
     SYSTEM_FILE,
     SYSTEM_PROMPT_FILE,
+    UNAVAILABLE_REASONS,
     BackendManifest,
     render_argv,
     unavailable_reason,
@@ -453,11 +454,17 @@ def capacity_wait(attempt: int, *, rng: random.Random | None = None) -> float:
     return max(0.0, base * (1.0 + picker.uniform(-BACKOFF_JITTER, BACKOFF_JITTER)))
 
 
-def _at_capacity(manifest: BackendManifest, result: "LaunchResult") -> bool:
-    """Was this transient refusal the model having no room, rather than a spent quota? The
-    same words `round_runner.classify_refusal` reads, off the same output."""
+def _not_the_subscription(manifest: BackendManifest, result: "LaunchResult") -> str:
+    """The phrase naming this transient refusal when it was NOT a spent quota, else "".
+
+    The same words `round_runner.classify_refusal` reads, off the same output. Non-empty is
+    what picks the wider-spaced `capacity_wait`: a model with no room, a provider refusing
+    the connection and an outage all come back in seconds-to-minutes, where a quota comes
+    back in hours. The phrase itself goes on the log line, so an operator reads what the
+    harness actually met rather than the family it belongs to.
+    """
     said = unavailable_reason(f"{result.stderr}\n{result.stdout}", manifest)
-    return said in ("at capacity", "unavailable")
+    return said if said in UNAVAILABLE_REASONS else ""
 
 
 async def _run_once(request: LaunchRequest, workdir: Path) -> LaunchResult:
@@ -574,12 +581,12 @@ async def launch_round(
         )
         if not result.rate_limited or attempt >= attempts:
             return result
-        capacity = _at_capacity(request.manifest, result)
-        wait = capacity_wait(attempt, rng=rng) if capacity else backoff_wait(attempt, rng=rng)
+        said = _not_the_subscription(request.manifest, result)
+        wait = capacity_wait(attempt, rng=rng) if said else backoff_wait(attempt, rng=rng)
         log.warning(
             "%s reported %s on attempt %d/%d; waiting %.1fs before the next",
             request.manifest.display_label,
-            "the model at capacity" if capacity else "a rate limit",
+            "the model at capacity" if said == "at capacity" else (said or "a rate limit"),
             attempt,
             attempts,
             wait,
