@@ -1,3 +1,4 @@
+mod login;
 mod panel;
 mod pkchome;
 mod poller;
@@ -39,6 +40,8 @@ pub fn run() {
             get_state,
             pkchome::run_action,
             pkchome::search,
+            login::login_status,
+            login::set_login,
             panel::frontend_ready,
             panel::reveal_panel,
             panel::hide_panel,
@@ -55,9 +58,21 @@ pub fn run() {
                 (path, initial)
             });
             let health = initial.health();
+            // Launch at login is settled here, before the webview exists: the tray is the
+            // personal edition's sync, so the shipped default is on, and the first launch
+            // registers it and records that it did. The record is the Owner's from the
+            // moment they touch the toggle, and nothing here decides again.
+            let preferences = app.path().app_config_dir().unwrap_or_else(|_| {
+                dirs::config_dir()
+                    .unwrap_or_else(|| home.clone())
+                    .join("com.pneuma.pkc")
+            });
+            let login = login::settle(app.handle(), &preferences, poller::now_ms());
             app.manage(Runtime {
                 home,
                 login_path,
+                preferences,
+                login: RwLock::new(login),
                 client: reqwest::Client::builder()
                     .no_proxy()
                     .redirect(reqwest::redirect::Policy::none())

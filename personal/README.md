@@ -67,6 +67,9 @@ searches with citations, and changes settings through `pkchome`. Install `PKC.ap
 prints the release page. For development, use `cd personal/desktop && pnpm install`, then
 `pnpm tauri dev`; build installers with `pnpm tauri build`. The tray observes your home
 without an engine and uses each running engine's `/home/status` for detailed health.
+Sync lives in the tray, so launch at login is on by default: the first launch registers the
+app with your operating system and records that it did, and from then on only you decide —
+turn it off in Settings and no later launch turns it back on.
 
 Setup answers: `library: notes`, `language: en`, `backend: codex`,
 `semantic_retrieval: off`; an optional `embedding_key` goes only to credentials; an optional

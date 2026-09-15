@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consoleHome, consolePreferences, consoleUrl, credentialName, currentLibrary, deepLibrary, emptyState, health, keyReadout, syncSummary, type Snapshot, type ShallowLibrary } from '../src/lib/state.ts';
+import { consoleHome, consolePreferences, consoleUrl, credentialName, currentLibrary, deepLibrary, emptyState, health, keyReadout, loginReadout, syncSummary, type Snapshot, type ShallowLibrary } from '../src/lib/state.ts';
 
 const library = (name: string, current = false): ShallowLibrary => ({
   name, tenant: `lib-${name}`, current,
@@ -109,4 +109,16 @@ test('the credential a readout names is the one the library embedding provider i
   assert.equal(credentialName('openai:text-embedding-3-small'), 'OPENAI_API_KEY');
   assert.equal(credentialName('google-genai:gemini-embedding-001'), 'GOOGLE_API_KEY');
   assert.equal(credentialName(undefined), 'OPENROUTER_API_KEY');
+});
+
+test('the login switch reports the system, so a refusal is never a silent success', () => {
+  assert.deepEqual(loginReadout(null), { value: null, error: null });
+  assert.deepEqual(loginReadout({ enabled: true, error: null }), { value: true, error: null });
+  assert.deepEqual(loginReadout({ enabled: false, error: null }), { value: false, error: null });
+  // Registration refused: off, and the reason stays on the pane.
+  assert.deepEqual(loginReadout({ enabled: false, error: 'Permission denied' }),
+    { value: false, error: 'Permission denied' });
+  // The opposite refusal must not claim the Owner's off was applied.
+  assert.deepEqual(loginReadout({ enabled: true, error: 'Permission denied' }),
+    { value: true, error: 'Permission denied' });
 });

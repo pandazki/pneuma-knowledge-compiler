@@ -101,6 +101,23 @@ export function syncSummary(sync: SyncStatus | null | undefined, watching: strin
   return `watching ${watching.length} dirs · last sync ${sync?.last_run_at ? timeLabel(sync.last_run_at) : 'never'} · held ${sync?.held ?? '—'}`;
 }
 /**
+ * Launch at login as the Rust side settled it: what the operating system does now, and the
+ * reason when it refused. Login is on by the tray's own first-launch decision — the tray is
+ * this edition's sync, so a tray that does not come back is a library that stops listening —
+ * and off for good the moment the Owner says so.
+ */
+export interface LoginStatus { enabled: boolean; error: string | null }
+/**
+ * What the login row shows. The switch says what the operating system does, never what was
+ * asked of it, and a refusal is stated beneath rather than swallowed: a registration the
+ * system refused reads off with its reason, and a refusal to unregister goes on reading on.
+ * `null` before anything has been asked keeps the switch unavailable, as every unknown does.
+ */
+export function loginReadout(status: LoginStatus | null): { value: boolean | null; error: string | null } {
+  if (!status) return { value: null, error: null };
+  return { value: status.enabled, error: status.error ?? null };
+}
+/**
  * The tray's face, said in the console's vocabulary. The console reads `?locale=` and
  * `?theme=` once, stores them in its own preferences and strips them from the address
  * (the console's own `lib/handoff.ts`), so an Owner who set Chinese in the tray does not land in an
