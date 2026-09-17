@@ -2014,10 +2014,6 @@ async def select_evidence(
     document_cap: int = DEFAULT_GLANCE_PICK_CAP,
     reasoning_effort: str | None = None,
     timeout: float | None = DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS,
-    #: The selection's own JSON as it is written, delta by delta. Same non-blocking contract as
-    #: every other sink in this lane. None = nobody is watching, and the call behaves exactly
-    #: as it did before it streamed.
-    on_delta: TokenSink | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> tuple[SelectedEvidence | None, dict[str, int], str | None]:
@@ -2054,23 +2050,23 @@ async def select_evidence(
             EvidenceSelection, include_raw=True,
             **_reasoning_kwargs(model, reasoning_effort),
         )
-        # STREAMED, for the same reason the answering call beside it is: the chain's
-        # `ainvoke` yields nothing until the JSON has closed, and this call is on the critical
-        # path of a voice conversation where the wait is silence. Measured on a real library,
-        # the selection spends its time THINKING and not emitting — 1.5–3.8s before the first
-        # delta, then well under a second of JSON — so what streaming recovers here is the
-        # tail, a few hundred milliseconds, plus the ability to say WHICH evidence was picked
-        # while the rest is still arriving (`on_delta`). It is not the way to make a slow
-        # selection fast; it is the way to stop paying for the part that is already done.
-        raw = await _stream_structured(
-            structured,
+        # INVOKED, not streamed, and that was measured rather than assumed. Streaming this
+        # call is tempting for the same reason the answering call beside it is streamed — it
+        # is on the critical path of a voice conversation, where waiting is silence — but on
+        # a real library it buys about a quarter of a second (the fields close at 2.03s and
+        # the call settles at 2.23s; the 1.5-3.8s before the first delta is the provider's
+        # own overhead plus prefill, which streaming does not touch), and it costs this
+        # call's TOKEN USAGE: a structured stream on this path carries usage in none of its
+        # chunks, and neither `stream_usage` nor the provider's `stream_options` puts it
+        # back. A quarter second is not worth one of three model calls per answer going
+        # missing from the cost ledger.
+        call = structured.ainvoke(
             messages,
             config=invoke_config(
                 "recall.fast.evidence_select", callbacks, trace_metadata
             ),
-            timeout=timeout,
-            on_token=on_delta or (lambda _delta: None),
         )
+        raw = await (asyncio.wait_for(call, timeout) if timeout else call)
     except (asyncio.TimeoutError, TimeoutError):
         return None, zero_usage(), "timeout"
     except Exception:  # noqa: BLE001 — additive selector degrades to ranked evidence

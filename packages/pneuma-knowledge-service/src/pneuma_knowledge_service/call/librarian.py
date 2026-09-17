@@ -53,13 +53,18 @@ POSTURE: dict[str, Any] = {
     "evidence_strategy": "select",
     "selection_reasoning_effort": None,
     "evidence_selection_timeout": SELECTION_TIMEOUT_SECONDS,
-    # What survives into the answer, and — the reason it is stated here — how wide the
-    # DEGRADED path is: a selection that times out or errors leaves the lane building its
-    # context from this many ranked claims, so a number chosen only for the selection's sake
-    # would make every failure the flood this posture exists to avoid. Measured at 16 and at
-    # the deployment's 40 over the same questions, the answers were indistinguishable and the
-    # timing was within the run-to-run noise, so the narrower one is free.
-    "cap": 16,
+    # What survives into the answer — and, the reason it is stated here, how wide the DEGRADED
+    # path is. A selection that times out or errors leaves the lane building its context from
+    # this many RANKED claims, so the number that protects a slow call must not be the one
+    # that floods it.
+    #
+    # It is NOT the selector's pool, which was the mistake this comment replaces: measured,
+    # the selector reads the full candidate pool (`claim_candidate_cap`, 80 by default) at
+    # both `cap` 10 and `cap` 40 — byte-identical prompts — so widening `cap` for the
+    # selection's sake gave the judgement nothing and only widened its fallback. Twelve is
+    # what a spoken answer of two or three sentences can carry, and the most unjudged
+    # evidence this posture is willing to answer from.
+    "cap": 12,
     "answer_format": "text",
     "plan_queries_cap": 0,
     "reranker": None,

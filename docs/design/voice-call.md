@@ -216,6 +216,30 @@ and all — and a voice holding half-remembered detail answered a follow-up from
 imagination instead of asking again. The delegate hands over what is to be said and nothing
 else, and a follow-up is a new ask.
 
+### 6.5 Where the time actually goes, and one thing not done
+
+The lane makes three model calls per ask — the question, the routing turn, the answer — plus
+the selection. Measured on a real library with reasoning off, the shape is not what it looks
+like from the outside:
+
+| | |
+|---|---|
+| reaching the provider at all | **~1.2 s**, on a forty-character prompt. Network, queue and routing, before any work |
+| prefilling the selection's prompt | +0.6–1.0 s for a pool of 160,000 characters |
+| the selection emitting its JSON | ~0.6 s |
+
+So the wait is dominated by a fixed cost this design cannot touch and by prefill, not by the
+model deliberating. Naming it correctly matters, because the obvious optimisation follows
+from the wrong name: **the selection is deliberately NOT streamed.** Streaming it recovers
+the tail after its last field closes — about a quarter of a second — and costs the call's
+token usage, because a structured stream on this path carries usage in none of its chunks
+and neither `stream_usage` nor the provider's `stream_options` puts it back. One of the
+calls behind every answer going missing from the cost ledger is not worth a quarter second,
+and a test pins the outcome so the trade is not made again by accident.
+
+The answering call *is* streamed, and that is where streaming pays: it is what lets the voice
+begin speaking at the first finished clause instead of at the last full stop (§6.4).
+
 ## 7. What the Owner sees
 
 The call surface has two columns. On the left, captions of both speakers, grouped by the
