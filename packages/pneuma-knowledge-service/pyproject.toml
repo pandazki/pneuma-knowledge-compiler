@@ -14,6 +14,9 @@ dependencies = [
     "langchain",
     "langfuse",
     "langchain-openai>=1.3.5",
+    # The Live API (`client.live`, the voice call's session and sideband) arrived in 3.12;
+    # the `realtime` extra is the SDK's name for its WebSocket dependency.
+    "openai[realtime]>=3.12,<4",
     "pyyaml>=6",
     "jsonschema>=4.26,<5",
     "httpx>=0.28,<1",
