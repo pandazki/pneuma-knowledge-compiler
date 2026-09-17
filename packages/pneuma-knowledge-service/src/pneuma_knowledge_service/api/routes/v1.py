@@ -395,7 +395,9 @@ class RecallIn(BaseModel):
     snapshot: str | None = None
     # fast/deep: answer-style preset override for this call; null = the deployment's
     # PNEUMA_KNOWLEDGE_RECALL_ANSWER_STYLE.
-    answer_style: Literal["concise", "conversational", "detailed"] | None = None
+    # `spoken` is the voice call's: an answer written to be said aloud
+    # (docs/design/voice-call.md). Any caller that will read an answer out may ask for it.
+    answer_style: Literal["concise", "conversational", "detailed", "spoken"] | None = None
     # Fast-only, per-call composition overrides. null uses the deployment's engine setting.
     # Keeping these separate from `mode` makes the trade-off explicit without multiplying
     # lane names or changing rag/deep semantics.

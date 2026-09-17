@@ -76,6 +76,7 @@ read, not of the rows.
 from __future__ import annotations
 
 import logging
+import unicodedata
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
@@ -91,6 +92,7 @@ from pneuma_knowledge_core.compile.supersession import (
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.source import NormalizedBlock, NormalizedSource, RawSource
 from pneuma_knowledge_core.domain.time_context import UTC, TimeContext, time_context_for
+from pneuma_knowledge_core.recall.component_rank import tokenize
 from pneuma_knowledge_core.recall.fast import RetrievedClaim
 from pneuma_knowledge_core.recall.paths import PathResult
 from pneuma_knowledge_core.recall.projection import ProjectedClaim, project_document_claims
@@ -290,12 +292,86 @@ def _iso_week_start(day: date) -> date:
 class TimespanArgs(BaseModel):
     since: str = Field(description="first day of the range, ISO YYYY-MM-DD, inclusive")
     until: str = Field(description="last day of the range, ISO YYYY-MM-DD, inclusive")
+    about: str = Field(
+        default="",
+        description=(
+            "optional: the ONE subject the question asks about within the range — the "
+            "project, product, person or topic it names, copied in the question's own words "
+            '("Harbor Flow Report Kit", "纸鸢剧场"). Only material of the range that '
+            "mentions it is returned, and when none does the lookup returns nothing — which "
+            'is the honest answer to "what happened to X in this period". Leave it empty '
+            'when the question is about the period as a whole ("what did I do last week").'
+        ),
+    )
 
     @field_validator("since", "until")
     @classmethod
     def _iso_only(cls, value: str) -> str:
         parse_iso_day(value)  # raises → the routing call becomes an `invalid_args` row
         return value.strip()
+
+
+# ------------------------------------------------------------------------ the subject scope
+#
+# A range is a PERIOD, and a question is often a period AND a subject: "how did X go these
+# two days". Answered with the whole period, that question receives everything else the
+# owner did on those days — on a real library, five thousand characters about two other
+# projects beside ten claims about X — and an answering model in a hurry summarizes the
+# flood: it said what happened those two days, which was not what was asked, and put "none
+# of this is about X" in a second paragraph. The routing model already reads the question,
+# so it names the subject (`about`), and the scoping itself is mechanical: no model, no
+# ranking, a casefolded containment test. An empty result is rendered by the framework as
+# "(lookup returned nothing)" under a header that states the subject, which is a fact the
+# answer can stand on.
+
+#: Blocks kept on each side of one that mentions the subject, so an excerpt reads as an
+#: exchange and not as a sentence torn out of one.
+ABOUT_CONTEXT_BLOCKS = 2
+
+
+def about_tokens(about: str) -> tuple[str, ...]:
+    """The subject as comparable tokens — the ranker's own tokenizer, so "Harbor Flow Report
+    Kit" meets `projects/harbor-flow-report-kit/…` and 纸鸢剧场 meets itself."""
+    seen: dict[str, None] = {}
+    for token in tokenize(about):
+        seen.setdefault(token)
+    return tuple(seen)
+
+
+def mentions(text: str, tokens: Sequence[str]) -> bool:
+    """Whether `text` mentions the subject `tokens` spell: every one of them, anywhere in it.
+
+    Strict on purpose. A first version let a long name match on any two of its words — people
+    do say "the report kit" — and on a real library that scoped a question about one project
+    to the records of its SIBLING: projects in a family share their first words, and a scope
+    that admits the sibling is how an answer about the wrong project gets written with a
+    straight face. Missing a loose mention costs an excerpt; admitting a sibling costs the
+    answer.
+    """
+    if not tokens:
+        return True
+    hay = unicodedata.normalize("NFKC", text or "").casefold()
+    return all(token in hay for token in tokens)
+
+
+def mentioning_ranges(
+    texts: Sequence[tuple[int, str]], tokens: Sequence[str], *, context: int = ABOUT_CONTEXT_BLOCKS
+) -> list[tuple[int, int]]:
+    """The block ranges of one span that mention the subject, each widened by `context`
+    blocks and merged where they touch. `texts` is `(block index, text)` in order."""
+    if not texts:
+        return []
+    low, high = texts[0][0], texts[-1][0]
+    ranges: list[tuple[int, int]] = []
+    for index, text in texts:
+        if not mentions(text, tokens):
+            continue
+        start, end = max(low, index - context), min(high, index + context)
+        if ranges and start <= ranges[-1][1] + 1:
+            ranges[-1] = (ranges[-1][0], max(ranges[-1][1], end))
+        else:
+            ranges.append((start, end))
+    return ranges
 
 
 # ------------------------------------------------------------------------ the component
@@ -441,11 +517,13 @@ class TimeComponent(BaseComponent):
         *,
         since: str,
         until: str,
+        about: str = "",
         documents=None,
         as_of: datetime | None = None,
     ) -> PathResult:
         """The library's own content for a range of the owner's days: source spans in time
-        order, and the claims whose evidence comes from those same days.
+        order, and the claims whose evidence comes from those same days — all of it, or,
+        with `about`, only what mentions that subject (see "the subject scope" above).
 
         Everything in the range, never the first N of it. The range is the query — cutting
         it at six spans and six claims answers a narrower question than the one that was
@@ -462,6 +540,7 @@ class TimeComponent(BaseComponent):
         as_of_day = ctx.local_date(as_of) if as_of is not None else None
         rows = await self._content.time_blocks_in_range(uid, first, last, limit=RANGE_ROW_CAP)
         spans = group_spans(rows)
+        subject = about_tokens(about)
 
         # Block text comes from L0, for the spans that will actually be shown — the
         # projection holds addresses, never content.
@@ -475,9 +554,6 @@ class TimeComponent(BaseComponent):
                     continue
             normalized = cached[span.source_id]
             by_index = {b.index: b.text for b in normalized.blocks}
-            body = "\n".join(
-                by_index[i] for i in range(span.start, span.end + 1) if i in by_index
-            )
             head = span_label(
                 span.day,
                 first=span.first,
@@ -487,16 +563,25 @@ class TimeComponent(BaseComponent):
                 as_of_day=as_of_day,
             )
             label = f"{head} · {span.kind} · {span.title}".rstrip(" ·")
-            windows.append(
-                RecallHit(
-                    source_id=SourceId(span.source_id),
-                    block_start=span.start,
-                    block_end=span.end,
-                    text=f"{label}\n{body}",
-                    paths=("time",),
-                    score=1.0,
-                )
+            present = [(i, by_index[i]) for i in range(span.start, span.end + 1) if i in by_index]
+            # Unscoped, the span is one excerpt. Scoped, it is the stretches of it that
+            # mention the subject — a day-long session about four things contributes the
+            # part about this one, addressed by its own block range.
+            stretches = (
+                mentioning_ranges(present, subject) if subject else [(span.start, span.end)]
             )
+            for start, end in stretches:
+                body = "\n".join(text for i, text in present if start <= i <= end)
+                windows.append(
+                    RecallHit(
+                        source_id=SourceId(span.source_id),
+                        block_start=start,
+                        block_end=end,
+                        text=f"{label}\n{body}",
+                        paths=("time",),
+                        score=1.0,
+                    )
+                )
 
         docs = await self._documents(uid, documents)
         in_range = {span.source_id for span in spans}
@@ -506,6 +591,11 @@ class TimeComponent(BaseComponent):
         for path in sorted(docs):
             for claim in project_document_claims(docs[path]):
                 if not any(str(c.source_id) in in_range for c in claim.citations):
+                    continue
+                if subject and not mentions(
+                    " ".join((claim.text, str(claim.document_path), *map(str, claim.section_path))),
+                    subject,
+                ):
                     continue
                 superseded = str(claim.anchor) in dead
                 hit = RetrievedClaim(
@@ -535,8 +625,11 @@ class TimeComponent(BaseComponent):
                 "sources whose material falls in that range (in time order, each with its "
                 "day, weekday and clock) and the claims whose evidence comes from those "
                 "days, current ones first and superseded ones labelled. It answers a "
-                "PERIOD, not a topic: what happened in a month, what changed between two "
-                "dates. since/until are calendar days in the owner's timezone, inclusive, "
+                "PERIOD: what happened in a month, what changed between two dates — and "
+                "when the question asks about ONE subject within the period (\"how did X go "
+                "this week\"), pass that subject as `about`, so the range is scoped to it "
+                "instead of returning everything else those days held. "
+                "since/until are calendar days in the owner's timezone, inclusive, "
                 "and are ISO YYYY-MM-DD only — this path parses no relative or colloquial "
                 "expression (\"last quarter\", \"上个月\"); as_of and the owner's timezone "
                 "are stated above, and anything else becomes an invalid_args audit row."
@@ -549,6 +642,7 @@ class TimeComponent(BaseComponent):
                     uid,
                     since=args.since,
                     until=args.until,
+                    about=args.about,
                     documents=documents,
                     as_of=as_of,
                 )

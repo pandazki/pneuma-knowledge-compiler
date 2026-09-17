@@ -686,6 +686,87 @@ STAGES: tuple[Stage, ...] = (
                     "关闭则完全忽略组件路。"
                 ),
             ),
+            # The voice call is a fourth answering lane, not a surface of its own, which is
+            # why its four keys sit here beside the others: what it answers with is this
+            # stage's fast lane, and the only things it adds are who speaks and how long a
+            # call may stay open. The model that does the answering is `models.call`.
+            Knob(
+                key="call_model",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_CALL_MODEL",
+                setting="call_model",
+                label_en="Voice call · voice model",
+                label_zh="语音通话·语音模型",
+                description_en=(
+                    "The full-duplex model that conducts a call: it hears the owner and "
+                    "speaks back, and it knows nothing about the library — everything the "
+                    "library knows reaches it through the delegate (`models.call`). It is "
+                    "reached with OPENAI_API_KEY, which never leaves this process: the "
+                    "browser is handed an SDP answer, not a credential. With no key this "
+                    "deployment reports the call unconfigured instead of offering it."
+                ),
+                description_zh=(
+                    "主持通话的全双工模型：它听见知识主体、也说回去，而它对知识库一无所知——"
+                    "知识库知道的一切，都经由委托（`models.call`）交到它手上。它用 OPENAI_API_KEY "
+                    "连接，而这个密钥从不离开本进程：浏览器拿到的是一份 SDP 应答，不是凭据。"
+                    "没有密钥时，这个部署会明说通话未配置，而不是把它摆出来。"
+                ),
+            ),
+            Knob(
+                key="call_voice",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_CALL_VOICE",
+                setting="call_voice",
+                label_en="Voice call · voice",
+                label_zh="语音通话·音色",
+                description_en=(
+                    "Which voice the model above speaks in. The vocabulary is the voice "
+                    "provider's, not this framework's, and the session is created with this "
+                    "name verbatim."
+                ),
+                description_zh=(
+                    "上面那个模型用哪一种嗓音说话。可选值由语音服务商定义，不是本框架的词表；"
+                    "创建会话时这个名字原样发送。"
+                ),
+            ),
+            Knob(
+                key="call_idle_seconds",
+                type="int",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_CALL_IDLE_SECONDS",
+                setting="call_idle_seconds",
+                label_en="Voice call · idle close (seconds)",
+                label_zh="语音通话·静默挂断（秒）",
+                description_en=(
+                    "How long a call may hear nothing from the owner before the engine closes "
+                    "it. A voice session is billed by the minute for as long as it is open, "
+                    "silent or not, so a call nobody is speaking into is ended rather than "
+                    "left running. 0 = never closed on this count."
+                ),
+                description_zh=(
+                    "一通电话最多可以多久听不到知识主体说话，之后由引擎把它挂断。语音会话只要开着"
+                    "就按分钟计费，说不说话都一样，所以没人在讲的通话是被结束掉，而不是留在那里。"
+                    "0 = 不因静默挂断。"
+                ),
+            ),
+            Knob(
+                key="call_max_seconds",
+                type="int",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_CALL_MAX_SECONDS",
+                setting="call_max_seconds",
+                label_en="Voice call · maximum length (seconds)",
+                label_zh="语音通话·最长时长（秒）",
+                description_en=(
+                    "The other end of the same guard: how long one call may run, however "
+                    "lively. 0 = no ceiling."
+                ),
+                description_zh=(
+                    "同一道保险的另一端：一通电话最长能开多久，哪怕一直在讲。0 = 不设上限。"
+                ),
+            ),
         ),
     ),
     Stage(
@@ -898,6 +979,31 @@ STAGES: tuple[Stage, ...] = (
                     "指出哪些文档值得整篇读。**又弱又快**的模型才对：这是在已经摆在面前的标题里"
                     "做选择。这一段与检索并行，只有 8 秒上限，而且是加分项——模型若停下来推理，"
                     "就只是错过它，答案退回到仅凭检索。推理在代码里被钉死为关闭。留空则借用召回角色。"
+                ),
+            ),
+            Knob(
+                key="call",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_LLM_MODEL_CALL",
+                setting="llm_model_call",
+                label_en="Voice call · delegate model",
+                label_zh="语音通话·委托模型",
+                description_en=(
+                    "The voice call's delegate — the model that stands between the voice on "
+                    "the line and this library. It does three small turns: write the question "
+                    "out of the transcript, route the fast lane, and say the answer in the "
+                    "`spoken` style. All three happen while a person waits in silence, so a "
+                    "FAST model is right for the same reason the glance pick's is, and its "
+                    "reasoning is pinned off in code. Empty borrows the recall role. The voice "
+                    "itself is a different model, named under Recall (`recall.call_model`)."
+                ),
+                description_zh=(
+                    "语音通话的委托——站在电话那头的声音与这个知识库之间的那个模型。它做三件小事："
+                    "从转写里把问题写出来、路由快速召回、用 `spoken` 风格把答案说出来。三件都发生在"
+                    "有人静静等着的那几秒里，所以和概览挑选一样，要的是**快**模型，推理也在代码里被"
+                    "钉死为关闭。留空则借用召回角色。声音本身是另一个模型，在「召回」里指定"
+                    "（`recall.call_model`）。"
                 ),
             ),
             Knob(
@@ -1395,6 +1501,10 @@ NON_ENGINE_SETTINGS: frozenset[str] = frozenset(
         "cors_allow_origin_regex",
         # Secrets. They never enter the versioned unit, by construction.
         "openrouter_api_key",
+        # The voice call's key, on the same footing: the call's own strategy (which voice
+        # model, which voice, how long a call may stay open) IS four knobs under `recall`,
+        # and this is only the credential they are reached with.
+        "openai_api_key",
         "langfuse_secret_key",
         "langfuse_public_key",
         "langfuse_base_url",

@@ -28,8 +28,13 @@ AGENT_REASONING_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", 
 class Settings(BaseSettings):
     # extra="ignore": a 12-factor service must tolerate unrelated env / .env vars
     # (deploy secrets, other services' keys) rather than crash on the first stray key.
+    # `populate_by_name` is about the two UNPREFIXED credentials below. They carry a
+    # `validation_alias` so the environment spells them the way every other tool on the machine
+    # does (`OPENROUTER_API_KEY`), and an alias without this flag makes the FIELD NAME stop
+    # working: `Settings(openai_api_key="sk-…")` silently produced a keyless deployment, which
+    # is the worst shape a configuration bug can take — it looks configured and answers 503.
     model_config = SettingsConfigDict(
-        env_prefix="PNEUMA_KNOWLEDGE_", env_file=".env", extra="ignore"
+        env_prefix="PNEUMA_KNOWLEDGE_", env_file=".env", extra="ignore", populate_by_name=True
     )
 
     # How loud this deployment's own loggers are — `pneuma_knowledge_service`, and any logger
@@ -566,6 +571,13 @@ class Settings(BaseSettings):
     # Empty borrows `recall` before `llm_model` (wiring._ROLE_FALLBACK), one hop, so an existing
     # deployment keeps working unchanged.
     llm_model_glance_pick: str = ""
+    # The voice call's delegate (docs/design/voice-call.md): ask formation, the fast lane's
+    # routing turn and its answer, all on one model while a person waits in silence. It wants
+    # the same thing the glance pick wants — a fast model that does not stop to think — and
+    # for the same reason its reasoning effort is pinned OFF at construction rather than
+    # exposed (wiring._ROLE_REASONING_EFFORT): measured on a real library, the answering call
+    # alone went from ten seconds to first token to under five. Empty borrows `recall`.
+    llm_model_call: str = ""
     llm_model_deep: str = ""  # deep recall (agentic search)
     llm_model_skill: str = ""  # skill synthesis (schema-pack derivation)
     # Rollover's volume card. Empty borrows the compile role (same canonical-write
@@ -619,6 +631,18 @@ class Settings(BaseSettings):
     # OpenRouter (OpenAI-compatible) key, read from the unprefixed OPENROUTER_API_KEY
     # so `openrouter:<model>` in llm_model can switch vendors without app changes.
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+    # The voice call (docs/design/voice-call.md). It exists exactly when this key does: the
+    # call's voice model is OpenAI's and is reached with a project key that never leaves this
+    # process — the browser is handed an SDP answer, not a credential. Unprefixed, like
+    # OPENROUTER_API_KEY, because it is the name every other tool on the machine already uses.
+    openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
+    call_model: str = "gpt-live-1"
+    call_voice: str = "marin"
+    # A call is billed by the minute for as long as the session is open, silent or not, so a
+    # call nobody is speaking into is closed by the engine: after this many seconds without a
+    # word from the owner, and in any case after `call_max_seconds`. 0 switches either off.
+    call_idle_seconds: int = 180
+    call_max_seconds: int = 1800
     # fake:<dim> = DeterministicFakeEmbedding (keyless; tests/example default, §M1.3).
     embedding_model: str = "fake:384"
 

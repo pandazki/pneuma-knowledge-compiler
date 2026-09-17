@@ -528,6 +528,136 @@ async def test_timespan_returns_the_ranges_claims_current_first_and_labels_the_s
     ]
 
 
+# ------------------------------------------------------------------ the subject scope
+
+
+def _project_page(project: str, body: str) -> CanonicalDocument:
+    return CanonicalDocument(
+        doc_id=DocumentId(f"d-{project}"),
+        path=f"projects/{project}/evolution.md",
+        frontmatter={"doc_id": f"d-{project}", "type": "project", "slug": project},
+        body=body,
+    )
+
+
+async def _a_busy_two_days():
+    """Two projects whose names share their first words, and a third thing entirely, all on
+    the same two days — the shape that produced the wrong answer on a real library."""
+    store = _Store()
+    chat = _im(
+        [
+            ("2026-06-02T09:00:00+08:00", "今天先把纸鸢剧场的幕布调完"),
+            ("2026-06-02T09:05:00+08:00", "灯光也要跟着改"),
+            ("2026-06-02T09:10:00+08:00", "顺手看一下 Harbor Flow Agent 的评测脚本"),
+            ("2026-06-02T09:15:00+08:00", "评测脚本跑通了"),
+            ("2026-06-02T09:20:00+08:00", "晚上再说别的"),
+            ("2026-06-02T09:25:00+08:00", "收工"),
+            ("2026-06-02T09:30:00+08:00", "明天继续"),
+            ("2026-06-02T09:35:00+08:00", "Harbor Flow Report Kit 的上传命令今天也验了一遍"),
+        ],
+        archive="busy",
+    )
+    await store.add(USER, chat)
+    component = _component(store)
+    await component.on_source_indexed(str(USER), chat)
+    sid = chat.raw.source_id
+    pages = [
+        _project_page(
+            "harbor-flow-agent", f"- 评测脚本已经跑通。[cite: {sid} ¶2-3] <!-- c:a9e1 -->"
+        ),
+        _project_page(
+            "harbor-flow-report-kit", f"- 上传命令已验证。[cite: {sid} ¶7-7] <!-- c:4b11 -->"
+        ),
+        _project_page("paper-kite-theatre", f"- 幕布已经调完。[cite: {sid} ¶0-1] <!-- c:7c02 -->"),
+    ]
+    return component, chat, pages
+
+
+async def test_a_range_scoped_to_a_subject_returns_only_what_mentions_it():
+    component, chat, pages = await _a_busy_two_days()
+
+    whole = await component.timespan(
+        USER, since="2026-06-01", until="2026-06-03", documents=pages, as_of=NOW
+    )
+    assert {str(c.anchor) for c in whole.claims} == {"a9e1", "4b11", "7c02"}
+    assert [(w.block_start, w.block_end) for w in whole.windows] == [(0, 7)]
+
+    scoped = await component.timespan(
+        USER,
+        since="2026-06-01",
+        until="2026-06-03",
+        about="Harbor Flow Report Kit",
+        documents=pages,
+        as_of=NOW,
+    )
+    # The claim is found by its PAGE — the sentence never says the project's name.
+    assert [str(c.anchor) for c in scoped.claims] == ["4b11"]
+    # The day-long span contributes the stretch that mentions the subject, with its two
+    # blocks of context, addressed by its own range — not the whole day.
+    assert [(w.block_start, w.block_end) for w in scoped.windows] == [(5, 7)]
+    assert "上传命令" in scoped.windows[0].text and "幕布" not in scoped.windows[0].text
+
+
+async def test_a_sibling_project_that_shares_its_first_words_is_not_the_subject():
+    """`Harbor Flow Agent` and `Harbor Flow Report Kit` share two words of three or four. A
+    scope that admitted the sibling is how an answer about the wrong project got written."""
+    component, _, pages = await _a_busy_two_days()
+
+    scoped = await component.timespan(
+        USER,
+        since="2026-06-01",
+        until="2026-06-03",
+        about="Harbor Flow Report Kit",
+        documents=pages,
+        as_of=NOW,
+    )
+
+    assert all("harbor-flow-agent" not in str(c.document_path) for c in scoped.claims)
+    assert all("评测脚本" not in w.text for w in scoped.windows)
+
+
+async def test_a_subject_nothing_in_the_range_mentions_returns_nothing_at_all():
+    """Nothing, and not "the nearest thing": the framework renders an empty lookup under a
+    header that states the subject, which is the fact the answer has to be built on."""
+    from pneuma_knowledge_core.recall.paths import render_component_evidence, run_paths
+
+    component, _, pages = await _a_busy_two_days()
+    path = component.fast_paths(str(USER))[0]
+    args = path.args_schema(since="2026-06-01", until="2026-06-03", about="Lantern Ledger")
+
+    evidence = await run_paths(
+        str(USER), [(path, args)], question="Lantern Ledger 这两天进展怎么样", documents=pages, as_of=NOW
+    )
+
+    assert evidence[0].claims == () and evidence[0].windows == ()
+    rendered = render_component_evidence(evidence)
+    assert 'about="Lantern Ledger"' in rendered
+    assert "lookup returned nothing" in rendered
+
+
+async def test_a_cjk_subject_is_matched_the_way_the_ranker_tokenizes_it():
+    component, _, pages = await _a_busy_two_days()
+
+    scoped = await component.timespan(
+        USER, since="2026-06-01", until="2026-06-03", about="纸鸢剧场", documents=pages, as_of=NOW
+    )
+
+    assert [(w.block_start, w.block_end) for w in scoped.windows] == [(0, 2)]
+    # The claim's page is named in Latin and its sentence never names the theatre, so it
+    # is NOT found — stated here so the limit of a containment test is on the record.
+    assert scoped.claims == ()
+
+
+def test_the_path_tells_the_routing_model_when_to_name_a_subject():
+    component = _component(_Store())
+    path = component.fast_paths(str(USER))[0]
+    about = path.args_schema.model_json_schema()["properties"]["about"]
+    assert about["default"] == ""
+    assert "about" in path.description
+    # An unscoped call is still valid: a question about the period as a whole names nothing.
+    assert path.args_schema(since="2026-06-01", until="2026-06-02").about == ""
+
+
 async def test_the_path_returns_the_whole_range_and_the_framework_caps_it():
     """The path enumerates; the cap belongs to the framework, applied AFTER ordering — and
     what it did not show is described per day, not quietly cut."""

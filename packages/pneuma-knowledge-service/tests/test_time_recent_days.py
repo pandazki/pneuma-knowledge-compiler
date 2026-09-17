@@ -31,6 +31,7 @@ from pneuma_knowledge_core.recall.paths import (
     merge_component_evidence,
     route_paths,
     run_paths,
+    stated_args,
 )
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.wiring import register_components
@@ -224,7 +225,9 @@ async def test_a_two_day_question_reaches_the_two_recent_sessions_and_not_the_ol
         model, question, paths, as_of=NOW, zone=ZONE
     )
     assert degraded is None and rejected == []
-    assert [(path.name, args.model_dump()) for path, args in chosen] == [
+    # what was STATED, which is also what the evidence header and the audit row show: an
+    # optional argument left at its default (`about`) was chosen by nobody.
+    assert [(path.name, stated_args(args)) for path, args in chosen] == [
         ("timespan", {"since": YESTERDAY, "until": TODAY})
     ]
     # what the routing turn was told: the two volatile facts a relative phrase needs.

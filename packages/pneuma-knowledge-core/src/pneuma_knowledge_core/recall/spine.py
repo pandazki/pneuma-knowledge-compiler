@@ -39,7 +39,9 @@ CLOSE_SUGGESTION = "recall.close.suggestion"
 # exact value, a chat surface wants a natural sentence, a written report wants the full
 # context. Deliberately outside the spine: suggestion and briefing have their own genre,
 # and truth discipline (red line / citations / honest close) must not vary with style.
-ANSWER_STYLES: tuple[str, ...] = ("concise", "conversational", "detailed")
+# `spoken` is the fourth, and the one with a caller rather than a deployment behind it: the
+# voice call's delegate, whose answer is said aloud by a voice model and never read.
+ANSWER_STYLES: tuple[str, ...] = ("concise", "conversational", "detailed", "spoken")
 DEFAULT_ANSWER_STYLE = "conversational"
 
 

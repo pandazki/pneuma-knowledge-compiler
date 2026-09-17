@@ -196,7 +196,12 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     # sentences are rendered one at a time, by the console and by `pkc library review` /
     # `pkc lens`, and the only model ever shown any of them is the review round, which reads
     # the check's report as its task.
-    assert len(fragments) == 38
+    # +1: the voice call, whose clauses have THREE different readers — the voice model's
+    # standing prompt, the small model that writes the question out of the transcript, and
+    # the lines handed to the voice when there is no answer to hand over. Nothing assembles
+    # them into one message, so a family. The answer itself is the fast lane's assembly,
+    # wearing its fourth style variant (`recall.style.spoken`).
+    assert len(fragments) == 39
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(

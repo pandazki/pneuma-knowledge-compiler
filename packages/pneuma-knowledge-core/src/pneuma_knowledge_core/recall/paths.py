@@ -166,6 +166,14 @@ def fast_paths_from_registry(user_id: str) -> list[FastPath]:
     ]
 
 
+def stated_args(args: BaseModel) -> dict:
+    """A path call's arguments as they are SHOWN — in the evidence header the answering model
+    reads, in the trail, in the audit row. An optional argument left at its default was not
+    stated by anybody, and printing it (`timespan(since=…, until=…, about="")`) tells the
+    reader a scope was considered that never was."""
+    return args.model_dump(exclude_defaults=True)
+
+
 # ------------------------------------------------------------------------------ routing
 
 
@@ -261,7 +269,7 @@ async def route_paths(
         except ValidationError:
             rejected.append(ComponentEvidence(path=name, args=dict(raw_args), degraded="invalid_args"))
             continue
-        key = f"{name}:{json.dumps(args.model_dump(), ensure_ascii=False, sort_keys=True)}"
+        key = f"{name}:{json.dumps(stated_args(args), ensure_ascii=False, sort_keys=True)}"
         if key in seen:
             continue
         seen.add(key)
@@ -291,7 +299,7 @@ async def run_paths(
     same state the glance and the claim face describe."""
 
     async def one(path: FastPath, args: BaseModel) -> ComponentEvidence:
-        shown = args.model_dump()
+        shown = stated_args(args)
         cap = max(int(path.cap), 0)
         # The clock covers the lookup AND the ordering that makes it usable: both are what
         # this path costs the gather. A failure is timed too — "the timeout fired at 6s" is
@@ -752,4 +760,5 @@ __all__ = [
     "route_messages",
     "route_paths",
     "run_paths",
+    "stated_args",
 ]

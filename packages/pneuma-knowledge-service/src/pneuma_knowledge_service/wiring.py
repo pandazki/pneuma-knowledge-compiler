@@ -488,6 +488,7 @@ _ROLE_FIELDS = {
     "recall": "llm_model_recall",  # retrieval planning + briefing ask (glance pick borrows it)
     "answer": "llm_model_answer",  # final fast-answer generation
     "glance_pick": "llm_model_glance_pick",  # fast lane's glance pick (weak, reasoning off)
+    "call": "llm_model_call",  # the voice call's delegate (fast, reasoning off)
     "deep": "llm_model_deep",
     "skill": "llm_model_skill",  # schema-pack derivation for a user's first compile
     "groom": "llm_model_groom",  # rollover's volume card
@@ -523,6 +524,7 @@ _ROLE_FIELDS = {
 _ROLE_FALLBACK = {
     "answer": "recall",
     "glance_pick": "recall",
+    "call": "recall",
     "live_context": "recall",
     "live_discover": "recall",
     "live_pick": "recall",
@@ -547,6 +549,12 @@ _ROLE_REASONING_EFFORT = {
     # what the pin fixes — the budget was right and the call was wrong — and raising the
     # budget instead would make every question wait on a pass the answer does not need.
     "glance_pick": "none",
+    # The voice call's delegate: somebody is waiting in silence for the first spoken word, and
+    # everything this role does — write the question out of a transcript, pick a component
+    # path, answer in three sentences from evidence already in front of it — is reading, not
+    # deliberation. Pinned for the same reason as the pick: a knob here would be a way to make
+    # a call feel broken.
+    "call": "none",
 }
 
 
