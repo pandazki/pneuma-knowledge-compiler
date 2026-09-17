@@ -767,6 +767,32 @@ means `null`, never a zero.
 `pkc owner say`, which refuses a text that is not a verbatim substring of one of them
 (ruling 13) — and are deleted when the session ends or expires.
 
+## Voice call
+
+Owner-only, and present only where `OPENAI_API_KEY` is set: a full-duplex voice model
+conducts the call and knows nothing about the library, and everything the library knows
+reaches it through a delegate this process runs — the question written out of the transcript,
+the ordinary fast lane, the answer in the `spoken` style. Audio never touches this engine: the
+browser holds WebRTC with the provider, and the engine exchanges the SDP once and then attaches
+a sideband. Design: [voice-call](../design/voice-call.md).
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/…/call` | `{configured, reason, detail, model, voice, live}` — whether a call can be placed here and, if not, the one thing missing (`no_openai_key`, `no_recall_model`). An engine without this feature answers 404, which the console reads as "no call here" rather than as an error |
+| POST | `/…/call` | `{sdp, locale}` → `201 {call_id, session_id, sdp, expires_at}`. The browser's SDP offer is exchanged for the provider's answer with the project key, which is used here and nowhere else — what the browser receives is an answer and two ids, never a credential. `503` when the deployment is not configured, `502` when the provider refused (its own message, scrubbed). Creating a session is billed, so this is only ever reached from a click |
+| WS | `/…/call/{call_id}` | what the engine knows that the browser's data channel does not. Server sends `attached`, then one `delegation` frame per state change (upsert by `delegation.id`: `hearing → searching → answering → done`, or `unclear` / `failed`, each carrying the question as the library understood it, what has been handed to the voice, the finished recall payload, the hand-over intervals and a per-stage timing breakdown), plus `usage`, `closed`, `error` and `ping`. Client sends `{"type":"end"}` to hang up |
+
+**One call per owner.** A second `POST` ends the first: the usual reason one is still open is a
+tab that died mid-call, and that session is still billing by the minute.
+
+**The browser may not steer the voice.** The session is created with its data channel narrowed
+to three commands — close, mute, unmute — so a page that tried to append an instruction to the
+voice model is refused by the provider rather than by a convention.
+
+**The engine hangs up on silence.** `CALL_IDLE_SECONDS` without a word from the Owner,
+`CALL_MAX_SECONDS` in total, or a socket that never opened, each close the call, and
+`closed.reason` says which.
+
 ## Engine Console
 
 Deployment-scoped, not per-user: the engine directory is the installation's own configuration rather than a tenant's knowledge, and there is no `user_id` because nothing reachable here belongs to a user (invariant I1 untouched). Every route returns **404** unless `PNEUMA_KNOWLEDGE_ENGINE_DIR` is set — a deployment that did not adopt the concept gains no surface. Design: [design/engine-console.md](../design/engine-console.md).

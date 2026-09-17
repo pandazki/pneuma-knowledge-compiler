@@ -36,8 +36,9 @@ One optional layer sits between environment and default: the **engine directory*
 | Setting | Default | Meaning |
 |---|---|---|
 | `LLM_MODEL` | `openrouter:openai/gpt-5.6-luna` | base model spec and fallback for all roles |
-| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_GLANCE_PICK` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_LIVE_DISCOVER` / `_LIVE_PICK` / `_CHALLENGE` / `_BRIEF` / `_GROOM` | empty | per-role overrides; `answer` is only the final fast-answer generation and otherwise borrows `recall` |
+| `LLM_MODEL_COMPILE` / `_RECALL` / `_ANSWER` / `_GLANCE_PICK` / `_CALL` / `_DEEP` / `_SKILL` / `_EVOLVE` / `_LIVE_CONTEXT` / `_LIVE_DISCOVER` / `_LIVE_PICK` / `_CHALLENGE` / `_BRIEF` / `_GROOM` | empty | per-role overrides; `answer` is only the final fast-answer generation and otherwise borrows `recall` |
 | `LLM_MODEL_GLANCE_PICK` | empty | the fast lane's glance pick: one small call over the library's glance (titles and one-line definitions) plus the question, naming the documents worth reading whole. It runs alongside retrieval under an 8-second ceiling and is additive, so a model that stops to think simply misses it. A **weak fast** model is right, and its reasoning effort is pinned OFF in code rather than exposed here — this is a choice among titles already in front of it. Empty borrows `recall`. Engine key: `models.glance_pick` |
+| `LLM_MODEL_CALL` | empty | the voice call's delegate — the model between the voice on the line and this library, doing three small turns per ask: write the question out of the transcript, route the fast lane, and say the answer in the `spoken` style. All three happen while a person waits in silence, so a **fast** model is right for the same reason the glance pick's is, and its reasoning effort is pinned OFF in code rather than exposed here. Empty borrows `recall`. The voice itself is a different model, `CALL_MODEL` below. Engine key: `models.call` |
 | `ANSWER_REASONING_EFFORT` | empty | reasoning effort sent only on the final fast-answer call; generated projects also leave it empty to preserve the provider default |
 | `LLM_TIMEOUT` | `600` | seconds; guards against hangs, not slowness |
 | `LLM_MAX_RETRIES` | `3` | transient-error retries (langchain) |
@@ -49,7 +50,7 @@ One optional layer sits between environment and default: the **engine directory*
 | `OVERVIEW_REQUIRED_AFTER_CLAIMS` | `8` | ledger claims a document may hold before a compile that TOUCHES it must give it an overview (`definition` at least) — the floor under the budget above. `finish_compile` refuses first and the gate refuses after, naming the page and its claim count; pages the round never touched are not judged. A model maintains a head that exists and does not start one (measured: 41 of 85 pages on a real library had none, some at 20–31 claims). `0` disables it. Engine key: `models.overview_required_after_claims` |
 | `COMPILE_IMAGE_MODE` | `auto` | `caption` = labelled caption/OCR only; `native` = derived text plus actual image blocks; `auto` = use the compile model profile, falling back to `caption` when unknown. Engine key: `models.image_mode` |
 
-Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overrides every role, so a scripted run is fully deterministic), `openrouter:<model>` (needs `OPENROUTER_API_KEY`), or any provider prefix `init_chat_model` understands (e.g. `anthropic:claude-sonnet-5`, `openai:gpt-5.6-luna`). Role fallback is a single hop: `answer → recall`, `glance_pick → recall`, `live_context → recall`, `live_discover → recall`, `live_pick → recall`, `evolve → compile`, `challenge → compile`, `brief → compile`, `skill → compile`, `groom → compile`, then `LLM_MODEL`.
+Model spec forms: `scripted:<path>` (local replay, keyless — and it hard-overrides every role, so a scripted run is fully deterministic), `openrouter:<model>` (needs `OPENROUTER_API_KEY`), or any provider prefix `init_chat_model` understands (e.g. `anthropic:claude-sonnet-5`, `openai:gpt-5.6-luna`). Role fallback is a single hop: `answer → recall`, `glance_pick → recall`, `call → recall`, `live_context → recall`, `live_discover → recall`, `live_pick → recall`, `evolve → compile`, `challenge → compile`, `brief → compile`, `skill → compile`, `groom → compile`, then `LLM_MODEL`.
 
 Two of those roles are the full-scope Live Context lane's, and they exist because that lane is two small calls per tick rather than one large one (architecture §7). `LLM_MODEL_LIVE_DISCOVER` (engine key `models.live_discover`) runs stage ① — it reads the pending conversation and decides whether the tick retrieves at all — and wants a **small reasoning** model: its output is a few dozen tokens and what it needs is fast judgement about a conversation. `LLM_MODEL_LIVE_PICK` (engine key `models.live_pick`) runs stage ③ — choose one of the already-assembled candidate cards or none, write one short lede, prune the citations, score it — and wants a **weak fast** model, because there is nothing to reason about: the evidence is in front of it and it may not rewrite a word of it. The generated engine names `openrouter:openai/gpt-5.6-sol` and `openrouter:openai/gpt-5.6-luna` respectively; both empty borrows `recall`, which keeps an existing deployment working unchanged. Their reasoning effort is **pinned in the framework** (`low` for discover, off for pick) and is deliberately not a knob: an effort a deployment could raise would change what the lane costs per tick, and cheapness is the whole argument for spending a call before retrieving rather than after. `LLM_MODEL_LIVE_CONTEXT` still routes the briefing-scope round and the card expansion, which are one call each and unchanged. The scaffold defaults `recall` to Luna and leaves `answer` and `answer_reasoning_effort` empty: the final fast answer borrows `recall` with the provider's default effort. A separate answer model or explicit effort is an optional deployment choice.
 
@@ -214,6 +215,25 @@ this context, and it never cuts silently.
 
 Which of the three to run for a given business, and what `deliberation` and the two reasoning-effort knobs are worth: [guides/recall-strategies.md](../guides/recall-strategies.md).
 
+## Voice call
+
+A fourth way to reach the same lanes: a full-duplex voice model conducts the call and knows
+nothing about the library, and everything the library knows reaches it through a delegate this
+process runs — ask formation, the fast lane, the answer in the `spoken` style
+([design](../design/voice-call.md)). The delegate's model is `LLM_MODEL_CALL` above; these four
+settings are the call itself.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `CALL_MODEL` | `gpt-live-1` | the voice model that conducts a call. Reached with `OPENAI_API_KEY`, which never leaves this process: the browser is handed an SDP answer, not a credential. With no key the deployment reports the call unconfigured rather than offering it. Engine key: `recall.call_model` |
+| `CALL_VOICE` | `marin` | which voice that model speaks in. The vocabulary is the voice provider's, and the session is created with this name verbatim. Engine key: `recall.call_voice` |
+| `CALL_IDLE_SECONDS` | `180` | seconds a call may hear nothing from the owner before the engine closes it. Engine key: `recall.call_idle_seconds` |
+| `CALL_MAX_SECONDS` | `1800` | seconds one call may run, however lively. Engine key: `recall.call_max_seconds` |
+
+The last two exist because a voice session is billed by the minute for as long as it is open,
+silent or not: a call nobody is speaking into is ended here rather than left running, and no
+call outlives the second ceiling. `0` switches either off.
+
 ## Prompt language
 
 | Setting | Default | Meaning |
@@ -305,6 +325,7 @@ With `time` on, the component keeps a persisted projection (PG `component_time_b
 | Variable | Meaning |
 |---|---|
 | `OPENROUTER_API_KEY` | shared by `openrouter:` chat and embedding specs — and by the Live Context supplementary web search (`LIVE_WEB_SEARCH`), which needs no second secret |
+| `OPENAI_API_KEY` | what the [voice call](#voice-call) exists by: the voice model is OpenAI's. Used only by this process — the browser receives an SDP answer, never the key. Unset, `/v1/call/*` reports the call unconfigured and nothing else changes. Also the key any `openai:<model>` spec uses |
 | `LANGFUSE_SECRET_KEY` / `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_BASE_URL` | tracing; if any is missing, tracing is a no-op |
 
 ## Scripts and compose only (not read by the service)
