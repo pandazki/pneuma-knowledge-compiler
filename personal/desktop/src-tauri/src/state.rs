@@ -252,6 +252,9 @@ pub struct Runtime {
     pub cache: RwLock<Snapshot>,
     /// The pane a pending open asked for, kept until the frontend is ready to receive it.
     pub wanted_tab: std::sync::Mutex<Option<String>>,
+    /// The line a pending open asked the panel to say — a tray item's refusal — kept the
+    /// same way, so a click before the webview exists is still answered rather than lost.
+    pub wanted_notice: std::sync::Mutex<Option<String>>,
     pub panel_open: AtomicBool,
     /// When the panel was last ordered on screen (unix ms); a focus loss inside the first
     /// moments after showing is the show itself settling, not the Owner clicking away.

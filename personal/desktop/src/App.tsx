@@ -83,11 +83,14 @@ export default function App({ initial, subscribe }: {
     let disposed = false;
     const listeners: (() => void)[] = [];
     void (async () => {
-      listeners.push(await listen<{ state: Snapshot; tab: Tab | null }>('panel-open', ({ payload }) => {
+      listeners.push(await listen<{ state: Snapshot; tab: Tab | null; notice: string | null }>('panel-open', ({ payload }) => {
         flushSync(() => {
           setState(payload.state); setNow(Date.now()); setOpened(true);
           if (payload.tab) { setPage(payload.tab); if (payload.tab !== 'search') setQuery(''); }
         });
+        // A panel that opened because a tray item could not do what it said carries the
+        // reason with it. The Rust side speaks the same words it gives a failed action.
+        if (payload.notice) notify(payload.notice, true);
         // Commit the cached DOM before ordering the native panel onto the screen. Not
         // requestAnimationFrame: a hidden WKWebView never paints, so a frame callback in a
         // window that is not yet on screen never fires and the panel would never open.

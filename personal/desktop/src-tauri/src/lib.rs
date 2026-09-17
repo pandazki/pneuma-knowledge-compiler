@@ -1,3 +1,4 @@
+mod call;
 mod login;
 mod panel;
 mod pkchome;
@@ -84,6 +85,7 @@ pub fn run() {
                     ..Default::default()
                 }),
                 wanted_tab: std::sync::Mutex::new(None),
+                wanted_notice: std::sync::Mutex::new(None),
                 panel_open: AtomicBool::new(false),
                 shown_at_ms: std::sync::atomic::AtomicU64::new(0),
                 wants_open: AtomicBool::new(false),
@@ -94,8 +96,12 @@ pub fn run() {
             panel::init(app.handle())?;
             let open = MenuItem::with_id(app, "open", "Open PKC", true, None::<&str>)?;
             let search = MenuItem::with_id(app, "search", "Search", true, None::<&str>)?;
+            // Always offered, never grey: the reasons a call cannot be placed — no current
+            // library, a stopped engine, a deployment without a voice key — are exactly the
+            // ones the Owner needs said out loud, and a disabled item says nothing.
+            let call = MenuItem::with_id(app, "call", "Call the library", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit PKC", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &search, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &search, &call, &quit])?;
             let tray = TrayIconBuilder::with_id("pkc")
                 .icon(panel::icon(health))
                 .icon_as_template(cfg!(target_os = "macos"))
@@ -105,6 +111,7 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => panel::request_open(app, None),
                     "search" => panel::request_open(app, Some("search")),
+                    "call" => call::request(app),
                     "quit" => app.exit(0),
                     _ => {}
                 })

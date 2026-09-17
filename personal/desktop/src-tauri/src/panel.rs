@@ -50,17 +50,33 @@ pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
 struct Opening {
     state: Snapshot,
     tab: Option<String>,
+    /// Why the panel opened by itself, when something outside it could not be done. The
+    /// tray has no notification of its own, so this is how a menu item states a refusal.
+    notice: Option<String>,
 }
 pub fn request_open(app: &tauri::AppHandle, tab: Option<&str>) {
+    open_with_notice(app, tab, None)
+}
+/// Open the panel, and hand it one line to say when it arrives.
+///
+/// The notice waits beside the wanted pane rather than being emitted on its own: a panel
+/// that is not ready yet would never hear a separate event, and a refusal the Owner never
+/// reads is the silence this exists to avoid.
+pub fn open_with_notice(app: &tauri::AppHandle, tab: Option<&str>, notice: Option<String>) {
     let runtime = app.state::<Runtime>();
     runtime.wants_open.store(true, Ordering::Relaxed);
     if let Some(tab) = tab {
         *runtime.wanted_tab.lock().unwrap() = Some(tab.to_owned());
     }
+    if notice.is_some() {
+        *runtime.wanted_notice.lock().unwrap() = notice;
+    }
     let tab = runtime.wanted_tab.lock().unwrap().clone();
     let tab = tab.as_deref();
+    let notice = runtime.wanted_notice.lock().unwrap().clone();
     if runtime.ready.load(Ordering::Relaxed) {
         *runtime.wanted_tab.lock().unwrap() = None;
+        *runtime.wanted_notice.lock().unwrap() = None;
         // The hidden webview commits this cached snapshot before asking to become visible.
         let _ = app.emit_to(
             "panel",
@@ -68,6 +84,7 @@ pub fn request_open(app: &tauri::AppHandle, tab: Option<&str>) {
             Opening {
                 state: runtime.cache.read().unwrap().clone(),
                 tab: tab.map(str::to_owned),
+                notice,
             },
         );
     }
