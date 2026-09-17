@@ -9,7 +9,7 @@ from urllib.parse import quote
 from pneuma_knowledge_service.settings import Settings
 
 from pkc_personal.home import Home
-from pkc_personal.library import Library, libraries, validate_name
+from pkc_personal.library import Library, engine_components, libraries, validate_name
 
 
 class LibraryNotChosen(ValueError):
@@ -70,6 +70,16 @@ def home_environment(home: Home, library: Library) -> dict[str, str]:
         values["SEMANTIC_RETRIEVAL"] = "on" if library.state.choices.semantic_retrieval else "off"
     if "default_timezone" in Settings.model_fields:
         values["DEFAULT_TIMEZONE"] = local_timezone_name()
+    # WHICH index components this library enables, carried from its own engine file so every
+    # process started from here — the engine, `pkchome exec -- pkc`, `pkchome env` — states
+    # the same set, and an Owner reading `pkchome env` can see it. It never contradicts the
+    # file: the value IS the file's. And it is stated only when the file states one, because
+    # process environment outranks the engine file even when it is empty — a variable set to
+    # nothing is still a statement, and here it would be the statement that disables every
+    # component the file just enabled.
+    components = engine_components(library)
+    if "components" in Settings.model_fields and components:
+        values["COMPONENTS"] = components
     env = {prefix + key: value for key, value in values.items()}
     env.update(home.credentials())
     env[prefix + "ENV_FILE"] = ""

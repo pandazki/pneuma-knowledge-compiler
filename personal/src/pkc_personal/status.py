@@ -9,13 +9,14 @@ from datetime import datetime, timezone
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
+from pneuma_knowledge_service.access_stats import RECALL_REBUILD_JOB_KIND
 from pneuma_knowledge_service.embedding_key import embedding_key_requirement
 from pneuma_knowledge_service.persona_profile import is_placeholder, read_profile_data
 
 from pkc_personal import __version__, console, engine, infra, sync
 from pkc_personal.environment import home_environment, resolve_library
 from pkc_personal.home import DEFAULT_CALL_TIMEOUT, Home, read_yaml
-from pkc_personal.library import Library, libraries, pkc_script, posture
+from pkc_personal.library import Library, engine_components, libraries, pkc_script, posture
 
 # The order the design gives the five steps, whether recorded or derived.
 STEP_ORDER = ("infra", "credentials", "profile", "skill", "first_compile")
@@ -70,6 +71,14 @@ def queue_status(library: Library) -> dict | None:
             kind = str(item.get("kind") or "?")
             failed_by_kind[kind] = failed_by_kind.get(kind, 0) + 1
         succeeded = _jobs(library, timeout=left(), limit=1, status="succeeded")["page"]["total"]
+        # The derived rebuild, counted on its own: it is the one job an Owner starts by hand
+        # (`pkchome rebuild`, and the upgrade that enables a component queues one), so while
+        # it waits or runs the report says so rather than folding it into "pending".
+        rebuilding = sum(
+            _jobs(library, timeout=left(), limit=1, status=state,
+                  kind=RECALL_REBUILD_JOB_KIND)["page"]["total"]
+            for state in ("queued", "claimed")
+        )
         # The endpoint orders by creation, not completion, so ask it for one newest-created
         # page of succeeded compiles and take the latest completion in it. Walking the whole
         # succeeded history to be exact would make every status call grow with the library.
@@ -81,7 +90,8 @@ def queue_status(library: Library) -> dict | None:
         # rather than as a queue that has silently stopped.
         summary = _summary(library, timeout=left())
         return {"pending": pending, "failed": failed, "failed_by_kind": failed_by_kind,
-                "succeeded": succeeded, "last_compile_at": max(stamps, default=None),
+                "succeeded": succeeded, "rebuilding": rebuilding,
+                "last_compile_at": max(stamps, default=None),
                 "cooling": cooling, "waiting": summary.get("waiting") or {},
                 # The end of that road: work that used up the retry schedule and is now
                 # waiting for THIS PERSON. It is the only line in a status report that is a
@@ -244,6 +254,9 @@ def status_document(home: Home, explicit: str | None = None) -> dict:
             # carries teaches nothing.
             "compile_call_timeout": library.state.choices.compile_call_timeout,
             "compile_call_timeout_default": DEFAULT_CALL_TIMEOUT,
+            # Which index components this library's engine enables — read off the engine
+            # file, which is the authority, so an Owner who added one by hand sees theirs.
+            "components": engine_components(library),
             # No probe of an engine port whose pid is dead: a status taken with nothing up
             # must cost nothing but the reads that can still answer.
             "queue": queue_status(library) if engine_state["up"] else None,
@@ -373,11 +386,18 @@ def render_text(document: dict) -> str:
                       f"  Engine: {state(library['engine']['up'])} (port {library['engine']['port']})",
                       f"  Worker: {worker_line(library)}",
                       f"  Rounds: {rounds_line(library)}",
+                      f"  Components: {library['components'] or 'none'}",
                       f"  Engine directory: {library['engine_dir']}",
                       f"  Embedding key: {'present' if library['key'] else 'absent'}",
                       f"  Canonical HEAD: {library['canonical_head'] or 'empty'}",
                       f"  Skill: {'unknown' if library['skill_fresh'] is None else 'fresh' if library['skill_fresh'] else 'drifted'}",
                       f"  Queue: {json.dumps(library['queue']) if library['queue'] is not None else 'unknown'}"])
+        rebuilding = (library.get("queue") or {}).get("rebuilding") or 0
+        if rebuilding:
+            # A rebuild is the one job whose progress the Owner is waiting on directly: they
+            # ran `pkchome rebuild`, or an upgrade enabled a component and queued one, and
+            # until it finishes the library answers dated questions about part of itself.
+            lines.append(f"  Rebuild: {rebuilding} derived rebuild job(s) in the queue")
         waiting = waiting_line(library)
         if waiting:
             lines.append(f"  Waiting: {waiting}")

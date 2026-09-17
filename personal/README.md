@@ -49,6 +49,7 @@ Every step prints one `ok:` or `skip:` line, and the last lines name the install
 pkchome setup [--answers <file>] [--non-interactive] [--no-skill]
 pkchome up | down | restart | console [install] | tray
 pkchome status [--json] [--library <name>]
+pkchome rebuild [--library <name>]
 pkchome onboarding [--library <name>]
 pkchome library create <name> [--from <name>] [--language en|zh] [--contract personal-projects|personal-knowledge|<path>] [--backend …]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
@@ -125,6 +126,26 @@ material have averaged around 474 s under it). It is written surgically into the
 `status` prints it on the `Rounds:` line — `up to 1200s each` — only when it differs from
 that default. Changing any of them restarts the library's engine, because both a launcher and
 the engine read their settings when they start.
+
+Every library enables one index component, `time` — the Owner's own calendar as an index.
+It keeps one derived row per stored block (which of your calendar days it belongs to, in your
+own timezone) and offers the recall lane a `timespan` path over it, so "说说我这两天的工作" /
+"what did I work on these two days" is answered from those two days' material — the sessions
+themselves and the claims cited from them — instead of from whatever happened to match the
+words. The routing turn resolves the phrase into two dates against the current time and your
+zone; the index parses no natural language. `status` names what is enabled on its
+`Components:` line, and the set is one line in the library's `engine/engine.yaml`
+(`components:`) — `people` and `attention` ship with the framework and are off here.
+
+The rows are derived, so a library that existed before the component did holds none for its
+own past: `pkchome up` queues the rebuild that re-derives the rows from what is already
+stored and then states the component in an upgraded library's engine file, both before that
+engine starts, and does both or neither — a start that cannot reach the store changes nothing
+and the next one does the same work.
+`pkchome rebuild` runs the same thing by hand — it queues one `recall_rebuild` job for the
+library's own tenant, the engine's worker takes it, and `status` shows a `Rebuild:` line
+while it waits. Nothing authoritative is touched: sources and the canonical library are read,
+never written.
 
 Choose a library with `--library`, `PKC_LIBRARY`, the nearest `.pkc` file in the current
 directory or an ancestor, or the home current selection, in that order. No selection is an

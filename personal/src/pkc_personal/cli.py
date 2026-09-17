@@ -18,8 +18,8 @@ from pkc_personal import console, infra, setup, skill_install, status, sync
 from pkc_personal.environment import LibraryNotChosen, home_environment, resolve_library
 from pkc_personal.home import Choices, Home, KEY_PATTERN, SYNC_CONFIG_KEYS
 from pkc_personal.library import (
-    ALL_PROJECTS, bind_library, create_library, libraries, pkc_script, render_library, set_config,
-    set_credential, unbind_library, use_library,
+    ALL_PROJECTS, bind_library, create_library, libraries, pkc_script, render_library,
+    request_rebuild, set_config, set_credential, unbind_library, use_library,
     watch_project,
 )
 
@@ -39,6 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
     for verb in ("up", "down", "restart", "tray"):
         p = sub.add_parser(verb)
         _library_flag(p)
+    # The derived layer, rebuilt on demand: every enabled index component's projection,
+    # re-derived from L0 and the kept records. Nothing authoritative is touched.
+    _library_flag(sub.add_parser("rebuild"))
     # `console` opens the page and fetches it first when this machine has none; `console
     # install` only fetches, so an installer can do it without opening a browser.
     p = sub.add_parser("console")
@@ -177,6 +180,13 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
             infra.down(home)
         if args.command in {"up", "restart"}:
             infra.up(home)
+    elif args.command == "rebuild":
+        library = resolve_library(home, explicit)
+        job = request_rebuild(home, library)
+        if job is None:
+            raise RuntimeError("the store is not up; run pkchome up, then pkchome rebuild")
+        print(f"rebuild queued for {library.state.name} (job {job}); "
+              f"pkchome status shows it while it runs")
     elif args.command == "onboarding":
         print(setup.onboarding(home, resolve_library(home, explicit)))
     elif args.command == "status":

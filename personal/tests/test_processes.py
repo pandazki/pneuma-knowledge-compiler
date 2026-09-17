@@ -141,8 +141,8 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     row = document["libraries"][0]
     assert set(row) == {"name", "tenant", "current", "engine", "unattended", "agent_model",
                         "reasoning_effort", "reasoning_effort_episodes",
-                        "compile_call_timeout", "compile_call_timeout_default", "queue", "key",
-                        "engine_dir", "canonical_head",
+                        "compile_call_timeout", "compile_call_timeout_default", "components",
+                        "queue", "key", "engine_dir", "canonical_head",
                         "skill_fresh", "steps", "last_used", "sync"}
     # The tenant travels with the name: it is what the console reads once it has switched to
     # a library by name, and a row without it names a library no request could reach.
@@ -155,6 +155,8 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     assert document["home"]["console"] and "Console: " in rendered
     # The posture is carried per library and shown per library, recorded rather than probed.
     assert row["unattended"] is True and "Worker: unattended" in rendered
+    # Which index components this library's engine enables, read off the engine file.
+    assert row["components"] == "time" and "Components: time" in rendered
     # So are the round's model and effort: recorded, and empty means the harness's own.
     assert row["agent_model"] == "" and row["reasoning_effort"] == ""
     assert "Rounds: the harness default model at the harness default effort" in rendered
@@ -173,6 +175,8 @@ def test_queue_reads_one_bounded_page_of_succeeded_compiles(home, make_library, 
     def jobs(_library, *, timeout=1.0, **query):
         calls.append({**query, "timeout": timeout})
         state = query["status"]
+        if query.get("kind") == "recall_rebuild":
+            return {"items": [], "page": {"total": 1 if state == "queued" else 0}}
         if state == "failed":
             return {"items": [{"kind": "evolve"}, {"kind": "evolve"}], "page": {"total": 2}}
         if state != "succeeded":
@@ -187,15 +191,18 @@ def test_queue_reads_one_bounded_page_of_succeeded_compiles(home, make_library, 
     monkeypatch.setattr(status, "_summary", lambda *a, **kw: _quiet())
     assert status.queue_status(library) == {
         "pending": 5, "failed": 2, "failed_by_kind": {"evolve": 2}, "succeeded": 135,
+        # The derived rebuild is counted on its own: the Owner ran it, or an upgrade queued
+        # it, and folding it into "pending" hides the one job they are waiting on.
+        "rebuilding": 1,
         "last_compile_at": "2026-07-03T00:00:00Z",
         # Nothing is holding this queue back, which is a reading and not an absence.
         "cooling": None,
         "waiting": {"count": 0, "reasons": []},
         "paused": {"count": 0, "reasons": []},
     }
-    # Five reads, no cursor: an offered next page is never followed, so a library with a
+    # Seven reads, no cursor: an offered next page is never followed, so a library with a
     # long succeeded history costs the same status call as a fresh one.
-    assert len(calls) == 5
+    assert len(calls) == 7
     assert not any("cursor" in call for call in calls)
     succeeded = calls[-1]
     assert succeeded["kind"] == "compile" and succeeded["limit"] == 20
@@ -247,7 +254,7 @@ def _library_row() -> dict:
         "name": "lib", "current": True, "engine": {"up": True, "port": 18000},
         "unattended": True, "agent_model": "", "reasoning_effort": "",
         "reasoning_effort_episodes": "", "compile_call_timeout": None,
-        "compile_call_timeout_default": None, "queue": None, "key": True,
+        "compile_call_timeout_default": None, "components": "time", "queue": None, "key": True,
         "engine_dir": "/e", "canonical_head": None, "skill_fresh": None,
         "steps": {}, "last_used": None, "sync": None,
     }
@@ -319,7 +326,7 @@ def test_a_queue_waiting_on_a_spent_subscription_says_so_on_the_worker_line(
     queue = status.queue_status(library)
     assert queue["cooling"] == {"until": "2026-09-15T01:23:00+00:00",
                                 "reason": "codex usage limit"}
-    assert len(calls) == 5, "the cooling window rides a page status already asks for"
+    assert len(calls) == 7, "the cooling window rides a page status already asks for"
 
     row = {"unattended": True, "queue": queue}
     assert status.worker_line(row) == (
@@ -436,7 +443,7 @@ def test_derived_steps_join_the_recorded_ones_under_the_five_names(home, make_li
          "libraries": [{"name": "notes", "current": True, "engine": {"up": True, "port": 1},
                         "engine_dir": "/e", "key": False, "canonical_head": None, "skill_fresh": None,
                         "unattended": False, "agent_model": "", "reasoning_effort": "",
-                        "queue": None, "last_used": None, "steps": steps}]}
+                        "components": "time", "queue": None, "last_used": None, "steps": steps}]}
     )
 
 

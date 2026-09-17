@@ -177,6 +177,34 @@ introduced:
     notes, meetings, chats and mail. It was seeded once from the library's reference strategy
     of the same name and is the edition's from then on: the edition never reads
     `pneuma-knowledge-strategies` at run time, and the two may drift.
+14. **Every library enables the `time` component, and only that one.** A personal library is
+    made of dated material and asked dated questions — 「说说我这两天的工作」 is a question
+    about a PERIOD, and with no component registered the lane has no path that answers one,
+    so the answer is assembled out of whatever the lexical and vector faces happened to rank.
+    `time` is the index that answers it: a derived row per block carrying the Owner's own
+    calendar day, a `timespan` fast path over it, and `timeline` / `as_of` in deep recall
+    (index-components §6). It is stated in the library's own `engine/engine.yaml`
+    (`components: time`) rather than forced from the edition's code, so the file stays the
+    authority and an Owner who adds another keeps it; `home_environment` carries what that
+    file says, and `pkchome status` names it. `people` and `attention` are NOT enabled:
+    `people` binds to a contract family this edition's contracts do not declare, and
+    `attention` reports on consultations one person's library has few of.
+15. **A knob this version adds reaches an existing library on the next start, and what it
+    makes derivable is rebuilt.** `pkchome up` migrates each library's engine file before it
+    starts that library's engine — the engine reads its directory once, at start — and writes
+    only keys the file leaves unstated, so the migration is idempotent by the state itself
+    rather than by a recorded step, and never overwrites a choice. A component enabled this
+    way indexes nothing by itself: its projection is derived, and everything already in L0 was
+    indexed without it. So the same start queues one `recall_rebuild` job for that tenant, and
+    the worker re-derives the rows from L0 — an upgraded library answers about its own past
+    with no manual step. Both or neither: the job is queued before the key is written and the
+    key is written only if it was, because a file written while the store could not be reached
+    would be a library holding the component, indexed for nothing it already had, and — the
+    migration being idempotent — never given a second chance. `pkchome rebuild` is the same request by hand. It is QUEUED and never
+    drained here: the job kind exists so the rebuild takes the same per-user claim every other
+    job takes, and this edition always has a live worker, which is precisely the case the
+    framework's own ops script warns not to run beside. `status` shows a `Rebuild:` line while
+    it waits.
 
 ## 5. The home
 
@@ -212,7 +240,8 @@ probe of each.
 ```
 pkchome setup [--non-interactive --answers <f>]   config.yaml, ports probed, infra + engine up, first library, the two questions
 pkchome up | down | restart                       the machine's middleware and the engine process
-pkchome status [--json] [--library <name>]        everything probed: docker, four services, engine, queue, and per library: key, engine dir, canonical, skill fresh, steps done, last used
+pkchome status [--json] [--library <name>]        everything probed: docker, four services, engine, queue, and per library: components, key, engine dir, canonical, skill fresh, steps done, last used
+pkchome rebuild [--library <name>]                queues one `recall_rebuild` job for that library's tenant: every enabled component's projection, re-derived from L0 and the kept records
 pkchome library create <name> [--from <name>] [--language …] [--contract <path>]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
 pkchome config get|set <key> [<value>] [--library <name>]   home defaults or a library's choices (semantic_retrieval, backend, embedding)
@@ -232,7 +261,7 @@ Steward runs it with `--answers` from what the Owner said.
 `pkchome status --json` is a contract three readers share — the Steward, the console's
 health page, the tray. Its shape: `home` (path, version), `docker` (reachable), `services`
 (four, each `{port, up}`), `libraries` (each `{name, current, engine: {pid, up, port, uptime}, queue: {pending, failed,
-last_compile_at}, key, engine_dir, canonical_head, skill_fresh, steps, last_used}`).
+rebuilding, last_compile_at}, components, key, engine_dir, canonical_head, skill_fresh, steps, last_used}`).
 
 ## 7. The global skill
 
