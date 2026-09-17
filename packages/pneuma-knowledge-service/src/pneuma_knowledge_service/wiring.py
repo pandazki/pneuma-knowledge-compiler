@@ -485,8 +485,9 @@ def build_embeddings(settings: Settings) -> Embeddings:
 # Per-operation → settings field. Empty field falls back to settings.llm_model.
 _ROLE_FIELDS = {
     "compile": "llm_model_compile",
-    "recall": "llm_model_recall",  # retrieval planning/glance + briefing ask
+    "recall": "llm_model_recall",  # retrieval planning + briefing ask (glance pick borrows it)
     "answer": "llm_model_answer",  # final fast-answer generation
+    "glance_pick": "llm_model_glance_pick",  # fast lane's glance pick (weak, reasoning off)
     "deep": "llm_model_deep",
     "skill": "llm_model_skill",  # schema-pack derivation for a user's first compile
     "groom": "llm_model_groom",  # rollover's volume card
@@ -506,6 +507,10 @@ _ROLE_FIELDS = {
 # `evolve` borrows `compile`'s model when its own field is empty: schema evolve is the same
 # heavy write-side reasoning as a compile (whole-KB reorganization), so a deployment that
 # already pointed compile at a strong model should not have to name it twice. One hop.
+# `glance_pick` borrows `recall` for the same reason as the Live Context pair: it is one small
+# latency-shaped call on the fast lane, and a deployment that already pointed recall at a fast
+# model should not have to name a second one. What it does NOT borrow is recall's reasoning
+# effort — the pin below is the point of the role.
 # `groom` and `skill` borrow `compile` for the same reason and with the opposite outcome from
 # `evolve`: both are compile-register judgement (a volume card over closed claims; which schema
 # packs a profile needs), so a deployment that pointed compile at a strong model should get it
@@ -517,6 +522,7 @@ _ROLE_FIELDS = {
 # needs a chat model must name its own role, never another role's.
 _ROLE_FALLBACK = {
     "answer": "recall",
+    "glance_pick": "recall",
     "live_context": "recall",
     "live_discover": "recall",
     "live_pick": "recall",
@@ -536,6 +542,11 @@ _ROLE_FALLBACK = {
 _ROLE_REASONING_EFFORT = {
     "live_discover": "low",  # judgement about a conversation, in a few dozen tokens
     "live_pick": "none",  # a choice between cards already in front of it
+    # The fast lane's glance pick: a choice among titles already in front of it, under an
+    # 8-second ceiling it shares with retrieval. A reasoning model missing that ceiling is
+    # what the pin fixes — the budget was right and the call was wrong — and raising the
+    # budget instead would make every question wait on a pass the answer does not need.
+    "glance_pick": "none",
 }
 
 
@@ -1116,8 +1127,10 @@ class AppContext:
             else 0
         )
         # A pinned reasoning effort forks the cache key the same way `max_tokens` does:
-        # `live_pick` and `recall` routinely resolve to the SAME spec, and a shared instance
-        # would silently give one of them the other's effort.
+        # `live_pick`, `glance_pick` and `recall` routinely resolve to the SAME spec (both
+        # picks borrow recall's field when their own is empty), and a shared instance would
+        # silently give one of them the other's effort — which is exactly the bug the
+        # `glance_pick` role exists to end.
         effort = (
             _ROLE_REASONING_EFFORT.get(role, "")
             if not name.startswith("scripted:")

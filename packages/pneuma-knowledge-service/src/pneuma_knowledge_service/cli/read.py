@@ -1203,6 +1203,11 @@ async def _fast_kwargs(
         # even when a deployment has credentials. The agent does those judgements itself.
         model=None if evidence_only else _optional_model(ctx, "recall"),
         answer_model=None if evidence_only else _optional_model(ctx, "answer"),
+        # The glance pick is its own role: weak, fast, reasoning pinned off, because it runs
+        # under a ceiling it shares with retrieval and chooses among titles already in front
+        # of it. Empty `LLM_MODEL_GLANCE_PICK` borrows recall's model, so `--evidence` stays
+        # model-free here for the same reason every other judgement does.
+        glance_model=None if evidence_only else _optional_model(ctx, "glance_pick"),
         cap=settings.recall_claim_cap,
         claim_candidate_cap=settings.recall_claim_candidate_cap,
         window_cap=settings.recall_window_cap,

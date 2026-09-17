@@ -1594,6 +1594,12 @@ async def _fast_recall_kwargs(
         embeddings=ctx.embeddings,
         model=ctx.get_chat_model("recall"),
         answer_model=ctx.get_chat_model("answer"),
+        # The glance pick has its own role because it has its own shape: one small structured
+        # call, under a ceiling it shares with retrieval, choosing among titles already in
+        # front of it. On the recall role's default effort it missed that ceiling and the lane
+        # answered on retrieval alone; the role pins reasoning off instead of widening the
+        # budget. Empty `LLM_MODEL_GLANCE_PICK` still borrows recall's model.
+        glance_model=ctx.get_chat_model("glance_pick"),
         scope=plane.scope,
         cap=ctx.settings.recall_claim_cap,
         claim_candidate_cap=ctx.settings.recall_claim_candidate_cap,

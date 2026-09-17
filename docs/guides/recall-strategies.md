@@ -98,6 +98,15 @@ in the answer model's attention.
   read by no other strategy. Applies hot.
 - **`all_context_chars`** is `all`'s only bound and is read by nothing else. `0` turns the
   ceiling off; it does not mean "drop everything".
+- **The glance pass has its own model.** Under `ranked`, one small structured call reads the
+  library's glance — titles and one-line definitions — plus the question, and names up to
+  three documents worth reading whole. It runs alongside retrieval under an 8-second ceiling
+  and is additive: past the ceiling the answer is built on retrieval alone and says so
+  (`glance_degraded: timeout`). So it is routed by its own role, `LLM_MODEL_GLANCE_PICK`,
+  whose reasoning effort is pinned off in code — this is a choice among titles already in
+  front of it, and a pick that has to think is not a glance. Empty borrows `recall`'s model.
+  The `select` strategy makes this choice inside its one cross-face call instead, on the
+  answering model, and takes no pick model.
 - **Candidate caps vs final caps.** `claim_candidate_cap` / `window_candidate_cap` are index
   depth — cheap, and the thing to raise when the needed evidence is not in the pool at all.
   `claim_cap` / `episode_summary_cap` / `window_cap` bound the final prompt — raise those when
