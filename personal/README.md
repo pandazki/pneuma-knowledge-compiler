@@ -150,6 +150,9 @@ pkchome sync --library notes --dry-run
 pkchome sync --library notes --json
 pkchome watch rm /path/to/momo --library notes
 pkchome watch rm --all --library notes
+pkchome sync roots ls
+pkchome sync roots add ~/other/codex/sessions --harness codex
+pkchome sync roots rm ~/other/codex/sessions --harness codex
 pkchome config set sync.interval_minutes 15
 pkchome config set sync.enabled on
 pkchome config set sync.exclude '/private/tmp/**,~/scratch/**'
@@ -173,6 +176,25 @@ list of directories, because opening the library to four hundred projects is a c
 and not four hundred `watch add` calls. `watch rm <dir>` and `watch rm --all` remove by the
 same key.
 
+A watch entry says WHICH projects; the roots say WHERE the transcripts of them are read
+from, and there is more than one of each. `pkchome sync roots ls` prints the whole list in
+scan order, each root marked `discovered` or `configured` and with `exists`. Discovered for
+Codex: `~/.codex/sessions`, `$CODEX_HOME/sessions` when that is set, and every account home a
+known harness container keeps —
+`~/Library/Application Support/orca/codex-accounts/*/home/sessions`, a rule about that
+container's layout and never a list of account ids, because on one real machine 183 of two
+days' 197 rollouts landed there and 14 in `~/.codex`. Discovered
+for Claude Code: `~/.claude/projects` and `$CLAUDE_CONFIG_DIR/projects`, which is the whole
+list because it writes every project's transcripts under one root. `sync roots add <dir>
+--harness codex|claude` records an extra root in `sync.roots` for a layout no rule knows (a
+Codex root is the `sessions` date tree, a Claude Code root the `projects` folder); extras are
+added to what was discovered, never a replacement, and `sync roots rm` removes one again. The
+converter's own `--codex-root` / `--claude-root` are repeatable and replace the defaults for
+that harness. A session's identity does not depend on the root it was read from, so a
+transcript reachable through a second root is the same session and is never ingested twice.
+Every pass reports a `sessions` count per root, zeros included, because a zero beside a named
+directory is how the Owner sees that root was read rather than missed.
+
 A scope that wide also reaches thousands of dead scratch directories, so `sync.exclude`
 holds glob patterns matched against the resolved project directory, defaulting to
 `/private/tmp/**`, `/tmp/**`, `/private/var/**` and `/var/folders/**`. `config set
@@ -182,10 +204,18 @@ library's own directory — its engine, its canonical repository and its rendere
 project whose directory no longer exists is counted as `project_missing` and listed nowhere,
 because under `all` there are thousands of them.
 
-The Steward's own sessions are skipped entirely, neither indexed nor compiled. A session that
-ran `pkc` or `pkchome`, or that stood inside the home or a library, is work ON the library,
-and a library that ingested it would be compiling its own output. Those count as
-`skipped_steward`.
+The engine's own rounds are skipped entirely, neither indexed nor compiled: a library that
+ingested them would be compiling its own output. What identifies one is where the session was
+opened — a round's temp working directory or harness config home (`pkc-round-*`,
+`pkc-agent-home-*`), the home, or a library's own directory, which is also where the console
+opens its Steward session. Those count as `skipped_steward`. Running `pkc` or `pkchome` does
+not make a session one: the Owner's own work in their own repository routinely asks the
+library a question, and the wider rule once cost a 26 MB session of the Owner directing an
+agent for one `pkchome status` among a thousand other commands. A session skipped this way
+exported nothing, so it is judged again on the next pass rather than answered from its
+unchanged bytes — when the rule narrows, what it once skipped is read. A cursor written
+before that mark existed says nothing either way and is judged once, so the sessions the
+wider rule skipped are recovered without touching the ones it ingested.
 
 The tray defaults to a 15-minute interval; Settings edits the interval, switch and watch list.
 Dashboard shows the last sync and held count, with a “Sync now” button.
@@ -193,8 +223,9 @@ Dashboard shows the last sync and held count, with a “Sync now” button.
 Sync only sends new parts through `pkchome exec --library NAME -- pkc ingest`. It never
 compiles itself: ingest enqueues ordinary index/compile jobs, and the engine worker or
 Steward drains them. Reports show scanned, new, increments, held, unchanged, rewritten,
-ingested, skipped, skipped_steward and project_missing, with per-session details. Held
-counts are separate from the library's queue; unchanged held sessions count in both fields.
+ingested, skipped, skipped_steward and project_missing, with per-session details and one line
+per scanned root. Held counts are separate from the library's queue; unchanged held sessions
+count in both fields.
 
 The global skill also ships the stdlib `scripts/agent_sessions.py`: `list --project <dir>`
 shows whole-session triage, `export --project <dir> --out <dir> [--owner-id ID]` writes

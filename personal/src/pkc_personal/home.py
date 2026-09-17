@@ -203,9 +203,28 @@ class Choices(Model):
 DEFAULT_SYNC_EXCLUDE = ["/private/tmp/**", "/tmp/**", "/private/var/**", "/var/folders/**"]
 
 
+class SyncRoots(Model):
+    """Extra harness directories this machine's sessions are also written under.
+
+    The converter discovers what it can (`agent_sessions.codex_session_roots` /
+    `claude_session_roots`): the default home, a moved `$CODEX_HOME` / `$CLAUDE_CONFIG_DIR`,
+    and each account home of a harness container it knows the layout of. These are the ones
+    no rule can find — a container this edition has never seen, a home on another volume —
+    and they are ADDED to what was discovered, never a replacement for it.
+    """
+
+    # A Codex root is the `sessions` directory itself (the `YYYY/MM/DD/rollout-*.jsonl` tree);
+    # a Claude Code root is the `projects` directory of encoded project folders.
+    codex: list[str] = Field(default_factory=list)
+    claude: list[str] = Field(default_factory=list)
+
+
 class SyncConfig(Model):
     interval_minutes: int = Field(default=15, ge=1)
     enabled: bool = True
+    # Not a `config set` key: a list of directories per harness is edited by `pkchome sync
+    # roots add|rm`, the way a watch list is, so `SYNC_CONFIG_KEYS` leaves it out.
+    roots: SyncRoots = Field(default_factory=SyncRoots)
     # Glob patterns matched against a project's resolved directory. They matter most once the
     # scope is wider than a named directory: `watch add --all` reaches every project either
     # harness ever opened, and thousands of those are dead scratch directories.
@@ -223,6 +242,11 @@ class SyncConfig(Model):
     # ingested and compiled in order. The floor keeps a typo from cutting every session into
     # one-exchange parts.
     max_part_chars: int = Field(default=400_000, ge=1000)
+
+
+#: The sync settings `pkchome config get|set` offers — every scalar one. `roots` is absent on
+#: purpose: it is a list per harness, added to and removed from by `pkchome sync roots`.
+SYNC_CONFIG_KEYS = tuple(name for name in SyncConfig.model_fields if name != "roots")
 
 
 class Config(Model):

@@ -31,7 +31,7 @@ from pneuma_knowledge_service.persona_profile import owner_profile, read_profile
 from pneuma_knowledge_service.settings import Settings
 
 from pkc_personal.home import (
-    Choices, Home, Model, SyncConfig, asset_path, atomic_write, now, read_yaml,
+    Choices, Home, Model, SYNC_CONFIG_KEYS, asset_path, atomic_write, now, read_yaml,
     validated_effort, validated_timeout, yaml_text,
 )
 
@@ -616,7 +616,7 @@ def set_config(home: Home, key: str, value: str, library: Library | None = None)
             raise ValueError("sync settings belong to the home; omit --library")
         config = home.config
         name = key.split(".", 1)[1]
-        if name not in SyncConfig.model_fields:
+        if name not in SYNC_CONFIG_KEYS:
             raise ValueError(f"unknown config key: {key}")
         if name == "enabled":
             if value.lower() not in {"on", "off", "true", "false"}:

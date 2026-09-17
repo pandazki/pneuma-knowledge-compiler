@@ -130,6 +130,9 @@ pkchome sync --library notes --dry-run
 pkchome sync --library notes --json
 pkchome watch rm /path/to/momo --library notes
 pkchome watch rm --all --library notes
+pkchome sync roots ls
+pkchome sync roots add ~/other/codex/sessions --harness codex
+pkchome sync roots rm ~/other/codex/sessions --harness codex
 pkchome config set sync.interval_minutes 15
 pkchome config set sync.enabled on
 pkchome config set sync.exclude '/private/tmp/**,~/scratch/**'
@@ -150,6 +153,22 @@ Setup answers 可包含 `watch: [/path/to/momo]`。每库在 `library.yaml` 中�
 目录清单——把库开放给四百个项目应当是一项配置，而不是四百次 `watch add`。
 `watch rm <dir>` 与 `watch rm --all` 按同一个键移除。
 
+watch 条目说的是「哪些项目」，根目录说的是「从哪里读到它们的转录」，而两者都不止一个。
+`pkchome sync roots ls` 按扫描顺序打印全部根目录，每条标明 `discovered` 或 `configured`
+以及 `exists`。Codex 侧自动发现：`~/.codex/sessions`、设置了 `$CODEX_HOME` 时的
+`$CODEX_HOME/sessions`，以及已知宿主容器为每个账号保留的 home——
+`~/Library/Application Support/orca/codex-accounts/*/home/sessions`。那是一条关于该容器
+布局的规则，而不是一份账号 id 清单：在一台真实机器上，两天内 197 份 rollout 有 183 份
+落在那里，只有 14 份落在 `~/.codex`。Claude Code 侧自动发现 `~/.claude/projects` 与
+`$CLAUDE_CONFIG_DIR/projects`，这就是全部——它把所有项目的转录写在同一个根目录下。
+`sync roots add <dir> --harness codex|claude` 为任何规则都不认识的布局在 `sync.roots` 中
+记下额外根目录（Codex 根目录是 `sessions` 日期树，Claude Code 根目录是 `projects` 文件夹）；
+额外根目录是对自动发现结果的追加，绝不替换它，`sync roots rm` 再把它移除。转换器自己的
+`--codex-root` / `--claude-root` 可重复给出，并替换该宿主的默认根目录。会话的身份与它从哪个
+根目录读到无关，因此经由第二个根目录也能触达的转录仍是同一条会话，不会被重复导入。
+每轮报告为每个根目录给出一个 `sessions` 计数，包含 0——写着目录名的 0 正是 Owner 据以看出
+该根目录被读过、而不是被漏掉的凭据。
+
 这样宽的范围也会触及成千上万个已废弃的临时目录，因此 `sync.exclude` 保存一组 glob
 模式，与解析后的项目目录匹配，默认为 `/private/tmp/**`、`/tmp/**`、`/private/var/**`
 和 `/var/folders/**`。`config set sync.exclude` 追加一个模式或逗号分隔的列表；传入空值
@@ -157,9 +176,14 @@ Setup answers 可包含 `watch: [/path/to/momo]`。每库在 `library.yaml` 中�
 目录——它的 engine、canonical 仓库与渲染出的技能包。目录已不存在的项目计入
 `project_missing`，不逐条列出，因为在 `all` 下它们数以千计。
 
-Steward 自己的会话被整体跳过，既不索引也不编译。运行过 `pkc` 或 `pkchome` 的会话，或
-处在 home 与库目录之中的会话，都是对库本身的维护工作；库若把它收进来，就是在编译自己
-的产物。它们计入 `skipped_steward`。
+引擎自己的轮次被整体跳过，既不索引也不编译：库若把它们收进来，就是在编译自己的产物。
+判据是会话在哪里打开——某一轮的临时工作目录或宿主配置 home（`pkc-round-*`、
+`pkc-agent-home-*`）、home 本身，或某个库自己的目录（控制台的 Steward 会话也开在那里）。
+它们计入 `skipped_steward`。运行过 `pkc` 或 `pkchome` 并不使一条会话成为其中之一：Owner
+在自己仓库里的工作本就会随手向库提问，而更宽的旧规则曾因一条 `pkchome status` 就丢掉
+Owner 指挥代理的一条 26 MB 会话。这样跳过的会话没有导出过任何东西，因此下一轮会重新判定，
+而不是凭字节未变直接放过——规则收窄时，它曾跳过的会话会被读进来。在这个标记出现之前写下的
+游标两种答案都没有，因此各被判定一次：旧规则跳过的会话由此找回，已导入的会话不受影响。
 
 托盘默认间隔为 15 分钟；Settings 可修改间隔、开关与目录列表。
 Dashboard 展示上次同步和 held 数量，并提供 “Sync now” 按钮。
@@ -167,8 +191,8 @@ Dashboard 展示上次同步和 held 数量，并提供 “Sync now” 按钮。
 Sync 只通过 `pkchome exec --library NAME -- pkc ingest` 送入新部分，自身不编译：
 ingest 将普通 index/compile 任务入队，由引擎 worker 或 Steward 排空。报告包含
 scanned、new、increments、held、unchanged、rewritten、ingested、skipped、
-skipped_steward、project_missing 和逐会话细节。Held 数量与库的队列分开；未变化的
-held 会话同时计入这两个字段。
+skipped_steward、project_missing、逐会话细节，以及每个扫描根目录一行。Held 数量与库的
+队列分开；未变化的 held 会话同时计入这两个字段。
 
 全局技能还携带标准库 `scripts/agent_sessions.py`：`list --project <dir>` 展示整会话
 分流，`export --project <dir> --out <dir> [--owner-id ID]` 写出过滤后的 JSON，

@@ -433,8 +433,13 @@ using only Python 3.12's standard library. The Owner names directories; the Stew
 retained activity at or after a timezone-aware timestamp. `export --project <dir> --out
 <dir> [--owner-id …]` writes one filtered contract payload per admitted session. Export's
 Owner id defaults to `owner`; ingest uses the selected library tenant unless overridden.
-Claude Code attribution comes from the encoded project directory under `~/.claude/projects`;
-Codex attribution comes from rollout `cwd` under `~/.codex/sessions`. A recorded directory
+Claude Code attribution comes from the encoded project directory under a Claude Code root
+(`~/.claude/projects`, `$CLAUDE_CONFIG_DIR/projects`); Codex attribution comes from rollout
+`cwd` under a Codex root (`~/.codex/sessions`, `$CODEX_HOME/sessions`, and every per-account
+home a known harness container keeps). The roots are a LIST per harness — discovered by rule,
+plus `sync.roots` in the home — because a machine that runs its coding agent through such a
+container writes almost nothing under the default one. Session identity does not depend on
+the root a transcript was read from. A recorded directory
 conflict skips the session, including encoded-name collisions. Manual imports of index-only
 exports need `--intake searchable`; triage metadata alone does not override library intake.
 

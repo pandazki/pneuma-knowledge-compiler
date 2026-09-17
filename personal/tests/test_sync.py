@@ -51,9 +51,11 @@ def importer(home, make_library, provider_files, monkeypatch):
 
     monkeypatch.setattr(sessions.subprocess, "run", run)
     def run_pass(**kwargs):
+        # The synthetic roots, unless the test states its own list of them.
+        kwargs.setdefault("claude_roots", [provider_files.claude_root])
+        kwargs.setdefault("codex_roots", [provider_files.codex_root])
         return sessions.sync_pass(library.show(), [w.model_dump() for w in library.state.watch],
-                                  claude_root=provider_files.claude_root,
-                                  codex_root=provider_files.codex_root, **kwargs)
+                                  **kwargs)
 
     return SimpleNamespace(library=library, second=second, run=run_pass, payloads=payloads,
                            commands=commands, accepted=accepted, behavior=behavior,
@@ -403,31 +405,56 @@ def test_the_home_and_the_library_are_excluded_with_no_patterns_at_all(provider_
     assert all(str(home.path) not in row["file"] for row in report["sessions"])
 
 
-def test_a_steward_session_is_skipped_entirely_and_never_indexed(provider_files, importer):
+def test_an_engine_round_is_skipped_entirely_and_the_owners_pkc_command_is_not(provider_files, importer):
+    # A round the engine ran: the harness was opened in the launcher's temp directory.
+    round_dir = add_project(provider_files, "work",
+                            parent=provider_files.project.parent / "pkc-round-9fk2a")
+    watch_project(importer.library, str(round_dir))
+    # And the Owner's own session, in their own project, which asked the library a question.
     rows = claude_rows(provider_files.project)
-    # The Owner ran the library's own command from this session: it is work ON the library.
-    rows[3]["message"]["content"][3]["input"]["command"] = "pkc draft open --json"
+    rows[3]["message"]["content"][3]["input"]["command"] = "pkchome status"
     write_jsonl(provider_files.claude_file, rows)
     report = importer.run()
-    assert report["skipped_steward"] == 1 and report["ingested"] == 1
-    assert all(payload["provider"] == "codex" for payload in importer.payloads)
-    row = next(row for row in report["sessions"] if row["provider"] == "claude-code")
+    assert report["skipped_steward"] == 2 and report["ingested"] == 2
+    assert all("pkc-round-9fk2a" not in str(payload.get("project", {})) for payload in importer.payloads)
+    row = next(row for row in report["sessions"] if "pkc-round-9fk2a" in row["file"])
     assert row["status"] == "steward" and row["triage"]["verdict"] == "skip"
     assert "steward_session" in row["triage"]["reasons"]
     assert importer.run()["ingested"] == 0
 
 
-def test_the_skill_entry_of_a_rendered_package_is_the_same_command(provider_files, importer):
-    rows = claude_rows(provider_files.project)
-    entry = importer.library.show()["entry"]
-    rows[3]["message"]["content"][3]["input"]["command"] = f"{entry} queue"
-    write_jsonl(provider_files.claude_file, rows)
-    assert importer.run()["skipped_steward"] == 1
-    # A different executable that merely begins with the same letters is ordinary material.
-    rows[3]["message"]["content"][3]["input"]["command"] = "pkcompose up"
-    write_jsonl(provider_files.claude_file, rows)
-    report = importer.run(rewritten="reingest")
-    assert report["skipped_steward"] == 0 and report["ingested"] == 1
+def test_a_session_once_skipped_as_the_engines_own_is_read_again_when_the_rule_narrows(
+        provider_files, importer, monkeypatch):
+    """A skip records no export, so byte identity must not bury the session forever."""
+    wide, real = {"on": True}, sessions.steward_work
+    monkeypatch.setattr(sessions, "steward_work",
+                        lambda *args, **kwargs: True if wide["on"] else real(*args, **kwargs))
+    first = importer.run()
+    assert (first["skipped_steward"], first["ingested"]) == (2, 0)
+    assert all(entry["steward"] for entry in json.loads(importer.state.read_text())["sessions"].values())
+    wide["on"] = False
+    # Not one byte of either transcript changed; what changed is the rule.
+    second = importer.run()
+    assert (second["ingested"], second["unchanged"]) == (2, 0)
+    assert not any(entry["steward"] for entry in json.loads(importer.state.read_text())["sessions"].values())
+    assert importer.run()["unchanged"] == 2
+
+
+def test_a_cursor_written_before_the_mark_existed_is_judged_once(provider_files, importer):
+    """Every session already recorded under the wider rule, including the ones it skipped."""
+    assert importer.run()["ingested"] == 2
+    state = json.loads(importer.state.read_text())
+    for entry in state["sessions"].values():
+        # What a state file written by the previous converter holds: no mark either way.
+        entry.pop("steward")
+        # And the state of a session that rule declined: observed whole, exported nothing.
+        entry.update(source_ids=[], exported_turns=0, exported_bytes=0, last_turn_id=None)
+    importer.state.write_text(json.dumps(state))
+    report = importer.run()
+    assert (report["ingested"], report["unchanged"]) == (2, 0)
+    assert all(entry["steward"] is False
+               for entry in json.loads(importer.state.read_text())["sessions"].values())
+    assert importer.run()["unchanged"] == 2
 
 
 def test_home_configuration_reaches_the_pass_and_holds_below_its_own_floor(provider_files, importer,
@@ -453,6 +480,70 @@ def test_home_configuration_reaches_the_pass_and_holds_below_its_own_floor(provi
     append(provider_files, "claude-code", 1)
     assert report["new"] == 0 and report["held"] == 2
     assert sync.run(home, importer.library, dry_run=True)["held"] == 2
+
+
+def test_the_report_counts_the_sessions_every_scanned_root_yielded(provider_files, importer, tmp_path):
+    second = tmp_path / "codex-sessions-two"
+    write_jsonl(second / "2026/09/02/rollout-momo-two.jsonl", codex_rows(provider_files.project))
+    empty = tmp_path / "codex-sessions-empty"
+    empty.mkdir()
+    report = importer.run(dry_run=True,
+                          codex_roots=[provider_files.codex_root, second, empty])
+    assert report["roots"] == [
+        {"provider": "claude-code", "path": str(provider_files.claude_root), "sessions": 1},
+        {"provider": "codex", "path": str(provider_files.codex_root), "sessions": 1},
+        {"provider": "codex", "path": str(second), "sessions": 1},
+        # Read, and empty. The zero is the point: it is not a root the pass never opened.
+        {"provider": "codex", "path": str(empty), "sessions": 0},
+    ]
+    assert f"root codex {empty}: 0 sessions" in sessions.render_sync(report)
+    assert report["scanned"] == 3
+
+
+def test_sync_roots_are_discovered_and_configured_and_edited_from_the_cli(home, tmp_path, capsys):
+    account = tmp_path / "orca/codex-accounts/9f1c/home/sessions"
+    account.mkdir(parents=True)
+    assert cli.main(["sync", "roots", "add", str(account), "--harness", "codex"]) == 0
+    # The watch list's spelling of the same harness is accepted here too.
+    assert cli.main(["sync", "roots", "add", str(account), "--harness", "claude-code"]) == 0
+    assert home.config.sync.roots.codex == [str(account)]
+    assert home.config.sync.roots.claude == [str(account)]
+    assert cli.main(["sync", "roots", "ls"]) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert [(row["harness"], row["source"], row["exists"]) for row in listed] == [
+        ("codex", "discovered", False), ("codex", "configured", True),
+        ("claude", "discovered", False), ("claude", "configured", True)]
+    assert [row["path"] for row in listed if row["source"] == "discovered"] == [
+        str(Path(os.environ["HOME"]) / ".codex/sessions"),
+        str(Path(os.environ["HOME"]) / ".claude/projects")]
+    # Adding the same root twice adds it once; a directory that is not there is refused.
+    assert cli.main(["sync", "roots", "add", str(account), "--harness", "codex"]) == 0
+    assert home.config.sync.roots.codex == [str(account)]
+    assert cli.main(["sync", "roots", "add", str(tmp_path / "absent"), "--harness", "codex"]) == 2
+    assert cli.main(["sync", "roots", "rm", str(account), "--harness", "codex"]) == 0
+    assert home.config.sync.roots.codex == [] and home.config.sync.roots.claude == [str(account)]
+    # The list is not a `config set` scalar; it has its own command.
+    with pytest.raises(SystemExit):
+        cli.main(["config", "get", "sync.roots"])
+
+
+def test_a_configured_root_reaches_the_pass_beside_the_discovered_ones(home, importer, provider_files,
+                                                                      monkeypatch, capsys):
+    assert cli.main(["sync", "roots", "add", str(provider_files.codex_root), "--harness", "codex"]) == 0
+    assert cli.main(["sync", "roots", "add", str(provider_files.claude_root), "--harness", "claude"]) == 0
+    captured = {}
+
+    def spy(library, watches, **kwargs):
+        captured.update(kwargs)
+        return importer.run(**{key: kwargs[key] for key in ("dry_run", "claude_roots", "codex_roots")})
+
+    monkeypatch.setattr(sync.converter(), "sync_pass", spy)
+    report = sync.run(home, importer.library, dry_run=True)
+    assert captured["codex_roots"][-1] == provider_files.codex_root
+    assert captured["claude_roots"][-1] == provider_files.claude_root
+    # The machine's own default roots are still there, ahead of the configured ones.
+    assert captured["codex_roots"][0] == Path(os.environ["HOME"]) / ".codex/sessions"
+    assert report["new"] == 2
 
 
 def test_watch_scope_forms_and_sync_settings_round_trip(home, make_library, tmp_path, capsys):
