@@ -457,6 +457,38 @@ def test_a_cursor_written_before_the_mark_existed_is_judged_once(provider_files,
     assert importer.run()["unchanged"] == 2
 
 
+def test_a_cursor_judged_by_an_older_version_is_read_again_and_re_recorded(provider_files, importer):
+    """A selection rule that narrows reaches what the older one declined, with no byte moved.
+
+    The identity and the source IDs are untouched, so nothing already in the library is
+    ingested a second time — the library deduplicates the replayed payload.
+    """
+    assert importer.run()["ingested"] == 2
+    state = json.loads(importer.state.read_text())
+    for entry in state["sessions"].values():
+        # A cursor as the previous version left one it declined: observed whole, exported
+        # nothing, stamped with the version that declined it.
+        entry.update(judged=sessions.TRIAGE_VERSION - 1, steward=False, source_ids=[],
+                     exported_turns=0, exported_bytes=0, last_turn_id=None)
+    importer.state.write_text(json.dumps(state))
+    report = importer.run()
+    assert (report["ingested"], report["unchanged"], report["new"]) == (2, 0, 2)
+    assert all(row.get("deduplicated") for row in report["sessions"] if row["status"] == "ingested")
+    assert all(entry["judged"] == sessions.TRIAGE_VERSION
+               for entry in json.loads(importer.state.read_text())["sessions"].values())
+    # Re-recorded at today's version: judged once, not on every pass from now on.
+    assert importer.run()["unchanged"] == 2
+
+
+def test_a_cursor_at_todays_version_with_unchanged_bytes_is_not_read_again(provider_files, importer,
+                                                                           monkeypatch):
+    assert importer.run()["ingested"] == 2
+    monkeypatch.setattr(sessions, "read_session",
+                        lambda *args, **kwargs: pytest.fail("an unchanged transcript was read again"))
+    report = importer.run()
+    assert (report["unchanged"], report["ingested"], report["scanned"]) == (2, 0, 2)
+
+
 def test_home_configuration_reaches_the_pass_and_holds_below_its_own_floor(provider_files, importer,
                                                                           home, monkeypatch):
     set_config(home, "sync.exclude", "")
