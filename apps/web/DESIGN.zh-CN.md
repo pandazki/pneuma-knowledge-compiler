@@ -117,15 +117,15 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：每个视图名加 selec
 |---|---|---|---|
 | 卷首 | 01 | `overview` | 为什么这是一个**编译器** |
 | 来源篇 | 02 / 03 | `sources` / `ingest` | 读进来的东西；导入并看它的计划 |
-| 工序篇 | 04 / 04b | `process` / `steward` | 编译 job 与状态；与写这座库的智能体的会话 |
+| 工序篇 | 04 | `process` | 编译 job 与状态 |
 | 取用篇 | 05 / 06 / 07 / 08 | `recall` / `ask` / `live_context` / `consultations` | 三条检索 lane、briefing、即时建议，以及它们答过什么的记录 |
-| 正典篇 | 09 / 10 / 10b / 11 | `library` / `lens` / `review` / `history` | canonical 文档、结构透镜、质检、版本 |
-| 演化篇 | 12 / 13 | `evolve` / `engine_console` | 待评审的 schema 草案；编译生命周期的地图 |
-| 卷末 | 14 | `profile` | 当前租户的画像 |
+| 正典篇 | 09 / 10 / 11 / 12 | `library` / `lens` / `review` / `history` | canonical 文档、结构透镜、质检、版本 |
+| 演化篇 | 13 / 14 | `evolve` / `engine_console` | 待评审的 schema 草案；编译生命周期的地图 |
+| 卷末 | 15 | `profile` | 当前租户的画像 |
 
 `#/components` 是隐藏路由（primitive 陈列），不进目录。
 
-顶栏贯穿所有视图：字标、移动端目录按钮，右侧是 UserPicker（租户）、SnapshotPicker（当前 HEAD / 可问答的冻结快照 / canonical 提交仅浏览）、LocaleToggle 与 ThemeToggle。选中快照期间，内容栏顶部出现档案戳横幅，所有写操作控件禁用（§4.3）。
+顶栏贯穿所有视图：字标、移动端目录按钮，右侧是 StewardEntry、UserPicker（租户）、SnapshotPicker（当前 HEAD / 可问答的冻结快照 / canonical 提交仅浏览）、LocaleToggle 与 ThemeToggle。**管家不是一章**，也不在目录里：它是你**关于**这座库要找的人，站在哪里都可以找，所以它与全局控件为伍——就在「哪座库在台上」的左边——可见性沿用目录本来要读的那条 `VIEW_LENSES.steward` 声明。它旁边、且仅在引擎报告通话已配置时，有一个话筒打开该视图的语音通话（`#/steward?call=1`，docs/design/voice-call.zh-CN.md）。选中快照期间，内容栏顶部出现档案戳横幅，所有写操作控件禁用（§4.3）。
 
 **本机面**只是一个可选端点，此外别无他物。`lib/store.ts` 在启动时探测一次 `GET /home/status`（`lib/home.ts` 负责解析，`lib/useHome.ts` 在标签页可见时每 30 秒复探）；返回 404——也就是今天的每一个项目部署——会被记住且不再追问，控制台逐字节保持原样。当单机版引擎作答时（docs/design/single-machine-edition.zh-CN.md §4.12、§10），只有三处变化：租户选择器变成按**名字**列出本机知识库的切换器（`components/LibraryPicker.tsx`——切换是一次导航，跳到那个知识库自己的引擎端口并带上当前 hash 路由，因为每个引擎都提供同一份控制台），控制台的当前租户跟随该引擎所服务的知识库、而不是任何持久化的 id，目录栏在全书之上多出一条不带编号的 `home`：仅所有者可见的只读健康页（Docker、四项服务，以及每个知识库的引擎、队列、密钥、skill 包新鲜度与五步冷启动）。机器不是这本书的一章，所以那一条不带 § 编号。
 
@@ -159,7 +159,7 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：每个视图名加 selec
 
 ### 4.2 Composed（`src/components/`）
 
-`AppShell`（顶栏 + 232px 目录轨 + `max-w-content` 内容栏 + notice 条 + 离线条 + 快照横幅）、`TocNav`、`UserPicker`、`SnapshotPicker`、`ThemeToggle`、`LocaleToggle`、`PageHeader`（24 号 serif 页题 + 一行 ink-2 说明 + 操作区）、`PaginationBar`、`ActivityHeatmap`。
+`AppShell`（顶栏 + 232px 目录轨 + `max-w-content` 内容栏 + notice 条 + 离线条 + 快照横幅）、`TocNav`、`StewardEntry`、`UserPicker`、`SnapshotPicker`、`ThemeToggle`、`LocaleToggle`、`PageHeader`（24 号 serif 页题 + 一行 ink-2 说明 + 操作区）、`PaginationBar`、`ActivityHeatmap`。
 
 其中带设计决定的几个：
 

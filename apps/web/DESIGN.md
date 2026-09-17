@@ -117,15 +117,15 @@ Hash routing is the deep-link contract (`lib/hash.ts`): every view name plus sel
 |---|---|---|---|
 | Front matter | 01 | `overview` | why this is a *compiler* |
 | Materials | 02 / 03 | `sources` / `ingest` | read what came in; bring something in and see its plan |
-| Process | 04 / 04b | `process` / `steward` | compile jobs and their states; the session with the agent that writes the library |
+| Process | 04 | `process` | compile jobs and their states |
 | Retrieval | 05 / 06 / 07 / 08 | `recall` / `ask` / `live_context` / `consultations` | the three retrieval lanes, briefings, live suggestions, and the record of what they answered |
-| Canon | 09 / 10 / 10b / 11 | `library` / `lens` / `review` / `history` | canonical documents, the structure lens, the check, versions |
-| Evolution | 12 / 13 | `evolve` / `engine_console` | schema drafts under review; the compilation lifecycle as a map |
-| Back matter | 14 | `profile` | the tenant's profile |
+| Canon | 09 / 10 / 11 / 12 | `library` / `lens` / `review` / `history` | canonical documents, the structure lens, the check, versions |
+| Evolution | 13 / 14 | `evolve` / `engine_console` | schema drafts under review; the compilation lifecycle as a map |
+| Back matter | 15 | `profile` | the tenant's profile |
 
 `#/components` is a hidden route (the primitive gallery) and stays out of the contents.
 
-The top bar runs across every view: wordmark, the mobile contents button, and on the right the UserPicker (tenant), the SnapshotPicker (live HEAD / frozen answerable snapshots / canonical commits, browse-only), LocaleToggle and ThemeToggle. While a snapshot is pinned, the content column opens with an archive-stamp banner and every mutating control is disabled (§4.3).
+The top bar runs across every view: wordmark, the mobile contents button, and on the right the StewardEntry, the UserPicker (tenant), the SnapshotPicker (live HEAD / frozen answerable snapshots / canonical commits, browse-only), LocaleToggle and ThemeToggle. The **Steward is not a chapter** and is not in the contents: it is who you talk to ABOUT this library, from wherever you are standing, so it stands with the global controls — left of which library is on the bench — and takes its visibility from the same `VIEW_LENSES.steward` declaration the rail would have read. Beside it, and only where the engine reports a call is configured, a phone opens that view's voice call (`#/steward?call=1`, docs/design/voice-call.md). While a snapshot is pinned, the content column opens with an archive-stamp banner and every mutating control is disabled (§4.3).
 
 **The home face** is one optional endpoint and nothing else. `lib/store.ts` probes `GET /home/status` once at boot (`lib/home.ts` parses it, `lib/useHome.ts` re-probes every 30s while the tab is visible); a 404 — every project deployment — is remembered, never re-asked, and the console renders byte for byte as it does without it. When a personal-edition engine answers (docs/design/single-machine-edition.md §4.12, §10), three things change and no more: the tenant picker becomes a switcher over the machine's libraries by NAME (`components/LibraryPicker.tsx` — switching is a navigation to that library's own engine port, carrying the hash route across, since each engine serves this same console), the console's active tenant follows the library that engine serves rather than any persisted id, and the contents rail gains an un-numbered `home` entry above the book: an owner-only, read-only health page (Docker, the four services, each library's engine, queue, key, skill freshness and five-step cold start). The machine is not a chapter of the library, which is why that entry carries no § number.
 
@@ -159,7 +159,7 @@ Contracts worth stating beyond what the types say:
 
 ### 4.2 Composed (`src/components/`)
 
-`AppShell` (top bar + contents rail at 232px + content column at `max-w-content` + notice bar + offline bar + the snapshot banner), `TocNav`, `UserPicker`, `SnapshotPicker`, `ThemeToggle`, `LocaleToggle`, `PageHeader` (serif page title at 24 + one ink-2 line + actions), `PaginationBar`, `ActivityHeatmap`.
+`AppShell` (top bar + contents rail at 232px + content column at `max-w-content` + notice bar + offline bar + the snapshot banner), `TocNav`, `StewardEntry`, `UserPicker`, `SnapshotPicker`, `ThemeToggle`, `LocaleToggle`, `PageHeader` (serif page title at 24 + one ink-2 line + actions), `PaginationBar`, `ActivityHeatmap`.
 
 The ones carrying a design decision:
 

@@ -2425,6 +2425,163 @@ export class StewardSocket {
   }
 }
 
+// ── The call: a voice session with the library, beside the Steward's text one ────────────────
+
+/**
+ * Is there a voice to call, and is one up?
+ *
+ * `configured` false is a state, not an error: the engine names the missing piece in `reason`
+ * and writes the sentence itself in `detail`, so the console shows the engine's words rather
+ * than guessing at a cause it cannot see.
+ */
+export interface CallStatus {
+  configured: boolean;
+  reason: "" | "no_openai_key" | "no_recall_model" | string;
+  /** One human sentence, already written by the engine; may be "". */
+  detail: string;
+  model: string;
+  voice: string;
+  /** A call is in progress for this owner. */
+  live: boolean;
+}
+
+/**
+ * Probe `GET /call`. Deliberately outside `req()`, like `getHomeStatus`: an engine that
+ * predates the feature answers 404, and that is the ordinary answer rather than a failure.
+ * Every absence — no route, no engine, no JSON — comes back as `null`, so the caller has one
+ * state to handle and no console ever shows a failed request for a feature nobody promised.
+ */
+export async function getCallStatus(userId: string): Promise<CallStatus | null> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/v1/users/${u(userId)}/call`, {
+      headers: { accept: "application/json" },
+    });
+  } catch {
+    return null;
+  }
+  if (!res.ok) return null;
+  try {
+    return (await res.json()) as CallStatus;
+  } catch {
+    return null;
+  }
+}
+
+/** What the engine answers a browser's SDP offer with. */
+export interface CallStarted {
+  call_id: string;
+  session_id: string;
+  /** The SDP answer, to be applied as the peer connection's remote description. */
+  sdp: string;
+  expires_at: number | null;
+}
+
+/**
+ * Open a voice session: the browser's offer up, the provider's answer back.
+ *
+ * Its own fetch rather than `req()` for one reason — a refusal here is the whole of what the
+ * Owner will be told, and FastAPI's `detail` may be a string or an object carrying `message`.
+ * `req()` would stringify the object into `[object Object]`, so the message is unwrapped here
+ * and the engine's own sentence survives.
+ */
+export async function startCall(
+  userId: string,
+  sdp: string,
+  locale: "zh" | "en",
+): Promise<CallStarted> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/v1/users/${u(userId)}/call`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sdp, locale }),
+    });
+  } catch (e) {
+    throw new ApiError(tx("service.unreachable", { detail: (e as Error).message }), 0);
+  }
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    let code: string | undefined;
+    try {
+      const body = (await res.json()) as { detail?: unknown; code?: unknown };
+      const raw = body?.detail;
+      if (typeof raw === "string") detail = raw;
+      else if (raw != null && typeof raw === "object") {
+        const message = (raw as { message?: unknown }).message;
+        if (message != null) detail = String(message);
+        const inner = (raw as { code?: unknown }).code;
+        if (inner != null) code = String(inner);
+      }
+      if (body?.code != null) code = String(body.code);
+    } catch {
+      /* non-JSON error body — keep the status line */
+    }
+    throw new ApiError(detail, res.status, code);
+  }
+  return (await res.json()) as CallStarted;
+}
+
+/**
+ * The call socket: the engine's own frames about a voice session it is attached to.
+ *
+ * The voice's audio and transcripts never come through here — those are the peer connection's
+ * (`lib/callSession.ts`). What this carries is the part only the library knows: which question
+ * was delegated, what it answered, and with which citations. It does not auto-reconnect, for
+ * the same reason `StewardSocket` does not: a dropped connection to a BILLED session is the
+ * Owner's decision to make, not a retry loop's.
+ */
+export class CallSocket {
+  private ws: WebSocket;
+
+  constructor(
+    userId: string,
+    callId: string,
+    private readonly onFrame: (frame: Record<string, unknown>) => void,
+    private readonly onStatus: (status: LiveContextSocketStatus, detail?: string) => void,
+  ) {
+    this.onStatus("connecting");
+    this.ws = new WebSocket(wsUrl(`/v1/users/${u(userId)}/call/${u(callId)}`));
+    this.ws.onopen = () => this.onStatus("open");
+    this.ws.onclose = (e) =>
+      this.onStatus("closed", e.reason || (e.wasClean ? tx("service.ws.closed") : `code ${e.code}`));
+    this.ws.onerror = () => this.onStatus("closed", tx("service.ws.error"));
+    this.ws.onmessage = (e) => {
+      try {
+        this.onFrame(JSON.parse(e.data as string) as Record<string, unknown>);
+      } catch {
+        this.onFrame({
+          type: "error",
+          detail: tx("service.ws.badFrame", { detail: String(e.data).slice(0, 120) }),
+        });
+      }
+    };
+  }
+
+  get ready(): boolean {
+    return this.ws.readyState === WebSocket.OPEN;
+  }
+
+  /** The Owner hung up. The engine closes the voice session from its own side. */
+  end(): boolean {
+    if (!this.ready) return false;
+    this.ws.send(JSON.stringify({ type: "end" }));
+    return true;
+  }
+
+  close(): void {
+    this.ws.onclose = null;
+    this.ws.onerror = null;
+    this.ws.onmessage = null;
+    try {
+      this.ws.close();
+    } catch {
+      /* already closing */
+    }
+    this.onStatus("closed", tx("service.ws.disconnected"));
+  }
+}
+
 /* ------------------------------------------------- The home (personal edition, optional) */
 
 /**

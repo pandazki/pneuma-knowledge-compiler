@@ -11,6 +11,7 @@
  *   #/process/job/job-2026...
  *   #/history/snapshot/src-c7a3...
  *   #/lens/node/doc-a11c
+ *   #/steward?call=1          — a view PARAMETER: the same page, set up differently
  *
  * The set of routable views is NOT declared here: it is the key set of `VIEW_LENSES` in
  * ./lenses, which is also what decides who may see each of them. One table, so a view can
@@ -43,7 +44,21 @@ function routeView(segment: string): ViewName | null {
   return LEGACY_VIEWS[segment] ?? null;
 }
 
-export function selectionToHash(view: ViewName, selection: Selection): string {
+/**
+ * A view parameter: the address saying not WHERE to land but in what state.
+ *
+ * `#/steward?call=1` is the only one so far — it opens the Steward with the call surface
+ * armed, and arming is all it does: a call costs money by the minute, so an address may set a
+ * page up and may never start one. Deliberately a query and not a fourth path segment,
+ * because a segment is a SELECTION (`/document/<id>`) and this selects nothing.
+ */
+export type ViewParams = Record<string, string>;
+
+export function selectionToHash(
+  view: ViewName,
+  selection: Selection,
+  params: ViewParams = {},
+): string {
   const parts: string[] = [view];
   if (selection) {
     parts.push(selection.kind);
@@ -56,26 +71,30 @@ export function selectionToHash(view: ViewName, selection: Selection): string {
       parts.push(selection.id);
     }
   }
-  return "#/" + parts.map(encodeURIComponent).join("/");
+  const query = Object.keys(params)
+    .sort()
+    .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`)
+    .join("&");
+  return "#/" + parts.map(encodeURIComponent).join("/") + (query ? `?${query}` : "");
 }
 
 export interface RouteState {
   view: ViewName;
   selection: Selection;
+  /** Empty for every address that carries no `?key=value` tail. */
+  params: ViewParams;
 }
 
 export function hashToState(hash: string): RouteState | null {
-  const segs = hash
-    .replace(/^#\/?/, "")
-    .split("/")
-    .filter(Boolean)
-    .map((s) => {
-      try {
-        return decodeURIComponent(s);
-      } catch {
-        return s;
-      }
-    });
+  const [path, query = ""] = hash.split("?");
+  const params: ViewParams = {};
+  for (const pair of query.split("&")) {
+    if (!pair) continue;
+    const at = pair.indexOf("=");
+    const key = decodeSegment(at < 0 ? pair : pair.slice(0, at));
+    if (key) params[key] = at < 0 ? "" : decodeSegment(pair.slice(at + 1));
+  }
+  const segs = path.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeSegment);
   if (segs.length === 0) return null;
   const view = routeView(segs[0]);
   if (view === null) return null;
@@ -106,7 +125,16 @@ export function hashToState(hash: string): RouteState | null {
     default:
       selection = null;
   }
-  return { view, selection };
+  return { view, selection, params };
+}
+
+/** One path or query piece, decoded — a malformed escape stays the text it already was. */
+function decodeSegment(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
 }
 
 export function sameSelection(a: Selection, b: Selection): boolean {
