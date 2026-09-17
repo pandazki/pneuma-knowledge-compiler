@@ -325,6 +325,10 @@ class _MemoryStore(InMemoryLibraryStore):
     async def apply_schema(self) -> None:
         return None
 
+    async def ensure_schema(self) -> bool:
+        # A `pkc` process checks the marker rather than applying the DDL batch.
+        return False
+
     async def aclose(self) -> None:
         return None
 

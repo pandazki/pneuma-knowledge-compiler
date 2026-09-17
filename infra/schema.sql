@@ -3,6 +3,31 @@
 -- v1 migration strategy = this file, no ORM/alembic. Every table's first
 -- dimension is user_id (invariant I1: per-user isolation, no cross-user read).
 
+-- schema_applied: which text of THIS file the database already carries, so a process that
+-- is not the engine can ask instead of applying (`PostgresStore.ensure_schema`).
+--
+-- The whole file runs as one statement batch, and it is not free even when every object
+-- already exists: `CREATE INDEX IF NOT EXISTS` takes a ShareLock on its table whether or
+-- not it creates anything. Every `pkc` command used to run that batch at startup — and a
+-- sync that ingests every fifteen minutes, plus a home screen that shells out to `pkc`,
+-- meant it ran constantly. It deadlocked the engine's own writer: the CLI waiting for a
+-- ShareLock on `component_time_blocks` behind a rebuild that held a RowShareLock on
+-- `sources` through the foreign key.
+--
+-- One row (`id` is the constant true, so the CHECK makes a second row unrepresentable),
+-- holding the sha256 of this file's text as the writer read it, who wrote it
+-- (`application_name`), and when. A hash that matches means this database was given exactly
+-- this schema and no DDL is needed; a hash that does not — a fresh checkout, or an upgrade
+-- before the engine restarted — means the batch runs, from whichever process noticed first.
+-- Not a version number: the file IS the migration (v1 strategy), so its bytes are its
+-- version, and there is no second place to bump.
+CREATE TABLE IF NOT EXISTS schema_applied (
+    id          boolean     NOT NULL PRIMARY KEY DEFAULT true CHECK (id),
+    schema_hash text        NOT NULL,
+    applied_by  text        NOT NULL DEFAULT '',
+    applied_at  timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS sources (
     user_id  text        NOT NULL,
     source_id     text        NOT NULL,

@@ -1256,12 +1256,21 @@ async def _run(args: argparse.Namespace, component_tools, parser_for) -> int:
     # deployment; this process just does not need that half for what it was asked to do.
     # `application_name`: every connection this command opens names the command family, so
     # a Postgres log line says which `pkc` invocation it served.
+    # `apply_schema=False`: a `pkc` process CHECKS the schema marker rather than running the
+    # bootstrap batch. The batch is DDL, and `CREATE INDEX IF NOT EXISTS` takes a ShareLock
+    # on its table whether or not it creates anything — so a sync running `pkc ingest` every
+    # fifteen minutes, and a home screen shelling out to `pkc` beside it, ran DDL against a
+    # live engine constantly, and one of those runs deadlocked the engine's own rebuild
+    # (`app=pkc-cli:profile` waiting on `component_time_blocks`). On a machine whose schema
+    # does not match this build's — a fresh checkout, an upgrade before the engine restarted
+    # — `ensure_schema` still applies it, so nothing about a cold start changes.
     ctx = await build_context(
         settings,
         probe_agent=False,
         probe_embedding=False,
         semantic=needs_semantic(args),
         application_name=f"pkc-cli:{args.group}",
+        apply_schema=False,
     )
     try:
         if args.group == "draft":

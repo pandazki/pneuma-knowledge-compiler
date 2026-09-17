@@ -552,6 +552,19 @@ async def run_recall_rebuild_job(ctx: Any, user_id: UserId, job: object) -> None
     re-derives anything itself, so nothing can interleave with this user's in-flight
     projection jobs. The built-in ledger is rebuilt whether or not any component is
     registered — it is the framework's, not a component's.
+
+    A component that could not rebuild takes this job down WITH IT
+    (`ComponentRebuildFailed`, raised by `rebuild_components` once every component has been
+    attempted). Nothing is caught here on purpose: the drain's own tail is the one place
+    that decides what an unfinished job costs, and for this one it decides right — the
+    failure is not in `TERMINAL_FAILURES`, so the job parks and comes back on the retry
+    schedule, and a Postgres deadlock (which is what actually happened: the `time`
+    component's `put_time_blocks` against a CLI process applying DDL) is explicitly not an
+    infrastructure fault, so it waits on the schedule rather than in place.
+
+    What is not acceptable is the line this replaces: the rebuild's exception logged and the
+    job completed `ok=True, "replayed 14 event(s)"` — a green row over a projection holding
+    55 of 382 sources, with nothing left in the queue to put it right.
     """
     from pneuma_knowledge_core.components import rebuild_components
 

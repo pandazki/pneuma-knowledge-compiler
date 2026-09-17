@@ -41,7 +41,10 @@ protocol, the mechanical faces the framework calls at its own seams:
   projection should be re-derived from the substrate it DECLARED. A component that keeps a
   persisted index of its own owns exactly one write path and one rebuild path, and both are
   derived (I2) — nothing a component stores is ever an authority. The index job is fail-soft
-  over these: a component that raises is logged and skipped, never a failed index job. A
+  over `on_source_indexed`: a component that raises is logged and skipped, never a failed
+  index job, because the source WAS indexed and the component's own mirror catches up at the
+  next rebuild. **`rebuild` is not**: there the re-derivation IS the job, so a component that
+  raises fails it (`ComponentRebuildFailed`) and the job waits on the retry schedule. A
   component that keeps nothing declares nothing and implements neither: `attention` is the
   shipped example, faces over a ledger the framework itself writes, and its `on_recall` and
   `rebuild` are explicit no-ops so that switching it on cannot double a count.
@@ -204,6 +207,45 @@ class BaseComponent:
         return None
 
 
+def _exception_line(exc: BaseException) -> str:
+    """One failure as a job row has to carry it: qualified class, then its own first line.
+
+    A class name alone is a poor diagnosis; a bare message is worse, because a psycopg
+    `DeadlockDetected` and a plain `RuntimeError` can both say almost nothing. Both, so the
+    row an operator reads names what went wrong AND where it came from.
+    """
+    name = type(exc).__qualname__
+    package = type(exc).__module__.split(".", 1)[0]
+    qualified = name if package in ("builtins", "__main__") else f"{package}.{name}"
+    first = next((line.strip() for line in str(exc).splitlines() if line.strip()), "")
+    return f"{qualified}: {first}" if first else qualified
+
+
+class ComponentRebuildFailed(RuntimeError):
+    """At least one component could not re-derive its projection.
+
+    Raised by `rebuild_components` AFTER every component has been attempted, so one broken
+    component costs only its own projection while the caller still learns that the rebuild
+    is incomplete. `rebuilt` is what did land; `failures` is `(name, exception)` per
+    component, and the message names each of them, because the whole point is that the job
+    row says which component failed and what it said.
+    """
+
+    def __init__(
+        self,
+        failures: Sequence[tuple[str, BaseException]],
+        *,
+        rebuilt: Sequence[str] = (),
+    ) -> None:
+        self.failures = tuple(failures)
+        self.rebuilt = tuple(rebuilt)
+        said = "; ".join(
+            f"component {name!r} rebuild failed: {_exception_line(exc)}"
+            for name, exc in self.failures
+        )
+        super().__init__(said or "a component rebuild failed")
+
+
 class CanonicalReadOnly:
     """The canonical face a component is given: the reads it needs, and no way to write.
 
@@ -327,11 +369,21 @@ def reset_components() -> None:
 
 
 # ------------------------------------------------------------------ projection channel
-# The fan-outs below are the only orchestration in this module, and they exist so the
-# fail-soft rule is written ONCE: a component's projection is derived, so a component that
-# raises may cost a stale index — never a failed job, a failed rebuild or a failed answer.
-# The caller (the compile runner, the index worker, the rebuild script, the answering
-# route) stays a single line.
+# The fan-outs below are the only orchestration in this module, and they exist so the rule
+# for each seam is written ONCE, at the seam, instead of at every call site.
+#
+# The rule is not one rule, and the difference is what a failure COSTS. A notification —
+# `on_source_indexed`, `on_recall`, `prepare`, `evolve_evidence` — tells a component about
+# work that already succeeded, so a component that raises there costs a stale mirror until
+# the next rebuild and nothing else: swallowing it is honest. A REBUILD is the work itself:
+# `rebuild_components` is the whole body of the `recall_rebuild` job and of a restore's
+# projection pass, so swallowing a failure there reports success about a projection that was
+# never built. It raises (`ComponentRebuildFailed`), and each fan-out below says which it is.
+#
+# What that cost looked like in the field: a `recall_rebuild` job completed `ok=True,
+# "replayed 14 event(s)"` while the `time` component's rebuild died on a Postgres deadlock
+# halfway through — 55 of 382 sources in the projection, a green job row, and nothing to
+# retry, because the queue had been told the work was done.
 
 
 async def prepare_components(user_id: str) -> None:
@@ -354,7 +406,10 @@ async def prepare_components(user_id: str) -> None:
             continue
         try:
             await hook(user_id)
-        except Exception:  # noqa: BLE001 — a component never fails the job it prepares for
+        except Exception:  # noqa: BLE001 — BEST-EFFORT: a warm mirror, not the job's work
+            # A `prepare` that fails costs the component's sync seams their mirror for this
+            # one job — an outline line that says less, a tool that finds nothing. The job's
+            # own work (the compile) is untouched, so it runs.
             _log.warning(
                 "component %r prepare failed for user %s; continuing",
                 getattr(component, "name", component),
@@ -403,7 +458,11 @@ async def notify_source_indexed(user_id: str, source: "NormalizedSource") -> Non
             continue
         try:
             await hook(user_id, source)
-        except Exception:  # noqa: BLE001 — a component never fails the index job
+        except Exception:  # noqa: BLE001 — BEST-EFFORT: the source IS indexed already
+            # This is a notification about work that succeeded: L1/L2 hold the source
+            # whatever the component did with the news. The component's own mirror is
+            # derived and the next `rebuild` re-derives it from L0, so the honest cost is
+            # one stale row, never a failed index job.
             _log.warning(
                 "component %r on_source_indexed failed for source %s; continuing",
                 getattr(component, "name", component),
@@ -425,7 +484,11 @@ async def notify_recall(user_id: str, record: "ConsultationRecord") -> None:
             continue
         try:
             await hook(user_id, record)
-        except Exception:  # noqa: BLE001 — a component never fails the answer it observes
+        except Exception:  # noqa: BLE001 — BEST-EFFORT: somebody already got their answer
+            # The use-side notification, and the design says a notification may be
+            # best-effort: the consultation record is kept either way, so a rebuild replays
+            # it later and the component's ledger converges. Failing here would fail an
+            # answer that was already given.
             _log.warning(
                 "component %r on_recall failed for consultation %s; continuing",
                 getattr(component, "name", component),
@@ -458,7 +521,10 @@ async def collect_evolve_evidence(user_id: str) -> str | None:
         name = str(getattr(component, "name", component))
         try:
             block = await hook(user_id)
-        except Exception:  # noqa: BLE001 — a component never fails the evolve round
+        except Exception:  # noqa: BLE001 — BEST-EFFORT: evidence, not the round
+            # A block that could not be gathered is a proposal with less in front of it —
+            # which is exactly the proposal a deployment with no component receives, and a
+            # message the evolve model is built to read. Never the round.
             _log.warning(
                 "component %r evolve_evidence failed for user %s; continuing",
                 name,
@@ -476,8 +542,17 @@ async def collect_evolve_evidence(user_id: str) -> str | None:
 
 
 async def rebuild_components(user_id: str) -> list[str]:
-    """Re-derive every registered component's projection. Returns the names that ran."""
+    """Re-derive every registered component's projection. Returns the names that ran.
+
+    NOT best-effort, and the only seam here that is not: this call IS the work of the job
+    that makes it. Every component is still attempted — one broken component must not cost
+    the others their re-derivation, and a rebuild is idempotent, so the ones that succeeded
+    simply run again on the retry — but if any of them failed, `ComponentRebuildFailed`
+    carries the lot to the caller, which is how the job row gets to say so and the retry
+    schedule gets to try again.
+    """
     done: list[str] = []
+    failures: list[tuple[str, BaseException]] = []
     for component in registered_components():
         hook = getattr(component, "rebuild", None)
         if hook is None:
@@ -486,14 +561,18 @@ async def rebuild_components(user_id: str) -> list[str]:
         try:
             await hook(user_id)
             done.append(name)
-        except Exception:  # noqa: BLE001 — one component never fails the whole rebuild
-            _log.warning("component %r rebuild failed; continuing", name, exc_info=True)
+        except Exception as exc:  # noqa: BLE001 — collected, reported, and raised below
+            _log.warning("component %r rebuild failed", name, exc_info=True)
+            failures.append((name, exc))
+    if failures:
+        raise ComponentRebuildFailed(failures, rebuilt=done)
     return done
 
 
 __all__ = [
     "BaseComponent",
     "CanonicalReadOnly",
+    "ComponentRebuildFailed",
     "IndexComponent",
     "collect_evolve_evidence",
     "component_job",

@@ -207,9 +207,15 @@ Three rules hold over the whole channel:
 
 1. **Everything a component stores is derived (I2).** Nothing in the framework reads a
    component's projection as an authority.
-2. **It is fail-soft where it presents, and fail-closed where it judges.** All three fan-outs
-   log and continue: a component that raises may cost a stale projection or a thinner prompt;
-   it never costs a failed index job, a failed rebuild, or a failed compile. A component's
+2. **It is fail-soft where it presents, and fail-closed where it judges.** The NOTIFICATION
+   fan-outs log and continue: a component that raises in `on_source_indexed`, `on_recall`,
+   `prepare` or `evolve_evidence` may cost a stale projection or a thinner prompt; it never
+   costs a failed index job, a failed answer or a failed compile, because each of those had
+   already done its own work when the component was told about it. **`rebuild` is the
+   exception in the other direction**: there the re-derivation *is* the job, so every
+   component is attempted and then `ComponentRebuildFailed` carries the failures to the
+   caller — a `recall_rebuild` that swallowed one reported `ok=True` over a projection
+   covering 55 of 382 sources, with nothing left in the queue to put it right. A component's
    *write-time* faces are the exception, and must be: a library-wide fact read from a mirror
    that failed to load is not a weaker check, it is a different and always-true one. A
    component whose required reads did not succeed refuses the round (`people.not_ready`) —
@@ -530,9 +536,11 @@ lane is byte-identical to the lane without the seam.
    fill the table.
 5. **Keep the canonical face read-only.** It is `CanonicalReadOnly` at registration; if you
    need another read, add the method there, in a diff that says so.
-6. **Make the seams fail-soft in fact, not just in the fan-out.** The framework guarantees a
-   raising component does not fail the job; it does not guarantee your projection is
-   coherent afterwards. Prefer idempotent writes and an explicit rebuild.
+6. **Make the notification seams fail-soft in fact, not just in the fan-out.** The framework
+   guarantees a component raising in a notification does not fail the job; it does not
+   guarantee your projection is coherent afterwards. Prefer idempotent writes and an
+   explicit rebuild — which is also why `rebuild` may raise: it is the repair, so it has to
+   be able to say it did not happen.
 7. **Return everything; cap nothing.** A path's `cap` is a declaration the framework spends;
    truncating inside the component takes the ordering decision away from the only layer that
    sees the question.

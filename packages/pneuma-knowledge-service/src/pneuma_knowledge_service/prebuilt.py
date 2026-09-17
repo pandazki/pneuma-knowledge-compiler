@@ -390,6 +390,11 @@ async def rebuild_component_projections(user_id: UserId) -> tuple[str, ...]:
     in-flight `recall_projection` jobs — and a restore has already refused any tenant that
     holds work of its own. The framework's access ledger is deliberately NOT rebuilt here:
     it replays consultations, which a restore neither ships nor invents.
+
+    A component that cannot rebuild fails the restore (`ComponentRebuildFailed`), for the
+    same reason it fails the `recall_rebuild` job: this pass is the only chance the restore
+    has to build that projection, so reporting a restored library over a projection nobody
+    built would be a lie the Owner has no way to detect.
     """
     from pneuma_knowledge_core.components import rebuild_components
 

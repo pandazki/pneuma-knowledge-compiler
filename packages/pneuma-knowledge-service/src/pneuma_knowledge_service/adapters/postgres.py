@@ -10,6 +10,7 @@ omits it. Content dedup: same user + same checksum returns the existing source_i
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import uuid
 from collections.abc import Mapping, Sequence
@@ -79,6 +80,16 @@ def schema_sql() -> str:
         return packaged.read_text(encoding="utf-8")
     checkout = Path(__file__).resolve().parents[5] / "infra" / "schema.sql"
     return checkout.read_text(encoding="utf-8")
+
+
+def schema_digest() -> str:
+    """The identity of the schema text this build carries: sha256 over `schema_sql()`.
+
+    The file is the migration (v1 strategy), so its bytes are its version — there is no
+    number to bump and no way for the marker in the database to claim a schema the process
+    reading it does not actually hold.
+    """
+    return hashlib.sha256(schema_sql().encode("utf-8")).hexdigest()
 
 
 #: The default page a consultation walk takes. Bounded rather than open because the
@@ -270,10 +281,19 @@ class PostgresStore:
         Serialized by a transaction-scoped advisory lock. `CREATE TABLE IF NOT EXISTS` is
         idempotent but NOT concurrency-safe: two starters racing against the same cold
         database both pass the existence check and both try to create the type row, and the
-        loser dies on `pg_type_typname_nsp_index`. Every process that boots an AppContext
-        runs this, so on a fresh deployment (or a fresh test database) N starters meant
-        N-1 crashes. The lock is held for the transaction and released when it ends, so a
-        warm database still costs one no-op round trip and nothing else."""
+        loser dies on `pg_type_typname_nsp_index`. Several processes may still reach this at
+        once — the engine's two roles, a CLI on a database with no marker yet — so on a fresh
+        deployment N starters meant N-1 crashes. The lock is held for the transaction and
+        released when it ends, so a warm database still costs one no-op round trip and
+        nothing else.
+
+        The ENGINE calls this unconditionally at startup; everybody else calls
+        `ensure_schema`, which runs it only when this build's schema is not the one the
+        database carries.
+
+        The marker row is written in the SAME transaction as the batch, so a database can
+        never claim a schema it did not get: a batch that failed rolls the row back with it,
+        and the next `ensure_schema` sees the old hash (or none) and applies again."""
         sql = schema_sql()
         async with self._pool.connection() as conn:
             async with conn.transaction():
@@ -281,6 +301,53 @@ class PostgresStore:
                     "SELECT pg_advisory_xact_lock(%s)", (_SCHEMA_LOCK_KEY,)
                 )
                 await conn.execute(sql)
+                await conn.execute(
+                    "INSERT INTO schema_applied (id, schema_hash, applied_by, applied_at) "
+                    "VALUES (true, %s, %s, now()) "
+                    "ON CONFLICT (id) DO UPDATE SET schema_hash = EXCLUDED.schema_hash, "
+                    "applied_by = EXCLUDED.applied_by, applied_at = EXCLUDED.applied_at",
+                    (schema_digest(), self.application_name or ""),
+                )
+
+    async def applied_schema_hash(self) -> str | None:
+        """The schema text this database was last given, or None if it carries no marker.
+
+        Two plain SELECTs and no DDL. `to_regclass` first because the marker table itself
+        may not exist yet (a database from before this row, or a fresh one), and asking a
+        missing table would abort the transaction for the sake of a question that has a
+        perfectly good answer: nothing has been applied here.
+        """
+        async with self._pool.connection() as conn:
+            marker = await (
+                await conn.execute("SELECT to_regclass('schema_applied')")
+            ).fetchone()
+            if marker is None or marker[0] is None:
+                return None
+            row = await (
+                await conn.execute("SELECT schema_hash FROM schema_applied WHERE id")
+            ).fetchone()
+            return str(row[0]) if row else None
+
+    async def ensure_schema(self) -> bool:
+        """Apply the schema only if this database does not already carry THIS text.
+
+        What a process that is not the engine calls (`wiring.build_context`). The engine
+        owns the bootstrap and applies unconditionally at startup: it is the one long-lived
+        process per deployment, its start is the natural repair point, and one batch per
+        engine start costs nothing. A `pkc` command is the opposite — short-lived, frequent
+        (a sync every fifteen minutes, a home screen shelling out), and concurrent with the
+        engine's own writers — and the batch it used to run took a ShareLock on every
+        indexed table, which is how a CLI came to deadlock a running rebuild.
+
+        So the CLI ASKS. Matching hash, no DDL at all. Mismatched or absent — a fresh
+        checkout, or an upgraded build whose engine has not restarted yet — and it applies,
+        so a new machine behaves exactly as it did before this existed. Returns whether it
+        applied anything.
+        """
+        if await self.applied_schema_hash() == schema_digest():
+            return False
+        await self.apply_schema()
+        return True
 
     async def aclose(self) -> None:
         await self._pool.close()

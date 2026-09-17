@@ -309,8 +309,11 @@ async def _upsert_profile(dsn: str, tenant: UserId, data: dict, *, only_if_missi
     await store.open()
     try:
         # The engine process applies the schema at boot, and on a cold start no engine has
-        # booted yet: this may be the first connection the fresh database ever sees.
-        await store.apply_schema()
+        # booted yet: this may be the first connection the fresh database ever sees. So it
+        # ASKS — `ensure_schema` applies the batch when the database carries no marker (the
+        # cold start) and runs no DDL at all once it does, because this command also runs
+        # beside a live engine and the batch locks every indexed table while it runs.
+        await store.ensure_schema()
         if only_if_missing and await store.get_user_profile(tenant) is not None:
             return False
         await upsert_owner_profile(store, tenant, data)
@@ -391,7 +394,8 @@ async def _enqueue_rebuild(dsn: str, tenant: UserId) -> str:
     store = PostgresStore(dsn, application_name="pkchome:rebuild")
     await store.open()
     try:
-        await store.apply_schema()
+        # Asks rather than applies, like every process that is not the engine.
+        await store.ensure_schema()
         return await store.enqueue(tenant, RECALL_REBUILD_JOB_KIND, {})
     finally:
         await store.aclose()
