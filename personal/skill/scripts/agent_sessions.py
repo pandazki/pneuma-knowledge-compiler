@@ -24,6 +24,15 @@ SCHEMA = "pneuma.source.agent-session/v1"
 #: triage record counts the blocks it removed. Payload bytes changed, so a session ingested
 #: by an older converter is a different source if it is ever converted again.
 CONVERTER_VERSION = 3
+#: What version of the SELECTION rules a cursor was judged under. It is not the converter
+#: version: the payload is unchanged, only the judgement about which sessions are material.
+#: A cursor judged by an older version is read and judged again on the next pass even when
+#: not one byte moved (`stale_verdict`), so a rule that narrows recovers what the older one
+#: declined — and because the cursor's identity and `source_ids` are untouched, nothing
+#: already in the library is ingested twice.
+#:
+#: 2: a row's working directory INSIDE the project is the same project (`outside_project`).
+TRIAGE_VERSION = 2
 # The harness names the agent's turns are labelled with in L0, keyed by provider id.
 AGENT_NAMES = {"codex": "Codex", "claude-code": "Claude Code"}
 ACKNOWLEDGEMENTS = frozenset({
@@ -277,6 +286,28 @@ class Session:
         return result
 
 
+def under(path: Path, root: Path) -> bool:
+    """True when `path` is `root` or below it, compared by components: /a/bc is not under /a/b."""
+    return path == root or root in path.parents
+
+
+def outside_project(cwd, project: Path) -> bool:
+    """True when a recorded working directory belongs to a DIFFERENT project.
+
+    A harness records the shell's working directory as it stood, so a session in which the
+    agent moved into a subdirectory — one package of the repository, a worktree kept under
+    the project — is still that project's session, and thousands of turns of the Owner's own
+    work hang on saying so: a directory at or under the project's is the same project.
+
+    What is left is the fact the guard was written for. An encoded folder name cannot be
+    decoded — `-Users-a-b` is both `/Users/a/b` and `/Users/a-b` — and a working directory
+    that leaves the project entirely is how those two are told apart.
+    """
+    if not isinstance(cwd, str) or not cwd.strip():
+        return False
+    return not under(Path(cwd).expanduser().resolve(), project)
+
+
 def read_claude(path: Path, project: Path, data: bytes | None = None) -> Session:
     session = Session("claude-code", path.stem, path, project,
                       is_subagent="subagents" in path.parts or path.name.startswith("agent-"))
@@ -293,7 +324,7 @@ def read_claude(path: Path, project: Path, data: bytes | None = None) -> Session
         if session.is_subagent or row.get("isCompactSummary") or row.get("isMeta"):
             continue
         saw_primary = True
-        if row.get("cwd") and Path(row["cwd"]).expanduser().resolve() != project:
+        if outside_project(row.get("cwd"), project):
             # Encoded directory names can collide. Never assign the wrong project.
             session.project = None
             session.project_conflict = True
@@ -342,7 +373,7 @@ def read_codex(path: Path, project: Path, data: bytes | None = None) -> Session:
         if kind == "session_meta":
             session.session_id = str(payload.get("id") or payload.get("session_id") or path.stem)
             session.is_subagent = subagent(payload.get("source")) or subagent(payload.get("thread_source"))
-            if payload.get("cwd") and Path(payload["cwd"]).expanduser().resolve() != project:
+            if outside_project(payload.get("cwd"), project):
                 session.project = None
                 session.project_conflict = True
             if session.last_at is None:
@@ -394,11 +425,6 @@ def low_signal(text: str, ack_max_words: int) -> bool:
         return True
     normalized = text.strip().casefold().strip(".!?,;:\u3002\uff01\uff1f")
     return len(normalized.split()) <= ack_max_words and normalized in ACKNOWLEDGEMENTS
-
-
-def under(path: Path, root: Path) -> bool:
-    """True when `path` is `root` or below it, compared by components: /a/bc is not under /a/b."""
-    return path == root or root in path.parents
 
 
 def excluded_project(project: Path, roots=(), patterns=()) -> bool:
@@ -951,19 +977,27 @@ def stale_verdict(entry: dict) -> bool:
 
     The byte-identity shortcut means "nothing new here", and that holds only where the pass
     got somewhere with the file: an export, or a held increment it reports again. A session
-    the pass DECLINED as the engine's own round exported nothing, so when that rule narrows
-    the shortcut is the only thing between the Owner and a session never read again. An entry
-    written before the mark existed says nothing either way, so it is judged once — and from
-    then on it carries the answer.
+    the pass DECLINED exported nothing, so when a selection rule narrows the shortcut is the
+    only thing between the Owner and a session never read again.
+
+    Two marks answer that, because a rule narrows in two ways. `judged` is the version of the
+    RULES the cursor was judged under (`TRIAGE_VERSION`): a cursor judged by an older version
+    is read again once, whatever it was judged to be, and re-recorded at today's version.
+    `steward` is the version's blind spot — whether this session was declined as the engine's
+    own work, which turns on the Owner's own home and library directories and so may change
+    with no version behind it; a cursor carrying it is read on every pass until it stops
+    carrying it. An entry written before either mark existed says nothing either way, so it
+    is judged once — and from then on it carries the answer.
     """
-    return bool(entry.get("steward", True))
+    return bool(entry.get("steward", True)) or int(entry.get("judged") or 0) < TRIAGE_VERSION
 
 
 def empty_cursor(session: Session) -> dict:
     return {"provider": session.provider, "session_id": session.session_id,
             "file": str(session.path), "source_ids": [], "exported_turns": 0,
             "last_turn_id": None, "last_at": None, "prefix_hash": digest(b""),
-            "file_size": 0, "exported_bytes": 0, "held": None, "steward": False}
+            "file_size": 0, "exported_bytes": 0, "held": None, "steward": False,
+            "judged": TRIAGE_VERSION}
 
 
 def pending_turns(session: Session, earlier: Session, exported: int) -> Session:
@@ -1237,7 +1271,10 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                       # Stated on the cursor either way, so a session skipped under a wider
                       # rule is read again under a narrower one rather than staying unchanged
                       # bytes forever, and one no longer skipped stops carrying the mark.
-                      "steward": steward}
+                      "steward": steward,
+                      # And the version those rules were read from, so the next narrowing
+                      # needs no mark of its own to reach what this pass declined.
+                      "judged": TRIAGE_VERSION}
             line["triage"] = verdict
             if steward:
                 # The engine's own round, or a session standing in the home or the library.
@@ -1296,7 +1333,7 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                         # Between parts the byte boundary and the file identity stay where
                         # they were: the pass must not read this file as unchanged while
                         # parts of it are still owed.
-                        step = {**entry, "file": str(path),
+                        step = {**entry, "file": str(path), "judged": TRIAGE_VERSION,
                                 "split_turns": int(entry.get("split_turns") or 0) + len(part.turns)}
                     step.update(exported_turns=exported, last_turn_id=part.turns[-1]["turn_id"],
                                 last_at=part.turns[-1]["at"], held=None,

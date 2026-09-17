@@ -496,6 +496,51 @@ def test_repeated_root_arguments_are_all_scanned(provider_files, tmp_path, capsy
         "codex-sessions", "codex-sessions-two"]
 
 
+@pytest.mark.parametrize("provider", ["claude-code", "codex"])
+def test_a_working_directory_inside_the_project_is_the_same_project(provider_files, provider):
+    """An agent that moved into a subdirectory or a worktree never left the project.
+
+    The harness records the shell's directory as it stood, so this is the ordinary shape of
+    a long session — and reading it as a collision threw away the Owner's biggest sessions
+    whole.
+    """
+    inside = provider_files.project / "personal/desktop"
+    worktree = provider_files.project / ".claude/worktrees/agent-1"
+    if provider == "claude-code":
+        rows = claude_rows(provider_files.project)
+        rows[2]["cwd"] = str(inside)
+        rows[4]["cwd"] = str(worktree)
+        rows[8]["cwd"] = str(provider_files.project)
+        write_jsonl(provider_files.claude_file, rows)
+    else:
+        rows = codex_rows(provider_files.project)
+        rows[0]["payload"]["cwd"] = str(worktree)
+        write_jsonl(provider_files.codex_file, rows)
+    session = read_provider(provider_files, provider)
+    assert not session.project_conflict and session.project == provider_files.project
+    result = sessions.triage(session)
+    assert result["verdict"] == "compile" and "project_directory_conflict" not in result["reasons"]
+
+
+@pytest.mark.parametrize("provider", ["claude-code", "codex"])
+def test_a_working_directory_beside_the_project_is_still_a_collision(provider_files, provider):
+    """The fact the guard was written for: `/Users/a-b` is not `/Users/a/b`, and the encoded
+    folder name cannot say which of the two it stands for."""
+    sibling = provider_files.project.parent.parent / f"{provider_files.project.parent.name}-momo"
+    if provider == "claude-code":
+        rows = claude_rows(provider_files.project)
+        rows[2]["cwd"] = str(sibling)
+        write_jsonl(provider_files.claude_file, rows)
+    else:
+        rows = codex_rows(provider_files.project)
+        rows[0]["payload"]["cwd"] = str(sibling)
+        write_jsonl(provider_files.codex_file, rows)
+    session = read_provider(provider_files, provider)
+    assert session.project_conflict and session.project is None
+    result = sessions.triage(session)
+    assert result["verdict"] == "skip" and "project_directory_conflict" in result["reasons"]
+
+
 def test_claude_encoded_directory_collision_is_never_imported(provider_files, tmp_path):
     rows = claude_rows(provider_files.project)
     rows[2]["cwd"] = str(tmp_path / "another-project")

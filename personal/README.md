@@ -278,7 +278,12 @@ counted under `oversized_parts`.
 The converter's `--min-owner-turns`, `--min-owner-chars` and `--ack-max-words` still configure
 its manual triage (turn floor 3, character floor 0, default acknowledgement limit 1 word).
 Once the numeric thresholds are met, only slash commands/known acknowledgements and explicit
-research/chat receive index-only treatment. Subagents and directory conflicts are excluded.
+research/chat receive index-only treatment. Subagents are excluded, and so is a genuine
+directory collision — a session with a recorded working directory that is neither the
+project nor anywhere under it. A harness records the shell's directory as it stood, so an
+agent that moved into a subdirectory or a worktree is still in the same project; only a
+directory outside it tells apart the two projects one encoded folder name may stand for
+(`-Users-a-b` is both `/Users/a/b` and `/Users/a-b`).
 Owner words and agent prose remain verbatim; tools become bounded stubs, with arguments,
 results, reasoning and injected harness context excluded. Context a harness injects into
 an Owner turn — `<system-info>`, `<pneuma:env>`, `<system-reminder>`, a slash-command
@@ -288,8 +293,12 @@ and the triage record names how many blocks it took (`injected_blocks`). `list`/
 retain their
 whole-session rules: below the character threshold skips, below the turn floor is index-only.
 
-`sync-state.json` beside `library.yaml` stores source IDs, the exported turn cursor and a
-verified file prefix. Unchanged bytes never re-ingest because of mtime. Normal growth emits
+`sync-state.json` beside `library.yaml` stores source IDs, the exported turn cursor, a
+verified file prefix and the version of the selection rules the cursor was judged under.
+Unchanged bytes never re-ingest because of mtime; a cursor judged by an older version is
+read and judged once more even so, then re-recorded at today's version, so a rule that
+narrows recovers what the older one declined without re-ingesting anything already in the
+library. Normal growth emits
 only new turns with `continues`, `from_turn` and `part` metadata; previous canonical pages
 supply context and claims cite their own part. Prefix changes or truncation report
 `rewritten`; explicitly use `pkchome sync --rewritten reingest` to admit replacements.
