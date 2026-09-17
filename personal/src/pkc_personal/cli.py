@@ -16,7 +16,7 @@ from pneuma_knowledge_service.coding_agent.install import SKILL_HASH_ENV, SkillW
 
 from pkc_personal import console, infra, setup, skill_install, status, sync
 from pkc_personal.environment import LibraryNotChosen, home_environment, resolve_library
-from pkc_personal.home import Choices, Home, KEY_PATTERN, SyncConfig
+from pkc_personal.home import Choices, Home, KEY_PATTERN, SYNC_CONFIG_KEYS
 from pkc_personal.library import (
     ALL_PROJECTS, bind_library, create_library, libraries, pkc_script, render_library, set_config,
     set_credential, unbind_library, use_library,
@@ -55,6 +55,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--json", action="store_true")
     p.add_argument("--rewritten", choices=("report", "reingest"), default="report")
+    # `sync roots` edits WHERE the pass reads, in the shape `watch` edits WHAT it reads.
+    commands = p.add_subparsers(dest="action").add_parser("roots").add_subparsers(
+        dest="verb", required=True)
+    for verb in ("add", "ls", "rm"):
+        command = commands.add_parser(verb)
+        if verb != "ls":
+            command.add_argument("directory")
+            command.add_argument("--harness", required=True,
+                                 choices=("codex", "claude", "claude-code"),
+                                 help="codex roots hold the rollout date tree (…/sessions); "
+                                      "claude roots hold the encoded project folders (…/projects)")
     p = sub.add_parser("watch")
     _library_flag(p)
     commands = p.add_subparsers(dest="action", required=True)
@@ -100,7 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     for verb in ("get", "set"):
         p = commands.add_parser(verb)
         p.add_argument("key", choices=(*Choices.model_fields,
-                                       *(f"sync.{name}" for name in SyncConfig.model_fields)))
+                                       *(f"sync.{name}" for name in SYNC_CONFIG_KEYS)))
         if verb == "set":
             p.add_argument("value")
         _library_flag(p)
@@ -171,6 +182,11 @@ def _dispatch(args: argparse.Namespace, home: Home) -> None:
     elif args.command == "status":
         document = status.status_document(home, explicit)
         print(json.dumps(document, ensure_ascii=False, indent=2) if args.json else status.render_text(document))
+    elif args.command == "sync" and getattr(args, "action", None) == "roots":
+        if args.verb == "ls":
+            print(json.dumps(sync.roots(home), ensure_ascii=False, indent=2))
+        else:
+            sync.set_root(home, args.harness, args.directory, remove=args.verb == "rm")
     elif args.command == "sync":
         report = sync.run(home, resolve_library(home, explicit), dry_run=args.dry_run, rewritten=args.rewritten)
         script = sync.converter()

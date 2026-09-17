@@ -339,8 +339,12 @@ Owner 的裁定按主体排列知识：首先是**项目本身**——用途、�
 `ingest --project <dir>`。`--session-id` 从混合项目文件夹中选择特定会话；`--since` 按
 保留活动是否达到带时区的指定时刻过滤。`export --project <dir> --out <dir> [--owner-id …]`
 为每条准入会话写出一个过滤后的契约载荷。Export 的 Owner id 默认是 `owner`；ingest
-在未覆盖时使用所选库租户。Claude Code 由 `~/.claude/projects` 下编码的项目目录归属；
-Codex 由 `~/.codex/sessions` 下 rollout 的 `cwd` 归属。记录的目录冲突时跳过会话，
+在未覆盖时使用所选库租户。Claude Code 由某个 Claude Code 根目录（`~/.claude/projects`、
+`$CLAUDE_CONFIG_DIR/projects`）下编码的项目目录归属；Codex 由某个 Codex 根目录
+（`~/.codex/sessions`、`$CODEX_HOME/sessions`，以及已知宿主容器为每个账号保留的 home）下
+rollout 的 `cwd` 归属。每种宿主的根目录都是一份列表——按规则自动发现，加上 home 中的
+`sync.roots`——因为通过这类容器运行编码代理的机器几乎不会往默认根目录里写东西。会话身份
+与转录从哪个根目录读到无关。记录的目录冲突时跳过会话，
 包括编码名称碰撞。手动导入只索引的 export 时需要 `--intake searchable`；分流元数据
 本身不覆盖库的 intake。
 

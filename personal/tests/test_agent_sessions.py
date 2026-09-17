@@ -376,18 +376,21 @@ def test_triage_thresholds_and_treatments(texts, options, verdict, reason):
         assert reason in result["reasons"]
 
 
-@pytest.mark.parametrize("stub, steward", [
-    ("Bash: pkc", True),
-    ("Bash: pkchome", True),
-    ("Bash: /Users/x/.pkc/libraries/notes/.agents/skills/pkc-steward/scripts/pkc", True),
-    ("Bash: pkcompose", False),
-    ("Bash: python", False),
-    ("Write", False),
+@pytest.mark.parametrize("project, steward", [
+    # The launcher's per-launch working directory and the per-job harness config home.
+    ("/private/var/folders/t/pkc-round-9fk2a/momo", True),
+    ("/private/var/folders/t/pkc-agent-home-2a4c", True),
+    # Components with the hyphen kept: a project whose name merely reads alike is material.
+    ("/Users/momo/Codes/pkc-rounds", False),
+    ("/Users/momo/Codes/momo", False),
 ])
-def test_the_stewards_own_commands_make_a_session_the_librarys_maintenance(stub, steward):
-    session = triage_session(OWNER_TEXTS)
-    session.turns.append({"turn_id": "t9", "role": "agent", "kind": "action",
-                          "at": session.turns[-1]["at"], "text": stub})
+def test_only_the_engines_own_round_directories_are_its_own_work(project, steward):
+    session = triage_session(OWNER_TEXTS, project=Path(project))
+    # Every one of these ran the library's own command. That is the Owner asking their
+    # library a question in the middle of their own work, and it decides nothing.
+    for number, stub in enumerate(("Bash: pkchome", "Bash: pkc"), start=9):
+        session.turns.append({"turn_id": f"t{number}", "role": "agent", "kind": "action",
+                              "at": session.turns[-1]["at"], "text": stub})
     assert sessions.steward_work(session) is steward
     result = sessions.triage(session, steward=sessions.steward_work(session))
     assert result["verdict"] == ("skip" if steward else "compile")
@@ -395,9 +398,15 @@ def test_the_stewards_own_commands_make_a_session_the_librarys_maintenance(stub,
     assert result["canonical_treatment"] == ("none" if steward else "full")
 
 
+def test_a_session_with_no_project_at_all_is_not_the_engines_round():
+    assert sessions.steward_work(triage_session(OWNER_TEXTS, project=None)) is False
+
+
 def test_a_session_inside_the_home_is_the_stewards_own_work(tmp_path):
     library = tmp_path / "home/libraries/notes"
     roots = sessions.steward_roots({"path": str(library), "engine_dir": str(library / "engine")})
+    # The console's Steward session is opened in the library's own directory, so it is here.
+    assert sessions.steward_work(triage_session(OWNER_TEXTS, project=library), roots)
     assert sessions.steward_work(triage_session(OWNER_TEXTS, project=library / "engine"), roots)
     assert sessions.steward_work(triage_session(OWNER_TEXTS, project=tmp_path / "home/run"), roots)
     assert not sessions.steward_work(triage_session(OWNER_TEXTS, project=tmp_path / "momo"), roots)
@@ -408,6 +417,83 @@ def test_a_session_inside_the_home_is_the_stewards_own_work(tmp_path):
 def test_project_membership_and_subagent_are_required_for_compile():
     assert sessions.triage(triage_session(OWNER_TEXTS, project=None))["verdict"] == "index"
     assert sessions.triage(triage_session(OWNER_TEXTS, is_subagent=True))["verdict"] == "index"
+
+
+def orca_home(fake_home, account="9f1c2d3e-0000-4aaa-8bbb-000000000001"):
+    """One account home of a harness container, laid out exactly as `~/.codex` is."""
+    home = fake_home / "Library/Application Support/orca/codex-accounts" / account / "home"
+    (home / "sessions").mkdir(parents=True)
+    return home / "sessions"
+
+
+@pytest.fixture
+def fake_home(tmp_path, monkeypatch):
+    """A HOME of this test's own: root discovery reads the machine's, and must not here."""
+    machine = tmp_path / "owner"
+    machine.mkdir()
+    monkeypatch.setenv("HOME", str(machine))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    return machine
+
+
+def test_codex_roots_are_the_default_home_the_env_and_every_container_account(fake_home, monkeypatch):
+    (fake_home / ".codex/sessions").mkdir(parents=True)
+    first = orca_home(fake_home)
+    second = orca_home(fake_home, "9f1c2d3e-0000-4aaa-8bbb-000000000002")
+    # An account directory without the layout is not a root; discovery names no account id.
+    (fake_home / "Library/Application Support/orca/codex-accounts/empty/home").mkdir(parents=True)
+    assert sessions.codex_session_roots() == [fake_home / ".codex/sessions", first, second]
+    moved = fake_home / "elsewhere/codex"
+    monkeypatch.setenv("CODEX_HOME", str(moved))
+    assert sessions.codex_session_roots()[:2] == [fake_home / ".codex/sessions", moved / "sessions"]
+    # `$CODEX_HOME` pointing at the default names one directory, and it is scanned once.
+    monkeypatch.setenv("CODEX_HOME", str(fake_home / ".codex"))
+    assert sessions.codex_session_roots() == [fake_home / ".codex/sessions", first, second]
+
+
+def test_claude_roots_are_the_default_home_and_a_moved_config_directory(fake_home, monkeypatch):
+    assert sessions.claude_session_roots() == [fake_home / ".claude/projects"]
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(fake_home / "elsewhere/claude"))
+    assert sessions.claude_session_roots() == [fake_home / ".claude/projects",
+                                               fake_home / "elsewhere/claude/projects"]
+
+
+def test_configured_roots_are_added_last_and_never_twice(fake_home):
+    extra = fake_home / "volume/codex-sessions"
+    extra.mkdir(parents=True)
+    assert sessions.codex_session_roots([str(extra), str(extra), "~/.codex/sessions"]) == [
+        fake_home / ".codex/sessions", extra]
+    assert sessions.claude_session_roots([str(extra)]) == [
+        fake_home / ".claude/projects", extra]
+
+
+def test_a_session_under_a_container_root_is_read_with_the_same_identity(provider_files, fake_home):
+    """The same rollout under a container home is the same session it is anywhere else."""
+    here = write_jsonl(provider_files.codex_root / "2026/09/01/rollout-momo.jsonl",
+                       codex_rows(provider_files.project))
+    there = orca_home(fake_home) / "2026/09/01/rollout-momo.jsonl"
+    write_jsonl(there, codex_rows(provider_files.project))
+    one = sessions.read_codex(here, provider_files.project)
+    other = sessions.read_codex(there, provider_files.project)
+    assert sessions.session_key(one) == sessions.session_key(other)
+    # Discovery finds it under the container root with no configuration at all.
+    found = sessions.discover(provider_files.project, [], sessions.codex_session_roots())
+    assert [path for _, path in found] == [there]
+
+
+def test_repeated_root_arguments_are_all_scanned(provider_files, tmp_path, capsys):
+    second = tmp_path / "codex-sessions-two"
+    other = tmp_path / "other"
+    other.mkdir()
+    write_jsonl(second / "2026/09/01/rollout-other.jsonl", codex_rows(provider_files.project))
+    assert sessions.main(["list", "--project", str(provider_files.project),
+                          "--claude-root", str(provider_files.claude_root),
+                          "--codex-root", str(provider_files.codex_root),
+                          "--codex-root", str(second)]) == 0
+    listed = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert sorted(Path(row["file"]).parents[3].name for row in listed if row["provider"] == "codex") == [
+        "codex-sessions", "codex-sessions-two"]
 
 
 def test_claude_encoded_directory_collision_is_never_imported(provider_files, tmp_path):

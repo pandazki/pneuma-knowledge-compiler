@@ -34,8 +34,22 @@ ACKNOWLEDGEMENTS = frozenset({
 })
 #: The `path` of a watch entry that admits every project either harness has a session for.
 ALL_PROJECTS = "all"
-#: The executables whose presence in a session makes it the Steward's own work.
-STEWARD_COMMANDS = frozenset({"pkc", "pkchome"})
+#: What a harness home is called underneath: Codex keeps its rollouts in a date tree under
+#: `sessions`, Claude Code keeps one encoded folder per project under `projects`. The name is
+#: the LAYOUT, and every root below is some home with one of these under it.
+CODEX_SESSIONS = "sessions"
+CLAUDE_PROJECTS = "projects"
+#: Harness CONTAINERS: an application that runs several Codex accounts under one login gives
+#: each account a home of its own, laid out exactly as `~/.codex` is. The glob is that
+#: container's known layout — an account id is discovered, never listed here — so a machine
+#: that runs its Codex work through one has its sessions read without configuring anything.
+#: On the Owner's machine 183 of two days' 197 rollouts were written under these and 14 under
+#: `~/.codex/sessions`, which is why a single default root was not enough.
+CODEX_CONTAINER_HOMES = ("Library/Application Support/orca/codex-accounts/*/home",)
+#: The temp directories one engine ROUND works under: the launcher's per-launch working
+#: directory (service `coding_agent/launcher.WORKDIR_PREFIX`) and the per-job harness config
+#: home its sessions live in (`coding_agent/round_runner.CONFIG_HOME_PREFIX`).
+ENGINE_ROUND_PREFIXES = ("pkc-round-", "pkc-agent-home-")
 #: How far into a transcript to look for the directory it was opened in.
 CWD_SCAN_ROWS = 40
 #: Wrappers a harness staples into what a reader would take for the Owner's own turn.
@@ -407,8 +421,10 @@ def steward_roots(library: dict, home: str | None = None) -> list[Path]:
     """The directories a Steward works in when maintaining THIS library.
 
     Someone at a terminal draining the queue stands in the home or in the library — its
-    engine, its canonical repository, its rendered package. Those sessions are the library's
-    own maintenance, never its material.
+    engine, its canonical repository, its rendered package. The console's own Steward session
+    stands there too: it is opened in the engine's project directory (service
+    `api/routes/steward.project_dir`, the parent of the engine directory), which is the
+    library's own path. Those sessions are the library's own maintenance, never its material.
     """
     roots = []
     for key in ("path", "engine_dir", "canonical_dir", "skill_dir"):
@@ -425,25 +441,34 @@ def steward_roots(library: dict, home: str | None = None) -> list[Path]:
     return roots
 
 
-def steward_action(text: str) -> bool:
-    """True when an action stub names the library's own command as the executable.
+def engine_round(project: Path) -> bool:
+    """True when this session was opened inside one of the engine's own round directories.
 
-    `action_stub` keeps a bare first word (`Bash: pkc`) or an absolute path, so the comparison
-    is by basename; the rendered package's own entry (`<lib>/.../scripts/pkc`) is named too.
-    A different executable that merely starts with those letters (`pkcompose`) is not one.
+    Compared by path COMPONENT and with the trailing hyphen kept, never as a prefix of the
+    whole string: a round's working directory is a temp directory named `pkc-round-<random>`
+    and the harness is opened in it or below it, while `~/Codes/pkc-rounds` is an ordinary
+    project that merely reads alike.
     """
-    _, separator, detail = text.partition(": ")
-    detail = detail.strip()
-    if not separator or not detail:
-        return False
-    return detail.rsplit("/", 1)[-1] in STEWARD_COMMANDS or detail.endswith("/scripts/pkc")
+    return any(part.startswith(prefix) for part in project.parts
+               for prefix in ENGINE_ROUND_PREFIXES)
 
 
 def steward_work(session: Session, roots=()) -> bool:
-    """Whether this session is work ON the library rather than work the library records."""
-    if session.project is not None and any(under(session.project, root) for root in roots):
-        return True
-    return any(turn["kind"] == "action" and steward_action(turn["text"]) for turn in session.turns)
+    """Whether this session is the ENGINE's own round rather than work the library records.
+
+    The rule has one purpose — a library must not compile its own compile rounds — so what
+    identifies one is WHERE it was opened: a round's temp working directory or config home
+    (`engine_round`), or the home and library directories a Steward at a terminal and the
+    console's Steward session stand in (`steward_roots`).
+
+    It is deliberately NOT "this session ran `pkc`". The Owner's own work in their own
+    repository routinely asks the library a question, and that rule cost one 26 MB session of
+    the Owner directing an agent — a thousand turns of material — for one `pkchome status`
+    among them.
+    """
+    if session.project is None:
+        return False
+    return engine_round(session.project) or any(under(session.project, root) for root in roots)
 
 
 #: How much Owner+agent text one ingested PART may carry. A fact about a compile round's
@@ -588,50 +613,125 @@ def codex_cwd(path: Path) -> Path | None:
     return Path(cwd).expanduser().resolve() if isinstance(cwd, str) and cwd.strip() else None
 
 
-def discover(project: Path, claude_root: Path, codex_root: Path):
+def unique_roots(paths) -> list[Path]:
+    """The given roots resolved, in order, with repeats dropped.
+
+    `$CODEX_HOME=~/.codex` names the directory the default already names, and a root scanned
+    twice would report its sessions twice. Order is kept because it is the scan order the
+    report lists.
+    """
+    seen, roots = set(), []
+    for path in paths:
+        candidate = Path(path).expanduser()
+        try:
+            candidate = candidate.resolve()
+        except OSError:
+            candidate = candidate.absolute()
+        if candidate not in seen:
+            seen.add(candidate)
+            roots.append(candidate)
+    return roots
+
+
+def codex_session_roots(extra=()) -> list[Path]:
+    """Every directory a Codex rollout may have been written under, discovered and configured.
+
+    `~/.codex/sessions` is only where an UNCONFIGURED CLI writes. `$CODEX_HOME` moves the
+    whole home, and a harness container gives each account a home of its own
+    (`CODEX_CONTAINER_HOMES`) — so the roots are a list and this is the one function that
+    knows how it is found. `extra` is what the Owner named in `sync.roots.codex`, for a
+    layout no rule here knows. A root that does not exist stays in the list: scanning it
+    finds nothing, and the report's zero is how the Owner sees it was read.
+    """
+    roots = [Path.home() / ".codex" / CODEX_SESSIONS]
+    configured = os.environ.get("CODEX_HOME", "").strip()
+    if configured:
+        roots.append(Path(configured).expanduser() / CODEX_SESSIONS)
+    for pattern in CODEX_CONTAINER_HOMES:
+        roots += [home / CODEX_SESSIONS for home in sorted(Path.home().glob(pattern))
+                  if (home / CODEX_SESSIONS).is_dir()]
+    return unique_roots([*roots, *extra])
+
+
+def claude_session_roots(extra=()) -> list[Path]:
+    """Every directory a Claude Code transcript may have been written under.
+
+    One root per config directory, with the project directory encoded in the folder name — so
+    unlike Codex there is no per-account tree to discover, only the config directory the Owner
+    may have moved (`$CLAUDE_CONFIG_DIR`), and `sync.roots.claude` for anything else.
+    """
+    roots = [Path.home() / ".claude" / CLAUDE_PROJECTS]
+    configured = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    if configured:
+        roots.append(Path(configured).expanduser() / CLAUDE_PROJECTS)
+    return unique_roots([*roots, *extra])
+
+
+def discover(project: Path, claude_roots, codex_roots):
     # One exact project. A wider scope is a watch entry, resolved by `discover_projects`.
     encodings = {str(project).replace("/", "-"), re.sub(r"[^a-zA-Z0-9]", "-", str(project))}
-    for encoded in sorted(encodings):
-        directory = claude_root / encoded
-        paths = set(directory.glob("*.jsonl")) | set(directory.glob("*/subagents/*.jsonl"))
-        for path in sorted(paths):
-            if not path.is_symlink():
-                yield "claude-code", path
-    for path in sorted(codex_root.glob("*/*/*/rollout-*.jsonl")):
-        if not path.is_symlink() and codex_cwd(path) == project:
-            yield "codex", path
+    for root in claude_roots:
+        for encoded in sorted(encodings):
+            directory = root / encoded
+            paths = set(directory.glob("*.jsonl")) | set(directory.glob("*/subagents/*.jsonl"))
+            for path in sorted(paths):
+                if not path.is_symlink():
+                    yield "claude-code", path
+    for root in codex_roots:
+        for path in sorted(root.glob("*/*/*/rollout-*.jsonl")):
+            if not path.is_symlink() and codex_cwd(path) == project:
+                yield "codex", path
 
 
-def discover_projects(claude_root: Path, codex_root: Path) -> dict:
+def discover_projects(claude_roots, codex_roots) -> dict:
     """Every project either harness has a session for, keyed by its resolved directory.
 
     Enumerated from the harness roots themselves, so a scope wider than one directory needs
     no list of directories: the transcripts say which project they belong to.
     """
     projects: dict = {}
-    for directory in sorted(claude_root.glob("*")):
-        if not directory.is_dir():
-            continue
-        paths = [path for path in sorted(set(directory.glob("*.jsonl"))
-                                         | set(directory.glob("*/subagents/*.jsonl")))
-                 if not path.is_symlink()]
-        named = {path: claude_cwd(path) for path in paths}
-        # A subagent transcript may name no directory of its own; its siblings do.
-        fallback = next((cwd for cwd in named.values() if cwd is not None), None)
-        for path in paths:
-            project = named[path] or fallback
+    for root in claude_roots:
+        for directory in sorted(root.glob("*")):
+            if not directory.is_dir():
+                continue
+            paths = [path for path in sorted(set(directory.glob("*.jsonl"))
+                                             | set(directory.glob("*/subagents/*.jsonl")))
+                     if not path.is_symlink()]
+            named = {path: claude_cwd(path) for path in paths}
+            # A subagent transcript may name no directory of its own; its siblings do.
+            fallback = next((cwd for cwd in named.values() if cwd is not None), None)
+            for path in paths:
+                project = named[path] or fallback
+                if project is not None:
+                    projects.setdefault(project, []).append(("claude-code", path))
+    for root in codex_roots:
+        for path in sorted(root.glob("*/*/*/rollout-*.jsonl")):
+            if path.is_symlink():
+                continue
+            project = codex_cwd(path)
             if project is not None:
-                projects.setdefault(project, []).append(("claude-code", path))
-    for path in sorted(codex_root.glob("*/*/*/rollout-*.jsonl")):
-        if path.is_symlink():
-            continue
-        project = codex_cwd(path)
-        if project is not None:
-            projects.setdefault(project, []).append(("codex", path))
+                projects.setdefault(project, []).append(("codex", path))
     return projects
 
 
-def watch_targets(watches: list[dict], claude_root: Path, codex_root: Path, *,
+def root_counts(claude_roots, codex_roots, targets) -> list[dict]:
+    """How many sessions each scanned root yielded, with every root listed.
+
+    A root that yielded none is the point of the line: a machine whose Codex work all runs in
+    a container home has a `~/.codex/sessions` that reads 0, and a zero beside a named
+    directory is how the Owner sees that root was read rather than missed.
+    """
+    counts = {("claude-code", root): 0 for root in claude_roots}
+    counts.update({("codex", root): 0 for root in codex_roots})
+    for provider, path in dict.fromkeys((provider, path) for _, _, provider, path in targets):
+        root = next((root for (harness, root) in counts if harness == provider and under(path, root)), None)
+        if root is not None:
+            counts[(provider, root)] += 1
+    return [{"provider": provider, "path": str(root), "sessions": count}
+            for (provider, root), count in counts.items()]
+
+
+def watch_targets(watches: list[dict], claude_roots, codex_roots, *,
                   roots=(), patterns=()) -> tuple[list, int]:
     """The sessions the watch entries admit, and how many projects have no directory left.
 
@@ -647,13 +747,13 @@ def watch_targets(watches: list[dict], claude_root: Path, codex_root: Path, *,
         harnesses = watch.get("harnesses") or ["claude-code", "codex"]
         if path == ALL_PROJECTS or watch.get("recursive"):
             if discovered is None:
-                discovered = discover_projects(claude_root, codex_root)
+                discovered = discover_projects(claude_roots, codex_roots)
             root = None if path == ALL_PROJECTS else Path(path).expanduser().resolve()
             found = [(project, sessions) for project, sessions in sorted(discovered.items())
                      if root is None or under(project, root)]
         else:
             project = Path(path).expanduser().resolve()
-            found = [(project, sorted(discover(project, claude_root, codex_root)))]
+            found = [(project, sorted(discover(project, claude_roots, codex_roots)))]
         for project, sessions in found:
             if excluded_project(project, roots, patterns):
                 continue
@@ -665,12 +765,20 @@ def watch_targets(watches: list[dict], claude_root: Path, codex_root: Path, *,
     return targets, len(missing)
 
 
+def argument_roots(args) -> tuple[list[Path], list[Path]]:
+    """The roots one command line asks for: what `--claude-root`/`--codex-root` named, or
+    the discovered defaults. A stated root REPLACES the defaults for that harness — a run
+    pointed at one directory is pointed at one directory."""
+    return (unique_roots(args.claude_roots) if args.claude_roots else claude_session_roots(),
+            unique_roots(args.codex_roots) if args.codex_roots else codex_session_roots())
+
+
 def scan(args):
     project = args.project.expanduser().resolve()
     if not project.is_dir():
         raise ValueError("--project must name an existing directory")
     since = timestamp(args.since) if args.since else None
-    for provider, path in discover(project, args.claude_root.expanduser(), args.codex_root.expanduser()):
+    for provider, path in discover(project, *argument_roots(args)):
         try:
             session = read_claude(path, project) if provider == "claude-code" else read_codex(path, project)
             if args.session_id and session.session_id not in args.session_id:
@@ -838,11 +946,24 @@ def complete_jsonl(data: bytes) -> bytes:
     return data
 
 
+def stale_verdict(entry: dict) -> bool:
+    """True when a file observed at exactly this size must be read and judged again anyway.
+
+    The byte-identity shortcut means "nothing new here", and that holds only where the pass
+    got somewhere with the file: an export, or a held increment it reports again. A session
+    the pass DECLINED as the engine's own round exported nothing, so when that rule narrows
+    the shortcut is the only thing between the Owner and a session never read again. An entry
+    written before the mark existed says nothing either way, so it is judged once — and from
+    then on it carries the answer.
+    """
+    return bool(entry.get("steward", True))
+
+
 def empty_cursor(session: Session) -> dict:
     return {"provider": session.provider, "session_id": session.session_id,
             "file": str(session.path), "source_ids": [], "exported_turns": 0,
             "last_turn_id": None, "last_at": None, "prefix_hash": digest(b""),
-            "file_size": 0, "exported_bytes": 0, "held": None}
+            "file_size": 0, "exported_bytes": 0, "held": None, "steward": False}
 
 
 def pending_turns(session: Session, earlier: Session, exported: int) -> Session:
@@ -891,8 +1012,8 @@ def legacy_prefix(session: Session, data: bytes, entry: dict, owner_id: str, opt
 
 
 def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
-              rewritten: str = "report", claude_root: Path | None = None,
-              codex_root: Path | None = None, options: dict | None = None,
+              rewritten: str = "report", claude_roots=None,
+              codex_roots=None, options: dict | None = None,
               owner_id: str | None = None, session_ids: list[str] | None = None,
               pkchome: str = "pkchome", owner_name: str | None = None,
               exclude: list[str] | None = None, home: str | None = None,
@@ -903,21 +1024,21 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
     lock = directory.parents[1] / "run" / f"{library['name']}.sync.lock"
     with sync_lock(lock, dry_run=dry_run):
         return _sync_pass(library, watches, state_path, dry_run=dry_run, rewritten=rewritten,
-                          claude_root=claude_root or Path.home() / ".claude/projects",
-                          codex_root=codex_root or Path.home() / ".codex/sessions",
+                          claude_roots=unique_roots(claude_roots or claude_session_roots()),
+                          codex_roots=unique_roots(codex_roots or codex_session_roots()),
                           options=options or {}, owner_id=owner_id or library["tenant"],
                           owner_name=owner_name or library.get("owner_name") or None,
                           session_ids=session_ids, pkchome=pkchome,
                           exclude=exclude or (), home=home, max_part_chars=max_part_chars)
 
 
-def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root, codex_root,
+def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots, codex_roots,
                options, owner_id, owner_name, session_ids, pkchome, exclude, home,
                max_part_chars=MAX_PART_CHARS):
     if max_part_chars < MIN_PART_CHARS:
         raise ValueError(f"max-part-chars must be >= {MIN_PART_CHARS}")
     state = read_sync_state(state_path)
-    report = {**dict.fromkeys(SYNC_COUNTS, 0), "sessions": [], "dry_run": dry_run}
+    report = {**dict.fromkeys(SYNC_COUNTS, 0), "sessions": [], "roots": [], "dry_run": dry_run}
     state.setdefault("legacy", {})
 
     def save():
@@ -1002,8 +1123,8 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                for key, entry in state["sessions"].items()}
     roots = steward_roots(library, home)
     targets, report["project_missing"] = watch_targets(
-        watches, claude_root.expanduser(), codex_root.expanduser(),
-        roots=roots, patterns=exclude)
+        watches, claude_roots, codex_roots, roots=roots, patterns=exclude)
+    report["roots"] = root_counts(claude_roots, codex_roots, targets)
     for watch, project, provider, path in targets:
         if (provider, str(path)) in seen:
             continue
@@ -1030,7 +1151,7 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                     line["status"] = "rewritten"
                     report["sessions"].append(line)
                     continue
-                if intact and len(data) == observed["file_size"]:
+                if intact and len(data) == observed["file_size"] and not stale_verdict(observed):
                     report["unchanged"] += 1
                     line["status"] = "unchanged"
                     if observed["held"]:
@@ -1077,7 +1198,10 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                 old_ids = entry["source_ids"] if entry else []
                 entry = empty_cursor(session)
                 entry["source_ids"] = old_ids
-            if entry and not was_rewritten and len(data) == entry["file_size"]:
+            if (entry and not was_rewritten and len(data) == entry["file_size"]
+                    and not stale_verdict(entry)):
+                # The same shortcut as above, past the point where identity is known, and the
+                # same exception to it.
                 report["unchanged"] += 1
                 line["status"] = "unchanged"
                 if entry["held"]:
@@ -1109,11 +1233,15 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_root,
                 beyond = 0
             steward = steward_work(session, roots)
             verdict = triage(whole, **options, steward=steward)
-            cursor = {**entry, "file": str(path), "file_size": len(data), "prefix_hash": digest(data)}
+            cursor = {**entry, "file": str(path), "file_size": len(data), "prefix_hash": digest(data),
+                      # Stated on the cursor either way, so a session skipped under a wider
+                      # rule is read again under a narrower one rather than staying unchanged
+                      # bytes forever, and one no longer skipped stops carrying the mark.
+                      "steward": steward}
             line["triage"] = verdict
             if steward:
-                # Work ON the library, by the Owner or a Steward at a terminal. It never
-                # advances to index: a library ingesting this would eat its own output.
+                # The engine's own round, or a session standing in the home or the library.
+                # It never advances to index: a library ingesting this would eat its output.
                 line["status"] = "steward"
                 report["skipped_steward"] += 1
             elif session.is_subagent or session.project_conflict or (
@@ -1226,6 +1354,10 @@ def render_sync(report: dict) -> str:
             detail += " · migration due"
         lines.append(f"{row['status']}: {row.get('provider', '')} {row.get('session_id', row['file'])}{detail}"
                      + (f" · {row['error']}" if row.get("error") else ""))
+    # Every root, zeros included: a root that yielded nothing was still read, and the line is
+    # how the Owner tells that apart from a directory the pass never looked in.
+    for root in report.get("roots", ()):
+        lines.append(f"root {root['provider']} {root['path']}: {root['sessions']} sessions")
     lines.append(" · ".join(f"{key}: {report[key]}" for key in SYNC_COUNTS))
     lines.append("Dry run; nothing written." if report["dry_run"] else
                  f"Ingested {report['ingested']} parts; the engine worker or Steward drains the enqueued jobs.")
@@ -1234,9 +1366,10 @@ def render_sync(report: dict) -> str:
 
 def ingest_sessions(args, library: dict, *, dry_run: bool) -> int:
     # Keep the manual converter entry, with exactly the same cursor and lock as the tray.
+    claude_roots, codex_roots = argument_roots(args)
     report = sync_pass(library, [{"path": str(args.project), "since": args.since}],
                        dry_run=dry_run, rewritten=args.rewritten,
-                       claude_root=args.claude_root, codex_root=args.codex_root,
+                       claude_roots=claude_roots, codex_roots=codex_roots,
                        options={key: getattr(args, key) for key in
                                 ("min_owner_turns", "min_owner_chars", "ack_max_words", "purpose")},
                        max_part_chars=args.max_part_chars,
@@ -1255,8 +1388,16 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--project", type=Path, required=True)
         command.add_argument("--since", help="include sessions with retained activity at/after this timezone-aware ISO timestamp")
         command.add_argument("--session-id", action="append", help="restrict to a listed session; repeat for several")
-        command.add_argument("--claude-root", type=Path, default=Path.home() / ".claude/projects")
-        command.add_argument("--codex-root", type=Path, default=Path.home() / ".codex/sessions")
+        # Repeatable, because a machine has several: a Codex home per account under a harness
+        # container, a moved `$CODEX_HOME`, a `$CLAUDE_CONFIG_DIR`. Stating one REPLACES the
+        # discovered defaults for that harness (`argument_roots`).
+        command.add_argument("--claude-root", type=Path, action="append", dest="claude_roots",
+                             help="a Claude Code projects directory; repeat for several. "
+                                  "Default: ~/.claude/projects and $CLAUDE_CONFIG_DIR/projects")
+        command.add_argument("--codex-root", type=Path, action="append", dest="codex_roots",
+                             help="a Codex sessions directory; repeat for several. Default: "
+                                  "~/.codex/sessions, $CODEX_HOME/sessions and each account "
+                                  "home a known harness container keeps")
         command.add_argument("--min-owner-turns", type=int, default=3)
         command.add_argument("--min-owner-chars", type=int, default=200,
                              help="skip sessions below this owner-text length; 0 disables the length filter")
