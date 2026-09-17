@@ -45,6 +45,7 @@
 pkchome setup [--answers <file>] [--non-interactive] [--no-skill]
 pkchome up | down | restart | console [install] | tray
 pkchome status [--json] [--library <name>]
+pkchome rebuild [--library <name>]
 pkchome onboarding [--library <name>]
 pkchome library create <name> [--from <name>] [--language en|zh] [--contract personal-projects|personal-knowledge|<path>] [--backend …]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
@@ -107,6 +108,21 @@ L2 边界——判断简单，却按编译轮的上下文付费）的推理强�
 `engine/engine.yaml`，所以下一次有什么东西重渲染这个目录时它不会丢；只有当它不同于那个默认
 值时，`status` 才在 `Rounds:` 一行里印出来——`up to 1200s each`。改动其中任何一个
 都会重启该库的引擎，因为启动器与引擎都只在启动时读一次设置。
+
+每个库都启用一个索引组件 `time`——把主人自己的日历当成一条索引。它为每个已存的块留一行派生
+记录（这个块属于你自己时区里的哪一个日历日），并在召回上给出一条走这份索引的 `timespan`
+查询路：于是「说说我这两天的工作」问的是一段时期，答案就来自那两天的材料——那几场会话，以及
+引用了它们的断言——而不是碰巧在字面上匹配上的东西。把口语说法折算成两个日期是路由那一轮的
+事，它看得到当前时刻和你的时区；索引自己不解析任何自然语言时间。`status` 会在
+`Components:` 一行里写明启用了什么，这份名单就是库里 `engine/engine.yaml` 的一行
+（`components:`）——框架随包附带的 `people` 与 `attention` 在这里是关着的。
+
+这些行是派生的，所以一座在组件出现之前就存在的库，对自己的过去一行都没有：`pkchome up`
+会先排上一次重建，把已经存下来的东西重新派生一遍，再把组件写进升级库的引擎文件，两件事都在
+那个引擎启动之前；而且要么都做，要么都不做——够不着存储的那次启动什么也不改，下一次原样再来
+一遍。`pkchome rebuild` 是同一件事的手动版——它按这个库自己的租户排一个 `recall_rebuild`
+任务，引擎的 worker 领走，等待期间 `status` 会多出一行 `Rebuild:`。没有任何权威数据被动过：
+来源与正本只被读，不被写。
 
 知识库选择优先级依次是 `--library`、`PKC_LIBRARY`、当前目录或祖先中最近的 `.pkc`
 文件，以及 home 的当前库。未选择时以退出码 2 拒绝执行。`env` 为用户自己的 shell

@@ -131,6 +131,25 @@ API 之上的 SPA，由项目 compose 的 `console` profile 拉起）。
 13. **默认契约是个人版的资产。** 不带 `--contract` 建的库拿到 `personal-knowledge`，一份放在
     `personal/contracts/` 下、为一个人的笔记、会议、聊天和邮件写的契约。它从库的同名参考策略播种
     一次，此后就是个人版自己的：个人版运行时从不读 `pneuma-knowledge-strategies`，两者允许分叉。
+14. **每座库都启用 `time` 组件，而且只启用它。** 个人知识库由带日期的材料构成，被问的也是带日期
+    的问题——「说说我这两天的工作」问的是一段时期，而一个组件都没注册时，召回没有任何一条查询路
+    回答时期，答案只能由词面与向量碰巧排上来的东西拼出来。`time` 就是回答它的那条索引：每个块一行
+    带主人自己日历日的派生记录、走这份索引的 `timespan` 快路，以及深召回里的 `timeline` / `as_of`
+    （index-components §6）。它写在库自己的 `engine/engine.yaml` 里（`components: time`），而不是
+    由个人版的代码强加：文件仍是权威，主人自己加上别的组件也留得住；`home_environment` 只转述这份
+    文件所说的，`pkchome status` 把它写在明面上。`people` 与 `attention` 不启用：`people` 绑定的
+    契约族这一版的契约并不声明，而 `attention` 报告的咨询记录，一个人的库攒不了多少。
+15. **本版新增的开关在下一次启动时落到已有的库上，它让什么变得可派生，就重建什么。** `pkchome up`
+    在启动每座库的引擎之前先迁移它的引擎文件——引擎只在启动时读一次自己的目录——并且只写文件没有
+    声明的键：于是这次迁移靠状态本身幂等，而不靠记一笔步骤，也永远不覆盖任何一个选择。这样启用的
+    组件自己什么都不会索引：它的投影是派生的，而已经进了 L0 的东西当初是在没有它的情况下索引的。
+    所以同一次启动会为那个租户排上一个 `recall_rebuild` 任务，由 worker 从 L0 把这些行重新派生出来
+    ——升级过的库无需任何手动步骤就能回答关于自己过去的问题。要么都做，要么都不做：任务先排队，键
+    只在排上了之后才写。否则，一个在够不着存储时写下的文件，就是一座握着组件、却对自己已有的东西
+    一行都没索引的库——而迁移是幂等的，它再也不会有第二次机会。`pkchome rebuild` 是同一个请求的手动版。
+    它只排队、绝不在这一侧领走：这个任务种类存在，本就是为了让重建吃到和其他任务一样的按用户认领，
+    而个人版永远有一个活着的 worker，恰恰是框架自己的运维脚本告诫不要与之并行的那种情形。等待期间
+    `status` 会多出一行 `Rebuild:`。
 
 ## 5. 家
 
@@ -164,7 +183,8 @@ API 之上的 SPA，由项目 compose 的 `console` profile 拉起）。
 ```
 pkchome setup [--non-interactive --answers <f>]   config.yaml、探测端口、拉起基础设施与引擎、第一座库、两个问题
 pkchome up | down | restart                       全机的中间件与引擎进程
-pkchome status [--json] [--library <name>]        逐项探测：docker、四个服务、引擎、队列；每座库：key、引擎目录、正本、skill 新鲜度、已完成步骤、上次使用
+pkchome status [--json] [--library <name>]        逐项探测：docker、四个服务、引擎、队列；每座库：启用的组件、key、引擎目录、正本、skill 新鲜度、已完成步骤、上次使用
+pkchome rebuild [--library <name>]                为该库自己的租户排一个 `recall_rebuild` 任务：每个已启用组件的投影，从 L0 与留存记录重新派生
 pkchome library create <name> [--from <name>] [--language …] [--contract <path>]
 pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
 pkchome config get|set <key> [<value>] [--library <name>]   家的默认值或某座库的选择（semantic_retrieval、backend、embedding）
@@ -182,7 +202,7 @@ pkchome register <dir> | forget <dir>             （v2）
 
 `pkchome status --json` 是三个读者共用的契约——Steward、控制台的健康页、托盘。形状：`home`（路径、
 版本）、`docker`（可达否）、`services`（四个，各 `{port, up}`）、`libraries`（各 `{name, current, engine: {pid, up, port, uptime}, queue: {pending, failed,
-last_compile_at}, key, engine_dir, canonical_head, skill_fresh, steps, last_used}`）。
+rebuilding, last_compile_at}, components, key, engine_dir, canonical_head, skill_fresh, steps, last_used}`）。
 
 ## 7. 全局 skill
 

@@ -10,7 +10,9 @@ import subprocess
 from pneuma_knowledge_service.infra.compose import render_middleware_compose
 
 from pkc_personal.home import Home, atomic_write
-from pkc_personal.library import libraries, persist_owner_profile
+from pkc_personal.library import (
+    engine_components, libraries, migrate_engine, persist_owner_profile, request_rebuild,
+)
 
 
 def docker_reachable() -> bool:
@@ -90,6 +92,19 @@ def up(home: Home) -> None:
         # unknown tenant is answered with a synthetic mock person. Write the one the engine
         # directory already holds before the engine that would serve it starts.
         persist_owner_profile(home, library, only_if_missing=True)
+        # BEFORE the engine, because an engine reads its directory once, at start: a knob
+        # this version adds to a library upgraded from an older one must be on disk before
+        # the process that obeys it exists. What the migration adds is derived (an index
+        # component's projection), so the library that gains it is queued a rebuild in the
+        # same breath — otherwise an upgraded library would hold the component and index
+        # nothing it already has, and answer dated questions only about what arrives next.
+        #
+        # The rebuild is queued FIRST and the file written only if it was queued: both or
+        # neither. The migration is idempotent on the file, so a file written while the
+        # store could not be reached would be a library that holds the component, indexed
+        # nothing it already had, and never gets a second chance to.
+        if not engine_components(library) and request_rebuild(home, library) is not None:
+            migrate_engine(library)
         engine.start(home, library)
 
 

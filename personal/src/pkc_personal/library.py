@@ -16,6 +16,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from pneuma_knowledge_core.domain.ids import UserId
+from pneuma_knowledge_service.access_stats import RECALL_REBUILD_JOB_KIND
 from pneuma_knowledge_service.adapters.git_canonical import GitCanonicalStore
 from pneuma_knowledge_service.adapters.postgres import PostgresStore
 from pneuma_knowledge_service.coding_agent.backends import (
@@ -36,6 +37,21 @@ from pkc_personal.home import (
 )
 
 NAME_PATTERN = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
+
+#: The index components every library of this edition enables (`engine.yaml: components`).
+#:
+#: `time` — the Owner's own calendar as an index. A personal library is made of dated
+#: material (coding sessions, the Owner's own statements), and the questions asked of it are
+#: dated too: 「说说我这两天的工作」 is a question about a PERIOD, and without this component
+#: there is no path that answers periods — the lane can only rank words, so the answer is
+#: assembled from whatever happened to match. With it the routing turn resolves the phrase
+#: against `as_of` and the `timespan` path returns those days' material exactly.
+#:
+#: Only `time`. `people` binds to a contract family (`memory/people/{slug}.md`) this
+#: edition's contracts do not declare, and `attention` reports on consultations a single
+#: Owner's library has few of; both are the application's choice to make later, by editing
+#: this one line of `engine.yaml`, and neither is enabled behind their back.
+DEFAULT_COMPONENTS = "time"
 
 
 def validate_name(name: str) -> str:
@@ -270,6 +286,8 @@ def _engine_files(name: str, choices: Choices, contract: str) -> dict[str, str]:
         # A home default the Owner raised applies to the libraries created after it, the same
         # way the backend and the embedding do.
         models["compile_call_timeout"] = choices.compile_call_timeout
+    if "components" in models:
+        models["components"] = DEFAULT_COMPONENTS
     if "semantic_retrieval" in Settings.model_fields:
         documents["intake/intake.yaml"]["semantic_retrieval"] = "on" if choices.semantic_retrieval else "off"
     documents["prompts/overlays.yaml"]["language"] = choices.language
@@ -327,6 +345,79 @@ def persist_owner_profile(home: Home, library: Library, *, only_if_missing: bool
         data = UserProfile.unstated(UserId(library.state.tenant)).model_dump(exclude={"level_style"})
     return asyncio.run(_upsert_profile(dsn, UserId(library.state.tenant), data,
                                        only_if_missing=only_if_missing))
+
+
+def engine_components(library: Library) -> str:
+    """What this library's engine file states in `components`, or "" when it states nothing.
+
+    The FILE is the authority — an Owner who adds a component by hand keeps it — so every
+    face that needs the answer reads it here rather than assuming this edition's default.
+    """
+    try:
+        return str(read_yaml(library.engine_dir / "engine.yaml").get("components") or "").strip()
+    except (OSError, ValueError):
+        return ""
+
+
+def migrate_engine(library: Library) -> list[str]:
+    """Bring an existing library's engine file up to what this version creates. (keys added)
+
+    A library created before a knob existed carries the schema's default for it, or does not
+    state it at all — for `components` either way means empty, which is a library that
+    answers no dated question however much dated material it holds. The file is written
+    surgically, the way `set_config` writes one key, and only where the library states
+    NOTHING: a value already there is somebody's choice, and a migration that overwrote it
+    would undo the Owner's own edit on every restart. So this is idempotent by the state
+    itself rather than by a recorded step — the second run finds the key stated and changes
+    nothing.
+
+    A key the running engine's `Settings` does not know is never written: a stage file may
+    state only the keys its stage declares, so that write would leave a directory the engine
+    refuses at start, with the reason in a process nobody is looking at.
+    """
+    path = library.engine_dir / "engine.yaml"
+    if not path.is_file() or "components" not in Settings.model_fields:
+        return []
+    mapping = read_yaml(path)
+    if str(mapping.get("components") or "").strip():
+        return []
+    mapping["components"] = DEFAULT_COMPONENTS
+    atomic_write(path, yaml_text(mapping))
+    return ["components"]
+
+
+async def _enqueue_rebuild(dsn: str, tenant: UserId) -> str:
+    # Named, so a Postgres log line says which client it served (`wiring.connection_role`).
+    store = PostgresStore(dsn, application_name="pkchome:rebuild")
+    await store.open()
+    try:
+        await store.apply_schema()
+        return await store.enqueue(tenant, RECALL_REBUILD_JOB_KIND, {})
+    finally:
+        await store.aclose()
+
+
+def request_rebuild(home: Home, library: Library) -> str | None:
+    """Queue this library's derived rebuild — every enabled component's own projection,
+    re-derived from L0 and the kept records. Returns the job id, or None when the store is
+    not up.
+
+    Queued, never run here. The rebuild is a job kind (`recall_rebuild`) precisely so it
+    takes the same per-user claim every other job takes: while it is claimed no projection
+    job for this tenant can be, and vice versa. This edition always has a live worker — the
+    engine process — so draining it from this side would be the one thing the framework's own
+    ops script warns against. The worker picks it up; `pkchome status` says so while it waits.
+
+    A store that is not up is not a failure of this command's kind: it is a rebuild that
+    cannot be recorded yet, and the caller says so rather than pretending it was queued.
+    """
+    from pkc_personal import infra
+    from pkc_personal.environment import home_environment
+
+    if not infra.tcp_port_open("127.0.0.1", home.config.infra.ports.postgres):
+        return None
+    dsn = home_environment(home, library)["PNEUMA_KNOWLEDGE_PG_DSN"]
+    return asyncio.run(_enqueue_rebuild(dsn, UserId(library.state.tenant)))
 
 
 def create_library(
