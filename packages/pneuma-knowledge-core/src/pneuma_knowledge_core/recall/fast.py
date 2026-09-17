@@ -2014,6 +2014,10 @@ async def select_evidence(
     document_cap: int = DEFAULT_GLANCE_PICK_CAP,
     reasoning_effort: str | None = None,
     timeout: float | None = DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS,
+    #: The selection's own JSON as it is written, delta by delta. Same non-blocking contract as
+    #: every other sink in this lane. None = nobody is watching, and the call behaves exactly
+    #: as it did before it streamed.
+    on_delta: TokenSink | None = None,
     callbacks: list | None = None,
     trace_metadata: dict | None = None,
 ) -> tuple[SelectedEvidence | None, dict[str, int], str | None]:
@@ -2050,14 +2054,24 @@ async def select_evidence(
             EvidenceSelection, include_raw=True,
             **_reasoning_kwargs(model, reasoning_effort),
         )
-        call = structured.ainvoke(
+        # STREAMED, for the same reason the answering call beside it is: the chain's
+        # `ainvoke` yields nothing until the JSON has closed, and this call is on the critical
+        # path of a voice conversation where the wait is silence. Measured on a real library,
+        # the selection spends its time THINKING and not emitting — 1.5–3.8s before the first
+        # delta, then well under a second of JSON — so what streaming recovers here is the
+        # tail, a few hundred milliseconds, plus the ability to say WHICH evidence was picked
+        # while the rest is still arriving (`on_delta`). It is not the way to make a slow
+        # selection fast; it is the way to stop paying for the part that is already done.
+        raw = await _stream_structured(
+            structured,
             messages,
             config=invoke_config(
                 "recall.fast.evidence_select", callbacks, trace_metadata
             ),
+            timeout=timeout,
+            on_token=on_delta or (lambda _delta: None),
         )
-        raw = await (asyncio.wait_for(call, timeout) if timeout else call)
-    except asyncio.TimeoutError:
+    except (asyncio.TimeoutError, TimeoutError):
         return None, zero_usage(), "timeout"
     except Exception:  # noqa: BLE001 — additive selector degrades to ranked evidence
         return None, zero_usage(), "error"
@@ -2462,7 +2476,27 @@ async def _stream_structured(
                 parsing_error = part["parsing_error"]
         return {"raw": raw_message, "parsed": parsed, "parsing_error": parsing_error}
 
-    drain = drain_chain if model is None else drain_model
+    async def drain_invoke() -> dict:
+        """The chain cannot stream at all — so call it, and report one late value.
+
+        A structured chain is normally langchain's own, which streams; this covers everything
+        else, including a deployment's wrapper and a test double that implements `ainvoke` and
+        nothing more. Reaching for `astream` on one of those raised AttributeError, which every
+        caller here reads as "the model failed" — a lane degrading to no selection, or to no
+        structured answer, because of a capability nobody needed. Streaming is an optimisation;
+        losing the call is not an acceptable price for it.
+        """
+        out = await structured.ainvoke(messages, config=config)
+        if isinstance(out, Mapping):
+            return dict(out)
+        return {"raw": None, "parsed": out, "parsing_error": None}
+
+    if model is not None:
+        drain = drain_model
+    elif hasattr(structured, "astream"):
+        drain = drain_chain
+    else:
+        drain = drain_invoke
     if timeout:
         async with asyncio.timeout(timeout):
             return await drain()
@@ -3177,6 +3211,15 @@ async def fast_recall(
     glance_model: BaseChatModel | None = None,
     glance_pick_cap: int = DEFAULT_GLANCE_PICK_CAP,
     glance_timeout: float | None = DEFAULT_GLANCE_TIMEOUT_SECONDS,
+    # ON by default, and on is byte-for-byte the lane above. OFF: the library's glance is not
+    # rendered into the prompt and the glance pick does not run — while `documents` goes on
+    # doing everything else it does (the archive pin, the page titles on every preview, the
+    # supersession marks). For a caller whose budget is time to first token: measured on a
+    # real library, the glance was two thirds of the answering prompt and its pick the long
+    # pole of retrieval, together about half the wait before the first word. The voice
+    # call's delegate is the caller it exists for (docs/design/voice-call.md); dropping
+    # `documents` instead would have bought the same time by switching the archive pin off.
+    render_glance: bool = True,
     # OFF by default (0), and the off path is byte-for-byte the lane above. N > 0: one
     # planning call (on `plan_model`, falling back to `model`) derives up to N extra
     # retrieval queries BEFORE retrieval, and the claim face pools all queries through one
@@ -3340,9 +3383,10 @@ async def fast_recall(
     by_path: dict[str, CanonicalDocument] = {}
     titles: dict[str, str] = {}
     if documents is not None:
-        glance = render_canonical_glance(
-            documents, skill, packs=packs, include_archived=include_archived
-        )
+        if render_glance:
+            glance = render_canonical_glance(
+                documents, skill, packs=packs, include_archived=include_archived
+            )
         by_path = {doc.path: doc for doc in documents}
         titles = {path: display_identity(by_path, path).title for path in by_path}
 
