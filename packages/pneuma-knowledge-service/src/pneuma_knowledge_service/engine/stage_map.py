@@ -838,8 +838,13 @@ STAGES: tuple[Stage, ...] = (
                 setting="llm_model_recall",
                 label_en="Recall model",
                 label_zh="召回模型",
-                description_en="Retrieval planning/glance and the briefing ask. Fast and cheap is fine.",
-                description_zh="检索规划/概览与简报问答。又快又便宜就够了。",
+                description_en=(
+                    "Retrieval planning and the briefing ask, and the model the glance "
+                    "pick borrows when its own field is empty. Fast and cheap is fine."
+                ),
+                description_zh=(
+                    "检索规划与简报问答；概览挑选留空时也借用它。又快又便宜就够了。"
+                ),
             ),
             Knob(
                 key="answer",
@@ -869,6 +874,30 @@ STAGES: tuple[Stage, ...] = (
                 ),
                 description_zh=(
                     "只在快速召回的最终答题调用中发送；留空则沿用模型供应商默认值。"
+                ),
+            ),
+            Knob(
+                key="glance_pick",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_LLM_MODEL_GLANCE_PICK",
+                setting="llm_model_glance_pick",
+                label_en="Glance pick model",
+                label_zh="概览挑选模型",
+                description_en=(
+                    "The fast lane's glance pick: one small call that reads the library's "
+                    "glance — titles and one-line definitions — plus the question, and names "
+                    "the documents worth reading whole. A WEAK FAST model is right: this is a "
+                    "choice among titles already in front of it. The pass runs alongside "
+                    "retrieval under an 8-second ceiling and is additive, so a model that "
+                    "stops to think simply misses it and the answer is built on retrieval "
+                    "alone. Reasoning is pinned off in code. Empty borrows the recall role."
+                ),
+                description_zh=(
+                    "快速召回的概览挑选：一次小调用，读知识库概览——标题与一句定义——加上问题，"
+                    "指出哪些文档值得整篇读。**又弱又快**的模型才对：这是在已经摆在面前的标题里"
+                    "做选择。这一段与检索并行，只有 8 秒上限，而且是加分项——模型若停下来推理，"
+                    "就只是错过它，答案退回到仅凭检索。推理在代码里被钉死为关闭。留空则借用召回角色。"
                 ),
             ),
             Knob(

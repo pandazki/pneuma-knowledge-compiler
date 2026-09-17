@@ -536,3 +536,55 @@ async def test_default_fast_path_never_invokes_quality_selector_or_structured_an
     assert result.evidence_strategy == "ranked"
     assert result.answer_format == "text"
     assert result.answer_text == "historical"
+
+
+async def test_the_cross_face_selection_call_stays_on_the_answering_model(monkeypatch):
+    """`glance_model` routes the glance PICK — a choice among titles, run under a ceiling it
+    shares with retrieval, which is why a deployment points it at a weak reasoning-off model.
+    `select` is not that call: one judgement over the whole candidate pool, carrying its own
+    `selection_reasoning_effort`. It stays on `model`, or routing the pick cheaply would
+    quietly downgrade this strategy."""
+    from pneuma_knowledge_core.recall import fast as fast_module
+
+    seen: dict = {}
+    zero = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cache_read": 0,
+        "cache_creation": 0,
+    }
+
+    async def retrieve_claims(*args, **kwargs):  # noqa: ANN002, ANN003
+        return _claims(2)
+
+    async def retrieve_windows(*args, **kwargs):  # noqa: ANN002, ANN003
+        return _windows(2)
+
+    async def choose(*args, **kwargs):  # noqa: ANN002, ANN003
+        seen["model"] = args[0]
+        return None, dict(zero), "error"
+
+    async def answer(*args, **kwargs):  # noqa: ANN002, ANN003
+        return "a [cite: s01 ¶0-0]", dict(zero), {}
+
+    monkeypatch.setattr(fast_module, "retrieve_claims", retrieve_claims)
+    monkeypatch.setattr(fast_module, "retrieve_windows", retrieve_windows)
+    monkeypatch.setattr(fast_module, "select_evidence", choose)
+    monkeypatch.setattr(fast_module, "answer_with_selector", answer)
+
+    answering = StructuredModel(parsed=EvidenceSelection(), seen=[])
+    pick = StructuredModel(parsed=EvidenceSelection(), seen=[])
+    await fast_recall(
+        UserId("u-quality"),
+        "q",
+        as_of=datetime(2026, 8, 14),
+        claim_lexical=object(),
+        claim_vectors=object(),
+        embeddings=object(),
+        model=answering,
+        glance_model=pick,
+        evidence_strategy="select",
+    )
+
+    assert seen["model"] is answering

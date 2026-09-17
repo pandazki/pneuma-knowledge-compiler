@@ -3167,6 +3167,13 @@ async def fast_recall(
     # `build_subject_timelines`.
     timeline_expand: int = 0,
     timeline_doc_cap: int = DEFAULT_TIMELINE_DOC_CAP,
+    # The model for the glance PICK — the small structured call that reads titles and
+    # one-line definitions and names the documents worth reading whole. None keeps the
+    # historical one-model lane. It is deliberately separable from `model`: the pick runs
+    # concurrently with retrieval under `glance_timeout` and is additive, so a model that
+    # stops to think simply misses the ceiling, and a caller that routes it to a weak, fast,
+    # reasoning-off model is buying the whole pass rather than widening the budget. The
+    # `select` strategy's cross-face selection is NOT this call and does not take it.
     glance_model: BaseChatModel | None = None,
     glance_pick_cap: int = DEFAULT_GLANCE_PICK_CAP,
     glance_timeout: float | None = DEFAULT_GLANCE_TIMEOUT_SECONDS,
@@ -3619,7 +3626,12 @@ async def fast_recall(
             )
             component_merged = True
             component_pool = component_candidate_pool(component_evidence)
-        if (glance_model or model) is None:
+        # `model`, not `glance_model`: this one call decides the whole context — claims,
+        # episode summaries, windows, component items AND the documents — over the full
+        # candidate pool, and carries its own `selection_reasoning_effort`. It is the
+        # answering register's judgement, not the glance pick's, and handing it the weak
+        # reasoning-off model routed for the pick would quietly downgrade this strategy.
+        if model is None:
             evidence_choice = None
             timer.degrade("select", "no model; using ranked evidence")
             timer.degrade(child_name("glance"), "no model; glance pick skipped, no pages selected")
@@ -3627,7 +3639,7 @@ async def fast_recall(
             with timer.measure("select"):
                 evidence_choice, evidence_selection_usage, evidence_selection_degraded = (
                     await select_evidence(
-                        glance_model or model,
+                        model,
                         question,
                         claims=claims_raw,
                         episode_summaries=episode_candidates,

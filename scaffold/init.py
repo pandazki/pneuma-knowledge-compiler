@@ -774,6 +774,9 @@ overview_required_after_claims: 8
 recall: {models["recall"]}
 answer: {models["answer"] if models["answer"] else '""'}
 answer_reasoning_effort: {models["answer_reasoning_effort"] if models["answer_reasoning_effort"] else '""'}
+# The fast lane's glance pick runs beside retrieval under an 8-second ceiling and chooses
+# among titles already in front of it; reasoning is pinned off. Empty borrows recall.
+glance_pick: ""
 deep: {deep if deep else '""'}
 # Discovery may decide no retrieval is needed; pick runs only when candidates exist.
 live_discover: {models["live_discover"] if models["live_discover"] else '""'}

@@ -548,7 +548,7 @@ class Settings(BaseSettings):
     # Empty → falls back to llm_model, so scripted-model tests (which set llm_model only)
     # keep routing everything to the scripted model. See docs/reference/observability.md.
     llm_model_compile: str = ""  # compile agent
-    llm_model_recall: str = ""  # retrieval planning/glance + briefing ask
+    llm_model_recall: str = ""  # retrieval planning + briefing ask (glance pick borrows it)
     # Final fast-answer generation. Empty borrows recall, preserving existing deployments.
     llm_model_answer: str = ""
     # Empty preserves provider defaults. A generated engine states this explicitly so an
@@ -556,6 +556,16 @@ class Settings(BaseSettings):
     answer_reasoning_effort: Literal[
         "", "none", "minimal", "low", "medium", "high", "xhigh", "max"
     ] = ""
+    # The fast lane's glance pick (core `recall/fast.py::select_glance_documents`): one small
+    # structured call that reads the library's glance — titles and one-line definitions — plus
+    # the question, and names the documents worth reading whole. It runs CONCURRENTLY with
+    # retrieval under an 8-second ceiling and is additive: past the ceiling the lane answers on
+    # retrieval alone. So it wants a WEAK FAST model, and its reasoning effort is pinned OFF at
+    # construction (wiring._ROLE_REASONING_EFFORT) rather than exposed as a knob — this is a
+    # choice among titles already in front of it, and a pick that has to think is not a glance.
+    # Empty borrows `recall` before `llm_model` (wiring._ROLE_FALLBACK), one hop, so an existing
+    # deployment keeps working unchanged.
+    llm_model_glance_pick: str = ""
     llm_model_deep: str = ""  # deep recall (agentic search)
     llm_model_skill: str = ""  # skill synthesis (schema-pack derivation)
     # Rollover's volume card. Empty borrows the compile role (same canonical-write
