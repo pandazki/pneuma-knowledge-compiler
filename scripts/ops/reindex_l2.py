@@ -103,7 +103,12 @@ async def main() -> int:
         return 2
     users = [UserId(u) for u in sys.argv[1:]]
     settings = get_settings()
-    ctx = await build_context(settings, application_name="pkc-ops:reindex_l2")
+    # `apply_schema=False`: an ops command is a short-lived process beside a live engine,
+    # like every `pkc` command, so it checks the schema marker instead of running the
+    # bootstrap DDL batch (`PostgresStore.ensure_schema`).
+    ctx = await build_context(
+        settings, application_name="pkc-ops:reindex_l2", apply_schema=False
+    )
     # Do NOT pre-build a chunker here: strategy="semantic" has no standalone chonkie
     # chunker (build_chunker would raise). full_l2_chunks owns the per-strategy dispatch.
     print(

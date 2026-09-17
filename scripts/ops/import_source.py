@@ -57,7 +57,12 @@ def _contract(args):
 
 async def run(args) -> int:
     contract = _contract(args)
-    ctx = await build_context(get_settings(), application_name="pkc-ops:import_source")
+    # `apply_schema=False`: an ops command is a short-lived process beside a live engine,
+    # like every `pkc` command, so it checks the schema marker instead of running the
+    # bootstrap DDL batch (`PostgresStore.ensure_schema`).
+    ctx = await build_context(
+        get_settings(), application_name="pkc-ops:import_source", apply_schema=False
+    )
     try:
         result = await ingest_source_contract(ctx, UserId(args.user), contract)
         print(f"contract={result.contract_schema} units={len(result.sources)}")

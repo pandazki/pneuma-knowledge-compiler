@@ -13,6 +13,7 @@ from pneuma_knowledge_core.compile.runner import _build_tools
 from pneuma_knowledge_core.components import (
     BaseComponent,
     CanonicalReadOnly,
+    ComponentRebuildFailed,
     IndexComponent,
     collect_evolve_evidence,
     notify_recall,
@@ -176,9 +177,10 @@ async def test_every_registered_component_is_told_a_source_was_indexed():
     assert first.rebuilt == ["u-1"] and second.rebuilt == ["u-1"]
 
 
-async def test_a_component_that_raises_never_takes_the_job_or_the_rebuild_with_it():
-    """A component projection is DERIVED: the worst a broken one may cost is a stale index
-    until the next rebuild — never the L1/L2 indexing that already succeeded."""
+async def test_a_component_that_raises_never_takes_the_index_job_with_it():
+    """A component projection is DERIVED: the worst a broken one may cost on the NOTIFICATION
+    side is a stale index until the next rebuild — never the L1/L2 indexing that already
+    succeeded, which is the work the job was claimed to do."""
     from test_gate import _source
 
     broken, healthy = _Projector("broken", explode=True), _Projector("healthy")
@@ -188,7 +190,27 @@ async def test_a_component_that_raises_never_takes_the_job_or_the_rebuild_with_i
     await notify_source_indexed("u-1", _source("src-01", 2))
     assert healthy.indexed == ["u-1:src-01"]  # the failure did not stop the fan-out
 
-    assert await rebuild_components("u-1") == ["healthy"]  # and it is reported as not run
+
+async def test_a_component_that_cannot_rebuild_fails_the_rebuild_it_was_asked_for():
+    """The other polarity, and the difference is what a failure COSTS. `rebuild_components`
+    is the whole body of the `recall_rebuild` job and of a restore's projection pass, so a
+    swallowed failure there reports success about a projection that was never built — which
+    is exactly what happened: a job row reading `ok=True, "replayed 14 event(s)"` over a
+    time projection holding 55 of 382 sources, and nothing in the queue to put it right.
+
+    Every component is still ATTEMPTED — one broken projection must not cost the others
+    theirs — and the exception names each that failed."""
+    broken, healthy = _Projector("broken", explode=True), _Projector("healthy")
+    register_component(broken)
+    register_component(healthy)
+
+    with pytest.raises(ComponentRebuildFailed) as caught:
+        await rebuild_components("u-1")
+
+    assert healthy.rebuilt == ["u-1"]  # the fan-out still reached it
+    assert caught.value.rebuilt == ("healthy",)
+    assert [name for name, _ in caught.value.failures] == ["broken"]
+    assert "component 'broken' rebuild failed: RuntimeError: boom" in str(caught.value)
 
 
 def _record(consultation_id: str = "k-1"):

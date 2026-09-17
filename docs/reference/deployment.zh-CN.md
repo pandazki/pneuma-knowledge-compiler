@@ -33,6 +33,8 @@ cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理�
 1. **镜像整仓复制、用 `uv run` 运行。** 这是一种做法，而非硬性要求：service wheel 现在把引导 schema 带进包内（`pneuma_knowledge_service/infra/schema.sql`），Postgres 适配器优先读这份打包副本，读不到才回落到源码目录里的 `infra/schema.sql`。所以裸 wheel 安装同样跑得起来；整仓复制适用于你希望把 checkout 的目录布局——测试、运维脚本、compose 文件——原样带进镜像的场景。
 2. **运行时必须有 `git` 二进制**（正本适配器走子进程），并加 `git config --system --add safe.directory '*'` 应对卷 uid 与容器用户不一致的情况。正本数据放持久卷，`PNEUMA_KNOWLEDGE_CANONICAL_ROOT=/data/canonical`。
 
+建 schema 的只有引擎自己的进程：引导批处理是 DDL（`CREATE INDEX IF NOT EXISTS` 即便索引已在，也要拿表的 ShareLock），所以其余进程——每个 `pkc` 命令、每个 `scripts/ops/` 命令——改为读 `schema_applied` 标记行（记录上次应用的 schema 文本的 sha256），只有该哈希与本次构建不符时才跑那批 DDL（全新数据库，或引擎尚未重启的升级）。
+
 启动刻意做成 fail-closed 且依赖网络：`build_context()` 先建 schema，再用**一次真实 embedding 调用**探测向量维度，然后连上 Meilisearch 与 Qdrant——四者齐备前不服务任何请求，启动窗口要给足预算。S3 client 是惰性的：第一次图片导入才创建或确认私有 bucket；compose 健康检查仍会确保整栈报告 healthy 之前 RustFS 已就绪。探测出的维度是承重的：换 `EMBEDDING_MODEL` 意味着换 collection 名并重建派生层；不同维度不能共存一个 collection。
 
 ## Web 层

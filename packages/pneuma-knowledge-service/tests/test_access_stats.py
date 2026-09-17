@@ -828,3 +828,117 @@ async def test_opening_and_later_answer_project_once_each_and_rebuild_between_de
         assert ledger_rows([replace(answered, visitor_class="audit")]) == ([], [])
     finally:
         reset_components()
+
+
+# ------------------------------------------------------ the rebuild job's own honesty
+
+
+class _BrokenRebuild:
+    """A component whose projection cannot be re-derived — the shape of the real one: the
+    `time` component's `put_time_blocks` dying on a Postgres deadlock partway through."""
+
+    name = "test-quaking"
+
+    async def rebuild(self, user_id) -> None:  # noqa: ANN001
+        raise RuntimeError("deadlock detected while re-deriving the calendar")
+
+
+class _GoodRebuild:
+    name = "test-steady"
+
+    def __init__(self) -> None:
+        self.rebuilt: list[str] = []
+
+    async def rebuild(self, user_id) -> None:  # noqa: ANN001
+        self.rebuilt.append(str(user_id))
+
+
+def _rebuild_job(job_id: str = "j-rebuild"):
+    return SimpleNamespace(job_id=job_id, kind="recall_rebuild", payload={})
+
+
+async def test_a_component_rebuild_that_dies_fails_the_job_instead_of_reporting_success():
+    """The defect this was written for: `recall_rebuild` completed `ok=True, "replayed 14
+    event(s)"` while the `time` component's rebuild raised `DeadlockDetected` halfway
+    through — the projection ended with 55 of 382 sources covered, the job row was green,
+    and nothing was left in the queue to put it right.
+
+    A rebuild IS the job's work, so it takes the job down with it; the exception travels to
+    the drain, which is the only body that decides what an unfinished job costs.
+    """
+    import pytest
+    from pneuma_knowledge_core.components import ComponentRebuildFailed
+
+    from pneuma_knowledge_service.access_stats import run_recall_rebuild_job
+
+    store = _StatsStore([_record()])
+    reset_components()
+    steady = _GoodRebuild()
+    register_component(_BrokenRebuild())
+    register_component(steady)
+    try:
+        with pytest.raises(ComponentRebuildFailed) as caught:
+            await run_recall_rebuild_job(
+                SimpleNamespace(store=store), UserId("u-lynx-1"), _rebuild_job()
+            )
+    finally:
+        reset_components()
+
+    assert store.completed == []  # nothing said ok about a projection nobody built
+    # Every component is still attempted: one broken projection must not cost the others
+    # theirs, and a rebuild is idempotent, so the retry simply runs both again.
+    assert steady.rebuilt == ["u-lynx-1"]
+    said = str(caught.value)
+    assert "test-quaking" in said
+    assert "RuntimeError: deadlock detected while re-deriving the calendar" in said
+    assert caught.value.rebuilt == ("test-steady",)
+
+
+async def test_the_failed_rebuild_parks_on_the_schedule_rather_than_ending_the_job():
+    """What the drain will do with it, asserted against the drain's own two predicates:
+    it is not an enumerated terminal failure (so the row waits and comes back), and it is
+    not an infrastructure fault (so it waits on the retry schedule, not in place). The
+    reason written on the row names the component and what it said."""
+    import pytest
+    from pneuma_knowledge_core.components import ComponentRebuildFailed
+
+    from pneuma_knowledge_service.access_stats import run_recall_rebuild_job
+    from pneuma_knowledge_service.infra_faults import infrastructure_fault
+    from pneuma_knowledge_service.job_retry import TerminalJobFailure
+    from pneuma_knowledge_service.workers.compile_worker import failure_reason
+
+    store = _StatsStore([])
+    reset_components()
+    register_component(_BrokenRebuild())
+    try:
+        with pytest.raises(ComponentRebuildFailed) as caught:
+            await run_recall_rebuild_job(
+                SimpleNamespace(store=store), UserId("u-lynx-1"), _rebuild_job()
+            )
+    finally:
+        reset_components()
+
+    exc = caught.value
+    assert not isinstance(exc, TerminalJobFailure)  # → parked, never struck out
+    assert infrastructure_fault(exc) is None  # → the schedule, not a wait in place
+    reason = failure_reason(exc)
+    assert "test-quaking" in reason and "deadlock detected" in reason
+
+
+async def test_a_rebuild_with_every_component_healthy_still_completes_the_job():
+    """The other half of the same mechanism: nothing changes for a rebuild that worked."""
+    from pneuma_knowledge_service.access_stats import run_recall_rebuild_job
+
+    store = _StatsStore([_record()])
+    reset_components()
+    register_component(_GoodRebuild())
+    try:
+        await run_recall_rebuild_job(
+            SimpleNamespace(store=store), UserId("u-lynx-1"), _rebuild_job()
+        )
+    finally:
+        reset_components()
+
+    assert store.completed == [
+        ("j-rebuild", True, "replayed 0 event(s); components: test-steady")
+    ]

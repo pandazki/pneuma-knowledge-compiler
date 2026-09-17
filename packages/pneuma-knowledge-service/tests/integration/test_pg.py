@@ -14,7 +14,7 @@ from pneuma_knowledge_core.domain.ids import AnchorId, SourceId
 from pneuma_knowledge_core.domain.source import ConversationTurn, RawSource
 from pneuma_knowledge_core.ingest.adapters import PlainConversationAdapter, PlainConversationInput
 from pneuma_knowledge_core.recall.projection import ProjectedClaim
-from pneuma_knowledge_service.adapters.postgres import PostgresStore
+from pneuma_knowledge_service.adapters.postgres import PostgresStore, schema_digest
 
 from conftest import _hostport, _port_open
 
@@ -490,6 +490,61 @@ async def test_apply_schema_is_concurrency_safe_on_a_cold_database(settings):
     finally:
         for store in starters:
             await store.aclose()
+        admin = await AsyncConnection.connect(settings.pg_dsn, autocommit=True)
+        try:
+            await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        finally:
+            await admin.close()
+
+
+async def test_the_marker_lets_a_cli_start_without_running_any_ddl(settings):
+    """The real thing on a real server: apply once, then ASK.
+
+    A `pkc` command used to run the whole batch at startup, and `CREATE INDEX IF NOT EXISTS`
+    takes a ShareLock on its table whether or not it creates anything — which is how a sync
+    ingesting every fifteen minutes came to deadlock the engine's own rebuild. Here the
+    second start reads one row and sends no DDL, and the row says who applied it."""
+    host, port = _hostport(settings.pg_dsn, 5432)
+    if not _port_open(host, port):
+        pytest.skip(f"postgres unreachable at {host}:{port}")
+
+    name = f"pneuma_marker_{uuid.uuid4().hex[:12]}"
+    admin = await AsyncConnection.connect(settings.pg_dsn, autocommit=True)
+    try:
+        await admin.execute(f'CREATE DATABASE "{name}"')
+    finally:
+        await admin.close()
+
+    dsn = _with_dbname(settings.pg_dsn, name)
+    engine = PostgresStore(dsn, application_name="pkc-engine-api")
+    cli = PostgresStore(dsn, application_name="pkc-cli:ingest")
+    try:
+        await engine.open()
+        await cli.open()
+        # A cold database: the CLI is the first process here, so it applies (unchanged
+        # behaviour on a fresh machine) and stamps itself on the row.
+        assert await cli.ensure_schema() is True
+        conn = await AsyncConnection.connect(dsn)
+        try:
+            row = await (
+                await conn.execute(
+                    "SELECT schema_hash, applied_by FROM schema_applied WHERE id"
+                )
+            ).fetchone()
+        finally:
+            await conn.close()
+        assert row is not None
+        assert row[0] == schema_digest() and row[1] == "pkc-cli:ingest"
+
+        # The engine applies unconditionally, taking the row over.
+        await engine.apply_schema()
+        # And the steady state: every later CLI start runs no DDL at all.
+        for _ in range(3):
+            assert await cli.ensure_schema() is False
+        assert await engine.applied_schema_hash() == schema_digest()
+    finally:
+        await engine.aclose()
+        await cli.aclose()
         admin = await AsyncConnection.connect(settings.pg_dsn, autocommit=True)
         try:
             await admin.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')

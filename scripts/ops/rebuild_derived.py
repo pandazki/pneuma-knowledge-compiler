@@ -229,7 +229,12 @@ async def rebuild_component_projections(ctx, user_id: UserId) -> None:
 async def main() -> int:
     args = sys.argv[1:]
     settings = get_settings()
-    ctx = await build_context(settings, application_name="pkc-ops:rebuild_derived")
+    # `apply_schema=False`: an ops command is a short-lived process beside a live engine,
+    # like every `pkc` command, so it checks the schema marker instead of running the
+    # bootstrap DDL batch (`PostgresStore.ensure_schema`).
+    ctx = await build_context(
+        settings, application_name="pkc-ops:rebuild_derived", apply_schema=False
+    )
     print(
         f"chunk_strategy={settings.chunk_strategy}  "
         f"embedding={settings.embedding_model}  qdrant={settings.qdrant_collection}"

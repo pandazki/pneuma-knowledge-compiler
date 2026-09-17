@@ -36,8 +36,10 @@ class FakeStore:
     async def open(self):
         self.calls.append("open")
 
-    async def apply_schema(self):
-        self.calls.append("apply_schema")
+    async def ensure_schema(self):
+        # A process that is not the engine asks for the schema rather than applying it.
+        self.calls.append("ensure_schema")
+        return False
 
     async def get_user_profile(self, user_id):
         self.calls.append(f"get:{user_id}")
@@ -74,7 +76,7 @@ def test_a_new_library_persists_the_engine_placeholder_under_its_own_tenant(
     library = make_library()
     # `create_library` did it once; the record is there before any engine has started.
     assert [store.calls for store in fake_store.made] == [
-        ["open", "apply_schema", "upsert:lib-notes", "aclose"]
+        ["open", "ensure_schema", "upsert:lib-notes", "aclose"]
     ]
     written = fake_store.made[0].written
     assert written["user_id"] == "lib-notes"
@@ -90,7 +92,7 @@ def test_only_if_missing_never_overwrites_an_owner_who_has_been_named(home, make
     fake_store.made.clear()
     fake_store.existing = {"display_name": "Wen", "occupation": "translator"}
     assert persist_owner_profile(home, library, only_if_missing=True) is False
-    assert fake_store.made[0].calls == ["open", "apply_schema", "get:lib-notes", "aclose"]
+    assert fake_store.made[0].calls == ["open", "ensure_schema", "get:lib-notes", "aclose"]
     assert fake_store.made[0].written is None
     fake_store.existing = None
     assert persist_owner_profile(home, library, only_if_missing=True) is True
@@ -120,7 +122,7 @@ def test_pkchome_up_persists_the_profile_of_a_library_created_while_the_stack_wa
     monkeypatch.setattr(engine, "start", lambda *_: False)
     infra.up(home)
     assert fake_store.made[0].calls == [
-        "open", "apply_schema", "get:lib-notes", "upsert:lib-notes", "aclose"
+        "open", "ensure_schema", "get:lib-notes", "upsert:lib-notes", "aclose"
     ]
     assert Library.load(home, "notes").state.name == library.state.name
 

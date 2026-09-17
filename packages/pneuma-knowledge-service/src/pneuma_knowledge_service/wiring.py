@@ -1197,6 +1197,7 @@ async def build_context(
     probe_embedding: bool = True,
     semantic: bool = True,
     application_name: str | None = None,
+    apply_schema: bool = True,
 ) -> AppContext:
     """Assemble the adapter singletons and bring their connections up on the CALLER's
     event loop (pool open, collection probe). Everything the constructors used to do
@@ -1224,6 +1225,15 @@ async def build_context(
     setup` first, key second). The flag narrows this process's context; it never changes what
     the deployment is. `settings.semantic_retrieval` still says `on`, and the next process
     that actually reaches L2 builds both.
+
+    `apply_schema=False` is for every process that is not the engine: it CHECKS the schema
+    marker instead of running the bootstrap batch (`PostgresStore.ensure_schema`), and
+    applies only when this build's schema text is not the one the database already carries.
+    That batch is DDL — `CREATE INDEX IF NOT EXISTS` takes a ShareLock on its table even
+    when the index is already there — and a `pkc` command running it every fifteen minutes
+    beside a live engine deadlocked the engine's own rebuild. The engine keeps applying
+    unconditionally: one long-lived process per deployment, one batch per start, and the
+    repair point an operator restarts INTO.
     """
     # Who runs each role, before anything is built: an `agent:` spec on a role that cannot
     # be driven by a CLI, or a harness nothing can launch, is a misconfiguration the stack
@@ -1245,7 +1255,11 @@ async def build_context(
         )
         cleanup.push_async_callback(store.aclose)
         await store.open()
-        await store.apply_schema()
+        # The engine applies; everybody else asks first (see the docstring).
+        if apply_schema:
+            await store.apply_schema()
+        else:
+            await store.ensure_schema()
 
         embeddings = None
         vectors = None
