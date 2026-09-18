@@ -295,3 +295,5 @@ footer { display: flex; flex: none; align-items: center; gap: var(--space-inline
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.queue-recovery { margin-block: 0.75rem 1rem; }

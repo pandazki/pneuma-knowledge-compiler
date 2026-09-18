@@ -1,6 +1,6 @@
-import { openConsole, runAction, type Perform } from '../lib/commands';
+import { openConsole, resumeJobs, runAction, type Perform } from '../lib/commands';
 import { t, textLanguage, type Locale, type Message } from '../lib/i18n';
-import { orderedLibraries, readoutRows, relativeTime } from '../lib/readouts';
+import { orderedLibraries, readoutRows, relativeTime, retryReadout } from '../lib/readouts';
 import { consoleHome, consolePreferences, deepLibrary, health, type Snapshot, type Steps } from '../lib/state';
 import { Leader } from './Ledger';
 
@@ -32,6 +32,7 @@ export default function Dashboard({ state, busy, perform, now, locale }: {
       const marks = deep?.steps ?? library.steps;
       const currentStep = steps.find(([key]) => !marks[key])?.[0];
       const sync = deep?.sync ?? library.sync;
+      const retry = retryReadout(deep?.queue ?? library.queue, locale);
       const status = health({ ...shallow, libraries: [library] });
       return <section className="library" key={library.name} aria-label={library.name}>
         <div className="running-head">
@@ -43,7 +44,7 @@ export default function Dashboard({ state, busy, perform, now, locale }: {
           {index === 0 && <div className="head-actions" title={t(locale, 'allLibraries')}>
             {!library.engine.up && <button className="primary" disabled={busy} onClick={() => void perform(() => runAction({ kind: 'up' }), t(locale, 'started'))}>{t(locale, 'start')}</button>}
             {library.engine.up && <button disabled={busy} onClick={() => void perform(() => runAction({ kind: 'down' }), t(locale, 'stopped'))}>{t(locale, 'stop')}</button>}
-            <button disabled={busy} onClick={() => void perform(() => runAction({ kind: 'restart' }), t(locale, 'restarted'))}>{t(locale, 'restart')}</button>
+            <button disabled={busy} title={t(locale, 'restartHelp')} onClick={() => void perform(() => runAction({ kind: 'restart' }), t(locale, 'restarted'))}>{t(locale, 'restart')}</button>
           </div>}
         </div>
         <dl className="ledger">{readoutRows(state, library, now, locale).map(row =>
@@ -51,6 +52,16 @@ export default function Dashboard({ state, busy, perform, now, locale }: {
             <dt className="small-caps">{t(locale, row.id)}</dt><Leader /><dd title={row.title}>{row.value}</dd>
             {row.note && <dd className="readout-note" lang={textLanguage(row.note)}>{row.note}</dd>}
           </div>)}</dl>
+        {retry.count > 0 && <div className="queue-recovery">
+          <p className="library-note">{retry.text}</p>
+          <button disabled={busy || !library.engine.up} onClick={() => {
+            let resumed = 0;
+            void perform(async () => { resumed = await resumeJobs(library.name); },
+              () => t(locale, 'continued', { count: resumed }));
+          }}>{t(locale, 'continueTasks', { count: retry.count })}</button>
+          <p className="muted library-note">{t(locale, 'continueHelp')}</p>
+          {!library.choices.unattended && <p className="muted library-note">{t(locale, 'manualCompile')}</p>}
+        </div>}
         <ol className="setup-steps small-caps" aria-label={t(locale, 'setup')}>
           {steps.map(([key, label]) => <li key={key} className={marks[key] ? 'complete' : 'incomplete'} aria-current={key === currentStep ? 'step' : undefined}
             title={`${t(locale, label)}: ${typeof marks[key] === 'string' ? relativeTime(marks[key], now, locale) : t(locale, marks[key] ? 'complete' : 'incomplete')}`}>
@@ -63,6 +74,8 @@ export default function Dashboard({ state, busy, perform, now, locale }: {
           <button disabled={busy || !library.engine.up} onClick={() => void perform(() => openConsole(consoleHome(library.engine.port, consolePreferences(locale))))}>{t(locale, 'openConsole')}</button>
           {index > 0 && !library.engine.up && <button className={library.name === primaryStart ? 'primary' : undefined} disabled={busy} title={t(locale, 'allLibraries')} onClick={() => void perform(() => runAction({ kind: 'up' }), t(locale, 'started'))}>{t(locale, 'start')}</button>}
         </div>
+        <p className="muted library-note">{t(locale, 'syncHelp')}</p>
+        {index === 0 && <p className="muted library-note">{t(locale, 'restartHelp')}</p>}
         {!deep && <p className="muted library-note">{t(locale, library.engine.up ? 'detailedUnavailable' : 'detailedOffline')}</p>}
         {!!sync?.last_result?.rewritten && <p className="muted library-note">{t(locale, 'rewritten', { count: sync.last_result.rewritten })}</p>}
         {!!sync?.last_result?.skipped && <p className="muted library-note">{t(locale, 'skipped', { count: sync.last_result.skipped })}</p>}

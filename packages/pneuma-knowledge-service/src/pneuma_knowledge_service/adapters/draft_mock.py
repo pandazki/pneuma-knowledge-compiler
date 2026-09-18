@@ -29,6 +29,7 @@ from ..job_retry import (
     resumed_detail,
     resumed_payload,
     waiting_reasons,
+    waiting_reason,
 )
 from .postgres import CLAIM_FIRST_KINDS, adoptable, draft_holds_work
 
@@ -467,7 +468,7 @@ class InMemoryJobQueue:
 
     async def resume_jobs(  # noqa: ANN001
         self, user_id, *, job_id: str | None = None, reason_like: str = "",
-        every: bool = False,
+        every: bool = False, include_waiting: bool = False,
     ) -> int:
         """`PostgresStore.resume_jobs`: paused rows back in the queue, schedule restarted."""
         if not (job_id or reason_like or every):
@@ -475,11 +476,15 @@ class InMemoryJobQueue:
         wanted = reason_like.strip().casefold()
         resumed = 0
         for job in self.jobs:
-            if str(job.user_id) != str(user_id) or job.status != PAUSED_STATUS:
+            waiting = (include_waiting and job.status == "queued"
+                       and job.not_before is not None
+                       and job.not_before > datetime.now(timezone.utc))
+            if str(job.user_id) != str(user_id) or not (job.status == PAUSED_STATUS or waiting):
                 continue
             if job_id is not None and job.job_id != job_id:
                 continue
-            if wanted and wanted not in paused_reason(job.detail).casefold():
+            reason = waiting_reason(job.detail) if waiting else paused_reason(job.detail)
+            if wanted and wanted not in reason.casefold():
                 continue
             # The detail is read off the payload BEFORE the reset, so it can name the
             # attempts this row actually made (`PostgresStore.resume_jobs` does the same).

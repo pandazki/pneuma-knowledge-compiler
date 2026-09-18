@@ -1,39 +1,12 @@
-"""The voice call's delegate: what the library does when a live voice asks it for help.
+"""Pure conversation context, ask formation and speech chunking for the voice call.
 
-WHY THIS EXISTS
----------------
-A full-duplex voice model conducts the conversation — it listens and speaks at once, and it
-is good at that and at nothing else the library cares about: it knows none of the library's
-content, its context is small, and it will happily improvise. So the call is split the way
-its provider splits it (docs/design/voice-call.md): the voice is a mouth and ears, and
-everything the library knows reaches it through a **delegate** that this framework runs —
-the ordinary fast lane, in a posture built for speech.
+GPT-Live handles conversation and receives knowledge from the recall backend. Delegation
+metadata carries no question, so the transcript ledger and prior results supply ask formation
+with references, corrections and vocabulary. The chunker turns answer deltas into coherent
+sentences without reading citation markers or display markup aloud.
 
-The provider's delegation event carries NO task text: it says *that* the voice wants help
-and *when* on the session timeline, never *what about*. Three things therefore have to
-happen here before any retrieval can, and each is a pure function of what the call has
-heard so far:
-
-* the **ledger** keeps both speakers' transcript fragments on the session timeline, because
-  the question is in there and nowhere else;
-* **ask formation** turns the ledger's tail into the one standalone question the owner wants
-  looked up — resolving "the second point", applying the owner's latest correction,
-  repairing a misheard page title against the library's own vocabulary — or says the
-  transcript does not establish one yet;
-* the **spoken chunker** turns the answering model's token stream into a few speakable
-  hand-overs: citations and markup stripped (the screen carries them, a voice cannot), the
-  first sentence released the moment it is complete so the owner is not waiting on the last.
-
-Nothing in this module speaks to a provider or touches an index. The service runs the
-session; this is the part that can be tested with a list of strings.
-
-WHAT IS DELIBERATELY NOT HERE
------------------------------
-No "quiet notes" for follow-ups. The provider offers a channel for context the voice should
-hold but not say; measured against the real model, anything put there beside a result was
-spoken — label and all — and a voice holding half-remembered detail answered a follow-up
-from its own imagination instead of asking again. The delegate hands over what is to be
-said and nothing else, and a follow-up is a new ask.
+No provider or index is accessed here. The service sends quiet progress separately from
+useful spoken findings. See docs/design/voice-call.md.
 """
 
 from __future__ import annotations
@@ -207,10 +180,10 @@ class Exchange:
 class AskDecision(BaseModel):
     """Structured output of ask formation: a question, or the reason there is none yet."""
 
-    ready: bool = Field(description="true when the transcript establishes what to look up")
+    ready: bool = Field(description="true whenever a subject and requested information are stated, even if the subject is absent from vocabulary or previous results; false only for an unfinished request or unresolved reference")
     question: str = Field(default="", description="the standalone question, when ready")
     clarify: str = Field(
-        default="", description="when not ready: the one short question the voice should ask"
+        default="", description="only for a missing request or unresolved pronoun; never ask which project when the owner already named it"
     )
 
 
@@ -358,11 +331,6 @@ _LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 #: A sentence ends at CJK or Latin terminal punctuation, or a line break. A Latin full stop
 #: counts only when whitespace follows it, which is what keeps `3.5` and `v1.2` whole.
 _SENTENCE_END_RE = re.compile(r"[。！？!?]+[”’」』）)]*|\.(?=\s)|\n+")
-#: The FIRST hand-over may also end at a strong clause boundary. An answering model asked for
-#: three sentences often writes one long one ("…三类工作：A；B；C。"), and waiting for its full
-#: stop measured three and a half seconds of silence that "这两天你主要做了三类工作：" ends at
-#: the first second of. The voice says the clause and the rest arrives while it is speaking.
-_CLAUSE_END_RE = re.compile(r"[。！？!?]+[”’」』）)]*|\.(?=\s)|\n+|[：；;]|:(?=\s)")
 
 
 def speakable(text: str) -> str:
@@ -372,6 +340,7 @@ def speakable(text: str) -> str:
     resolved. A voice that was handed `[cite: s3 ¶4-9]` reads it out.
     """
     text = strip_citations(text)
+    text = re.sub(r"\[cite:[^\]]*$", "", text)
     text = _LINK_RE.sub(r"\1", text)
     text = _MARKUP_RE.sub("", text)
     return " ".join(text.split())
@@ -392,10 +361,11 @@ class SpokenChunker:
     """
 
     first_min_chars: int = 8
-    later_min_chars: int = 40
-    #: The provider bounds one hand-over at 500 tokens. Characters are the conservative
-    #: proxy that needs no tokenizer: CJK runs near one token a character.
+    later_min_chars: int = 8
+    #: The provider bounds one hand-over at 500 tokens. UTF-8 bytes give a conservative
+    #: bound for byte-based tokenizers, including rare CJK characters and emoji.
     max_chars: int = 420
+    max_bytes: int = 480
     _pending: str = ""
     _emitted: int = 0
 
@@ -416,8 +386,24 @@ class SpokenChunker:
             text = speakable(raw)
             if not text:
                 continue
-            for start in range(0, len(text), self.max_chars):
-                chunks.append(text[start : start + self.max_chars])
+            while text:
+                end = 0
+                size = 0
+                for character in text[:self.max_chars]:
+                    width = len(character.encode("utf-8"))
+                    if size + width > self.max_bytes:
+                        break
+                    end += 1
+                    size += width
+                if not end:
+                    raise ValueError("spoken chunk bounds must admit at least one character")
+                # Prefer a word boundary when a long sentence needs splitting.
+                if end < len(text):
+                    space = text.rfind(" ", 0, end + 1)
+                    if space > end // 2:
+                        end = space + 1
+                chunks.append(text[:end])
+                text = text[end:]
                 self._emitted += 1
         return chunks
 
@@ -427,7 +413,10 @@ class SpokenChunker:
             return len(pending) if pending.strip() else None
         first = self._emitted == 0
         need = self.first_min_chars if first else self.later_min_chars
-        for match in (_CLAUSE_END_RE if first else _SENTENCE_END_RE).finditer(pending):
+        # An introduction ending with a colon is not an answer: the Live model can start
+        # improvising the promised list before its actual contents arrive. Deliver complete
+        # sentences, including short follow-on sentences, as soon as they are available.
+        for match in _SENTENCE_END_RE.finditer(pending):
             end = match.end()
             head = pending[:end]
             if head.count("[") > head.count("]"):
@@ -435,3 +424,18 @@ class SpokenChunker:
             if len(speakable(head)) >= need:
                 return end
         return None
+
+
+class TaskChange(BaseModel):
+    action: Literal["continue", "cancel", "replace"]
+
+
+async def task_change(model, question: str, owner_text: str) -> str:
+    result = await model.with_structured_output(TaskChange, include_raw=True).ainvoke([
+        SystemMessage(content=prompt("call.change.contract")),
+        HumanMessage(content=prompt("call.change.input", question=question, text=owner_text)),
+    ])
+    parsed = result.get("parsed") if isinstance(result, dict) else result
+    if not isinstance(parsed, TaskChange):
+        raise ValueError("invalid_task_change")
+    return parsed.action

@@ -1795,9 +1795,12 @@ async def drain_user(
         # index, projection, groom, archive — keeps flowing: the subscription is what is out
         # of room, not the library.
         skip = steward_kinds
-        if agent_cooling(user_id) is not None:
-            skip += tuple(k for k in agent_path_kinds(ctx) if k not in skip)
         try:
+            if agent_cooling(user_id) is not None and await ctx.store.queue_cooling(user_id) is None:
+                # An explicit resume cleared the durable waits, possibly in another process.
+                _COOLING.pop(str(user_id), None)
+            if agent_cooling(user_id) is not None:
+                skip += tuple(k for k in agent_path_kinds(ctx) if k not in skip)
             # The claim and the mark it leaves are one step (`_CLAIM_GATE`): a row that
             # became this body's must never be a row the self-heal still reads as free.
             async with _CLAIM_GATE:

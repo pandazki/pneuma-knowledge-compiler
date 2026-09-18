@@ -192,3 +192,35 @@ async def test_a_job_out_of_schedule_pauses_and_only_a_resume_starts_it_again(pg
     assert back["detail"] == "resumed after 7 attempts"
     claimed = await pg_store.claim_next(user)
     assert claimed is not None and claimed.job_id == job_id
+
+
+async def test_resume_delayed_jobs_preserves_running_finished_and_other_tenants(pg_store):
+    from pneuma_knowledge_service.job_retry import park
+    user = UserId(f"u-it-resume-{uuid.uuid4().hex[:8]}")
+    other = UserId(f"u-it-other-{uuid.uuid4().hex[:8]}")
+    running = await pg_store.enqueue(user, "index", {})
+    assert (await pg_store.claim_next(user)).job_id == running
+    finished = await pg_store.enqueue(user, "index", {})
+    await pg_store.complete(user, finished, ok=False, detail="terminal")
+    ready = await pg_store.enqueue(user, "index", {})
+    held = await pg_store.enqueue(user, "index", {"source_id": "synthetic"})
+    await park(pg_store, user, held, payload={"source_id": "synthetic"}, reason="payment required")
+    foreign = await pg_store.enqueue(other, "index", {})
+    await park(pg_store, other, foreign, payload={}, reason="payment required")
+    assert await pg_store.resume_jobs(user, every=True) == 0
+    assert await pg_store.resume_jobs(user, reason_like="PAYMENT", include_waiting=True) == 1
+    assert await pg_store.resume_jobs(user, every=True, include_waiting=True) == 0
+    async with pg_store._pool.connection() as conn:
+        rows = await (await conn.execute(
+            "SELECT id, status, not_before, payload FROM compile_jobs WHERE user_id IN (%s, %s)", (str(user), str(other))
+        )).fetchall()
+    by_id = {str(row[0]): row[1:] for row in rows}
+    assert by_id[running][0] == "claimed"
+    assert by_id[finished][0] != "queued"
+    assert by_id[ready][0] == "queued"
+    assert by_id[foreign][1] is not None
+    status, not_before, payload = by_id[held]
+    assert status == "queued" and not_before is None
+    assert payload["source_id"] == "synthetic"
+    assert payload["retry"]["attempts"] == 0
+    assert len(payload["retry"]["history"]) == 1

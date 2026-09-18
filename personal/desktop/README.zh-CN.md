@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-面向个人知识库 home 的 Tauri 2 菜单栏客户端。360 × 520 面板包含 Dashboard、Search、
+面向个人知识库 home 的 Tauri 3 开发者版菜单栏客户端。宽 380 点、随内容调整高度的面板包含 Dashboard、Search、
 Settings 三个页签。应用读取 `~/.pkc`（或 `PKC_HOME`），自行探测机器状态，再叠加各引擎
 的 `/home/status` 响应。应用不写 home 文件：启动、停止、重启、选库、凭据和偏好设置
 都交给 `pkchome`。登录时启动通过 Tauri autostart 插件调用操作系统，并且默认开启：首次启动
@@ -12,7 +12,7 @@ Settings 三个页签。应用读取 `~/.pkc`（或 `PKC_HOME`），自行探测
 
 ## 开发
 
-使用 Node 22.13+（本次使用 Node 25）、pnpm 11.21.0、Rust 1.88+，并安装平台要求的
+使用 Node 22.13+（本次使用 Node 25）、pnpm 11.21.0、Rust 1.95.0（由 `rust-toolchain.toml` 选择），并安装平台要求的
 [Tauri 前置依赖](https://v2.tauri.app/start/prerequisites/)。在本目录运行：
 
 ```sh
@@ -57,12 +57,16 @@ pnpm tauri icon src-tauri/icons/app.svg
 将 `PKC.app` 放入 `~/Applications` 或 `/Applications`。`pkchome tray` 会依次查找并
 打开应用；未安装时打印[发布页面](https://github.com/pandazki/pneuma-knowledge-compiler/releases)。
 
-`package.json` 与 `src-tauri/Cargo.toml` 精确固定直接依赖版本；`pnpm-lock.yaml` 固定
-前端依赖图。原生 Tauri 为 2.11.5、Tauri build 为 2.6.3、shell 为 2.3.6、autostart 为 2.5.1、positioner 为 2.3.4；Rust 依赖在这些次版本内浮动，由 `Cargo.lock` 钉住。macOS 使用
-[Tauri 2 分支的 tauri-nspanel 2.0.1](https://github.com/ahkohd/tauri-nspanel/tree/v2)、
-Accessory 激活策略、真正的 NSPanel，以及模板图标加独立彩色状态点。
-Tauri CLI 2.8.1 的开发版本检查会对 Cargo 的精确 `=version` 语法打印诊断；Cargo 本身
-接受这些精确固定版本。
+Tauri、CLI 与 Wry 运行时精确锁定 `3.0.0-alpha.1`；构建包、官方插件和 JS API
+使用 `3.0.0-alpha.0`，两份锁文件一起提交。Builder 显式选择 Wry，不使用 CEF 或本地依赖分支。
+
+macOS 使用 Accessory 激活策略及项目内的 `native_panel.rs` AppKit 适配。
+已有窗口与 webview 始终由 Tauri 持有；适配层赋予其 NSPanel 行为，检查主线程访问，
+处理键盘焦点与尺寸，不自行 retain/release 窗口，也不依赖 `tauri-nspanel`。
+模板图标和独立彩色状态点保留。
+
+`tray-icon 0.25.1` 已包含 macOS 27 点击事件修复：左键打开面板，右键使用依赖的原生菜单。
+应用层临时菜单兼容代码已删除。开发者版明确采用锁定版本的 Tauri 3 alpha。
 
 ## 行为与验证限制
 
@@ -84,10 +88,21 @@ Tauri CLI 2.8.1 的开发版本检查会对 Cargo 的精确 `=version` 语法打
   版本早于通话功能时，面板会打开在 Dashboard 并在消息行给出原因；该菜单项始终可点，因为
   置灰说不出究竟是哪一种。此处未对运行中的引擎与真实浏览器做验证。
 - 失败任务重试按要求禁用并提供提示。可选全局快捷键未实现。固定的托盘锚定尺寸无需保存窗口偏好。
-- 实现环境中，前端构建、五项状态与路由测试、图标生成、CLI 启动与回退检查均通过。
-  前端包从本地 pnpm 10 缓存恢复；构建与测试使用 pnpm 11。原生构建因 GitHub DNS
-  不可用，在编译前停止；没有生成 `Cargo.lock`、应用包或安装器。因此，首次成功解析 Cargo
-  依赖时仍需锁定 nspanel 分支提交。
-- `pnpm tauri dev` 在 `listen EPERM 127.0.0.1:1420` 处停止。没有出现原生 GUI，因此
-  托盘锚定、失焦隐藏、外观、开机启动和实际引擎 HTTP 流程仍需在不受限主机上冒烟。
-  未切换普通窗口回退：依赖获取前无法判断 nspanel 的兼容性。
+- Tauri 3 迁移通过 29 项前端测试、18 项原生测试及发布应用构建。
+  macOS 27 上以真实鼠标事件验证左键面板、右键菜单，以及关闭菜单后继续左键；
+  面板正常读取运行中的知识库状态。其他平台、登录启动和长期运行需单独验证。
+
+## 继续任务与导入内容
+
+面板区分三个操作：
+
+- **立即继续（N）**：有等待重试或已暂停任务时显示。额度、登录或网络恢复后，
+  解除等待并重新开始重试周期，保留任务 ID 和失败历史，不改动正在执行或已经结束的任务。
+  如需 worker 自动执行代理编译，需开启无人值守编译。
+- **导入新内容**：扫描监看目录中的新增会话和内容变更，不解除任务的重试等待。
+- **重启服务**：重新启动所有知识库的引擎，保留任务的重试时间。
+
+队列显示等待重试、已暂停的数量，以及本地时区的下次重试日期和时间。
+继续操作调用当前知识库租户的 `POST /jobs/resume`，显式传入 `include_waiting: true`。
+此功能需要同时更新 tray 和引擎；旧引擎会显示更新提示，不会忽略等待任务却报告成功。
+API 和 CLI 默认仍只恢复已暂停任务，只有 API 显式指定时才同时恢复等待中的任务。

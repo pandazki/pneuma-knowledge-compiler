@@ -33,5 +33,7 @@ export async function openConsole(url: string) {
   }
   await open(url);
 }
-export type Perform = (operation: () => Promise<unknown>, success?: string) => Promise<boolean>;
+export type Perform = (operation: () => Promise<unknown>, success?: string | (() => string)) => Promise<boolean>;
 export const fitPanel = (height: number) => invoke<void>('fit_panel', { height });
+
+export const resumeJobs = (library: string) => invoke<number>('resume_jobs', { library });

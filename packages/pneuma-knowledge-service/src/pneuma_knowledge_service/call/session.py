@@ -7,13 +7,13 @@ THE RULES THIS FILE HOLDS (docs/design/voice-call.md §5)
   done here, once. A delegation id is claimed before any work starts, so a redelivered
   event cannot run the same lookup twice.
 * **The voice follows the latest ask; the screen keeps every answer.** A spoken interruption
-  cancels nothing at the provider — it is this application's decision — and the decision is
-  mechanical: a delegation that a newer one has overtaken finishes its lookup and completes
-  its card, and hands the voice nothing.
+  is reviewed while results are pending. Cancellation, changed intent or a newer delegation
+  suppresses further old-result sends; accepted provider context cannot be retracted.
+  Superseded work can finish its on-screen card.
 * **An acknowledgement is not speech.** The provider acks a hand-over when it estimates the
   text reached the model's context, not when anybody heard it. What is recorded from an ack
-  is its interval on the session timeline, which is what lets the console tell which spoken
-  lines stand on which answer — and mark the ones that stand on none.
+  is its estimated interval on the session timeline. The console can link nearby speech
+  for navigation, but timing does not prove which answer supports a spoken sentence.
 * **Silence is billed.** A session costs by the minute whether or not anyone speaks, so a
   call that has heard nothing from the owner for `call_idle_seconds`, or has run for
   `call_max_seconds`, is closed from here.
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 SETTLE_QUIET_SECONDS = 0.35
 SETTLE_MAX_SECONDS = 1.2
 
-#: A lookup that has said nothing by here gets one spoken holding line. The voice covers the
+#: A lookup that has said nothing by here gets one quiet progress update. The voice covers the
 #: first seconds on its own ("let me check"), so this is not for the ordinary wait — it is for
 #: the one that has gone wrong enough to be worth mentioning and not yet wrong enough to have
 #: failed. Once per delegation: a voice that keeps announcing that it is still looking is
@@ -73,15 +73,13 @@ BROWSER_COMMANDS = ("session.close", "session.input_audio.mute", "session.input_
 #: How many earlier asks of this call ask formation is shown.
 EARLIER_ASKS = 3
 
-#: How much of one answer the voice is handed, in characters. Measured: about five Chinese
-#: characters are spoken per second, so this is some twenty-five seconds of speech, and an
-#: answering model asked for seventy characters writes a hundred and fifty often enough. The
-#: style clause asks; this stops. Hand-overs end at the sentence that crosses the line — the
-#: card on screen keeps the whole answer, and the owner can ask for the rest.
-SPOKEN_BUDGET_CHARS = 130
+#: Safety ceiling for anomalously long output, not a routine conversational length limit.
+#: The answer style sets the normal length and allows detail when requested. A fixed 130
+#: characters cut ordinary English answers and repeatedly cut requests to explain more.
+SPOKEN_BUDGET_CHARS = 1200
 
 
-def session_config(settings: Any, *, zone: str, now: datetime | None = None) -> dict[str, Any]:
+def session_config(settings: Any, *, zone: str, now: datetime | None = None, speech_vocabulary: str = "") -> dict[str, Any]:
     """The provider session a call is created with.
 
     WebRTC negotiates its own audio format, so none is stated. The standing prompt carries
@@ -95,6 +93,8 @@ def session_config(settings: Any, *, zone: str, now: datetime | None = None) -> 
     context = voice_context(
         today=local.date().isoformat(), weekday=weekdays[local.weekday()].strip(), zone=zone
     )
+    if speech_vocabulary:
+        context += "\n\n<speech_vocabulary>\n" + speech_vocabulary + "\n</speech_vocabulary>"
     return {
         "model": settings.call_model,
         "instructions": voice_instructions(),
@@ -145,6 +145,8 @@ class Delegation:
     spoken: bool = True
     ask: str = ""
     said: str = ""
+    preliminary: str = ""
+    answer_phase: str = "searching"
     answer: dict[str, Any] | None = None
     detail: str = ""
     deliveries: list[dict[str, int]] = field(default_factory=list)
@@ -153,6 +155,10 @@ class Delegation:
     #: settled, the question was written, retrieval finished, the first words were handed
     #: over. Measured here rather than reconstructed by a reader from arrival gaps.
     timings: dict[str, int] = field(default_factory=dict)
+    updates: list[dict[str, Any]] = field(default_factory=list)
+    observed_speech: list[dict[str, Any]] = field(default_factory=list)
+    owner_changes: list[dict[str, Any]] = field(default_factory=list)
+    review_ready: asyncio.Event = field(default_factory=asyncio.Event)
 
     def mark(self, name: str) -> None:
         self.timings.setdefault(name, int((time.monotonic() - self.began) * 1000))
@@ -166,12 +172,18 @@ class Delegation:
                 "spoken": self.spoken,
                 "ask": self.ask,
                 "said": self.said,
+                "preliminary": self.preliminary,
+                "answer_phase": self.answer_phase,
                 "answer": self.answer,
                 "detail": self.detail,
                 "offset_ms": self.offset_ms,
                 "deliveries": list(self.deliveries),
                 "elapsed_ms": self.elapsed_ms,
                 "timings": dict(self.timings),
+                "provider_id": self.provider_id,
+                "updates": [dict(update) for update in self.updates],
+                "observed_speech": list(self.observed_speech),
+                "owner_changes": list(self.owner_changes),
             },
         }
 
@@ -202,7 +214,7 @@ class CallSession:
         self.seconds: float | None = None
         self._claimed: set[str] = set()
         self._revision = 0
-        self._handovers: dict[str, Delegation] = {}
+        self._handovers: dict[str, tuple[Delegation, dict[str, Any]]] = {}
         self._subscribers: list[asyncio.Queue] = []
         self._tasks: set[asyncio.Task] = set()
         self._channel: LiveChannel | None = None
@@ -211,6 +223,9 @@ class CallSession:
         self._started_at = time.monotonic()
         self._closing = False
         self._sent = 0
+        self._review_task: asyncio.Task | None = None
+        self._review_text = ""
+        self._review_generation = 0
 
     # ── watching ────────────────────────────────────────────────────────────────────────
 
@@ -300,16 +315,25 @@ class CallSession:
         if kind == "session.input_transcript.delta":
             self._owner_heard_at = self._owner_fragment_at = time.monotonic()
             self.ledger.add(OWNER, str(event.get("delta") or ""), event.get("start_ms") or 0, event.get("end_ms") or 0)
+            self._queue_owner_review(str(event.get("delta") or ""))
         elif kind == "session.output_transcript.delta":
             self.ledger.add(VOICE, str(event.get("delta") or ""), event.get("start_ms") or 0, event.get("end_ms") or 0)
+            if self.delegations:
+                latest = next(reversed(self.delegations.values()))
+                latest.observed_speech.append({"delta": str(event.get("delta") or ""),
+                    "start_ms": event.get("start_ms"), "end_ms": event.get("end_ms"),
+                    "received_ms": int((time.monotonic() - latest.began) * 1000)})
+                self._publish(latest.frame())
         elif kind == "session.delegation.created":
             self._begin(event)
-        elif kind in ("session.commentary.appended", "session.instructions.appended"):
-            delegation = self._handovers.pop(str(event.get("client_event_id") or ""), None)
-            if delegation is not None:
-                delegation.deliveries.append(
-                    {"start_ms": int(event.get("start_ms") or 0), "end_ms": int(event.get("end_ms") or 0)}
-                )
+        elif kind in ("session.commentary.appended", "session.instructions.appended", "session.thinking.appended"):
+            pending = self._handovers.pop(str(event.get("client_event_id") or ""), None)
+            if pending is not None:
+                delegation, update = pending
+                interval = {"start_ms": int(event.get("start_ms") or 0), "end_ms": int(event.get("end_ms") or 0)}
+                update.update(state="acknowledged", ack_ms=int((time.monotonic() - delegation.began) * 1000), **interval)
+                if update["result"] and update["type"] == "session.commentary.append":
+                    delegation.deliveries.append(interval)
                 self._publish(delegation.frame())
         elif kind == "session.usage.updated":
             usage = event.get("usage") or {}
@@ -329,9 +353,13 @@ class CallSession:
             self._publish(self._closed_frame())
         elif kind == "error":
             error = event.get("error") or {}
-            delegation = self._handovers.pop(str(event.get("client_event_id") or error.get("client_event_id") or ""), None)
+            pending = self._handovers.pop(str(event.get("client_event_id") or error.get("client_event_id") or ""), None)
             self._publish({"type": "error", "code": str(error.get("code") or "error"), "detail": str(error.get("message") or "")})
-            if delegation is not None:
+            if pending is not None:
+                delegation, update = pending
+                update.update(state="rejected", error=str(error.get("code") or "rejected"),
+                              ack_ms=int((time.monotonic() - delegation.began) * 1000))
+                self._publish(delegation.frame())
                 logger.warning("call %s: hand-over refused: %s", self.call_id, error.get("code"))
 
     # ── delegations ─────────────────────────────────────────────────────────────────────
@@ -343,6 +371,12 @@ class CallSession:
             return
         self._claimed.add(provider_id)
         self._revision += 1
+        self._review_generation += 1
+        self._review_text = ""
+        if self._review_task is not None:
+            self._review_task.cancel()
+        for old in self.delegations.values():
+            old.review_ready.set()
         # The voice follows the latest ask: whatever is still running has been overtaken.
         for earlier in self.delegations.values():
             if earlier.state in ("hearing", "searching", "answering") and earlier.spoken:
@@ -355,11 +389,57 @@ class CallSession:
             offset_ms=int(event.get("offset_ms") or 0),
             began=time.monotonic(),
         )
+        delegation.review_ready.set()
         self.delegations[delegation.id] = delegation
         self._publish(delegation.frame())
         task = asyncio.create_task(self._answer(delegation))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    def _queue_owner_review(self, delta: str) -> None:
+        if not delta or not callable(getattr(self.librarian, "classify_change", None)):
+            return
+        active = next((d for d in reversed(self.delegations.values())
+                       if d.ask and d.state in ("searching", "answering") and self._current(d)), None)
+        if active is None:
+            return
+        self._review_text += delta
+        self._review_generation += 1
+        generation = self._review_generation
+        active.review_ready.clear()
+        if self._review_task is not None:
+            self._review_task.cancel()
+        async def review() -> None:
+            text = ""
+            try:
+                await asyncio.sleep(SETTLE_QUIET_SECONDS)
+                text = self._review_text
+                action = await asyncio.wait_for(self.librarian.classify_change(active.ask, text), 3.0)
+                if generation != self._review_generation or not self._current(active):
+                    return
+                active.owner_changes.append({"text": text, "action": action,
+                    "ms": int((time.monotonic() - active.began) * 1000)})
+                if action in ("cancel", "replace"):
+                    self._revision += 1
+                    active.spoken = False
+                    active.mark("superseded")
+                self._review_text = ""
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Unclassified speech is not permission to deliver a potentially obsolete result.
+                if generation == self._review_generation:
+                    active.owner_changes.append({"text": text, "action": "unresolved",
+                        "ms": int((time.monotonic() - active.began) * 1000)})
+                    active.spoken = False
+                    self._revision += 1
+            finally:
+                if generation == self._review_generation:
+                    active.review_ready.set()
+                    self._publish(active.frame())
+        self._review_task = asyncio.create_task(review())
+        self._tasks.add(self._review_task)
+        self._review_task.add_done_callback(self._tasks.discard)
 
     def _current(self, delegation: Delegation) -> bool:
         return delegation.revision == self._revision and not self._closing
@@ -371,32 +451,50 @@ class CallSession:
                 return
             await asyncio.sleep(0.05)
 
-    async def _hand_over(self, delegation: Delegation, text: str) -> None:
+    async def _hand_over(self, delegation: Delegation, text: str, *, result: bool = True, phase: str = "refinement", quiet: bool = False) -> None:
         """Give the voice something to say for this delegation — if it is still the latest."""
         if not text or self._channel is None:
             return
+        # Clarifications are model-generated too and do not pass through _Attempt's chunker.
+        # Enforce the append bound at the shared send boundary for every kind of message.
+        if len(text) > 420 or len(text.encode("utf-8")) > 480:
+            chunker = SpokenChunker()
+            for chunk in [*chunker.feed(text), *chunker.flush()]:
+                await self._hand_over(delegation, chunk, result=result, phase=phase, quiet=quiet)
+            return
+        await delegation.review_ready.wait()
         if not self._current(delegation):
             if delegation.spoken:
                 delegation.spoken = False
                 self._publish(delegation.frame())
             return
-        if len(delegation.said) >= SPOKEN_BUDGET_CHARS:
+        if result and len(delegation.said) >= SPOKEN_BUDGET_CHARS:
             return
         self._sent += 1
         event_id = f"{self.call_id}-{delegation.id}-{self._sent}"
-        self._handovers[event_id] = delegation
-        if delegation.elapsed_ms is None:
+        # Progress, clarification and failure are not evidence deliveries. In particular,
+        # a holding line must not consume the answer budget or suppress invoke-only output.
+        event_type = "session.thinking.append" if quiet else "session.commentary.append"
+        update = {"event_id": event_id, "type": event_type, "phase": phase, "content": text,
+                  "result": result, "state": "sending", "sent_ms": int((time.monotonic() - delegation.began) * 1000)}
+        delegation.updates.append(update)
+        self._handovers[event_id] = (delegation, update)
+        try:
+            await self._channel.send({"type": event_type, "event_id": event_id,
+                "delegation_id": delegation.provider_id, "content": text})
+        except Exception as exc:
+            self._handovers.pop(event_id, None)
+            update.update(state="send_failed", error=type(exc).__name__)
+            self._publish(delegation.frame())
+            raise
+        if result and not quiet and delegation.elapsed_ms is None:
             delegation.elapsed_ms = int((time.monotonic() - delegation.began) * 1000)
             delegation.mark("first_words")
-        delegation.said = f"{delegation.said} {text}".strip()
-        await self._channel.send(
-            {
-                "type": "session.commentary.append",
-                "event_id": event_id,
-                "delegation_id": delegation.provider_id,
-                "content": text,
-            }
-        )
+            delegation.mark("first_sent")
+        if update["state"] == "sending":
+            update["state"] = "sent"
+        if result and not quiet:
+            delegation.said = f"{delegation.said} {text}".strip()
         self._publish(delegation.frame())
 
     async def _holding_line(self, delegation: Delegation) -> None:
@@ -404,7 +502,7 @@ class CallSession:
         await asyncio.sleep(PROGRESS_AFTER_SECONDS)
         if not delegation.said and self._current(delegation):
             with contextlib.suppress(Exception):
-                await self._hand_over(delegation, prompt("call.say.working"))
+                await self._hand_over(delegation, prompt("call.say.working"), result=False, phase="progress", quiet=True)
 
     async def _answer(self, delegation: Delegation) -> None:
         holding = asyncio.create_task(self._holding_line(delegation))
@@ -417,7 +515,9 @@ class CallSession:
             delegation.state = "failed"
             delegation.detail = "timed out" if isinstance(exc, asyncio.TimeoutError) else type(exc).__name__
             with contextlib.suppress(Exception):
-                await self._hand_over(delegation, prompt("call.say.failed"))
+                await self._hand_over(delegation, prompt(
+                    "call.progressive.incomplete" if delegation.preliminary else "call.say.failed"
+                ), result=False, phase="failure")
             self._publish(delegation.frame())
         finally:
             holding.cancel()
@@ -431,43 +531,27 @@ class CallSession:
             if done is not delegation and done.ask and done.said
         ][-EARLIER_ASKS:]
 
-        # SPECULATE. Writing the question out of the transcript costs a model call — measured
-        # at over two seconds, the largest single wait in a lookup — and for a first question
-        # asked in a whole sentence it returns the owner's own words with a question mark. So
-        # those words go to the library at once, beside the call that may replace them, and
-        # whatever they bring back is HELD: nothing is handed to the voice until the formed
-        # question turns out to be the same one. If it is not (a follow-up, a correction, a
-        # repaired name), the attempt is dropped unheard and the lookup starts over on the
-        # real question. The unused attempt is a cost, and it is this design's to own.
-        heard = self.ledger.owner_last_words()
+        # Freeze the input before any I/O. Vocabulary loading and ask formation may yield
+        # while another request arrives; an older card must keep the question it began on.
+        ledger = Ledger(fragments=list(self.ledger.fragments))
+        heard = ledger.owner_last_words()
         try:
             vocabulary = await self.librarian.vocabulary(heard)
         except Exception:  # noqa: BLE001 — the vocabulary repairs names; its absence only repairs fewer
             vocabulary = ""
-        attempt = self._attempt(delegation, heard) if len(_bare(heard)) >= SPECULATE_MIN_CHARS else None
-        try:
-            ask = await self.librarian.form_ask(self.ledger, earlier=earlier, vocabulary=vocabulary)
-        except BaseException:
-            if attempt is not None:
-                await attempt.drop()
-            raise
+        ask = await self.librarian.form_ask(ledger, earlier=earlier, vocabulary=vocabulary)
         delegation.mark("asked")
         if not ask.ready:
-            if attempt is not None:
-                await attempt.drop()
             delegation.state = "unclear"
             delegation.detail = ask.clarify
-            await self._hand_over(delegation, ask.clarify or prompt("call.say.unclear"))
+            await self._hand_over(delegation, ask.clarify or prompt("call.say.unclear"), result=False, phase="clarification")
             self._publish(delegation.frame())
             return
 
         delegation.ask = ask.question
-        if attempt is not None and _bare(ask.question) != _bare(heard):
-            await attempt.drop()
-            attempt = None
-        delegation.timings["speculated"] = int(attempt is not None)
-        if attempt is None:
-            attempt = self._attempt(delegation, ask.question)
+        # One formed question launches one paired lookup. Speculating two full progressive
+        # workflows on competing wordings would duplicate both retrievals and model costs.
+        attempt = self._attempt(delegation, ask.question)
         delegation.state = "answering" if attempt.retrieved else "searching"
         self._publish(delegation.frame())
 
@@ -478,7 +562,11 @@ class CallSession:
             whole = SpokenChunker()
             for chunk in [*whole.feed(answer.answer_text), *whole.flush()]:
                 await self._hand_over(delegation, chunk)
+        if delegation.preliminary and answer.payload.get("progressive", {}).get("spoken_update") == "":
+            await self._hand_over(delegation, prompt("call.progressive.confirm"),
+                                  result=False, quiet=True, phase="completion")
         delegation.answer = answer.payload
+        delegation.mark("completed")
         delegation.state = "done"
         self._publish(delegation.frame())
 
@@ -486,35 +574,31 @@ class CallSession:
         return _Attempt(self, delegation, question)
 
 
-def _bare(text: str) -> str:
-    """A question with everything but its words removed — what two askings are compared by."""
-    return "".join(ch for ch in text.lower() if ch.isalnum())
-
-
-#: The owner's own words are tried speculatively only when there are enough of them to be a
-#: question: "第二点呢" is a reference, and a lookup on it is wasted by construction.
-SPECULATE_MIN_CHARS = 8
-
 
 class _Attempt:
-    """One run of the library on one wording of the question, its words held until released."""
+    """One paired lookup whose phase-labelled results are drained by the session."""
 
     def __init__(self, session: CallSession, delegation: Delegation, question: str) -> None:
         self._session = session
         self._delegation = delegation
         self._chunker = SpokenChunker()
-        self._chunks: asyncio.Queue[str | None] = asyncio.Queue()
+        self._chunks: asyncio.Queue[tuple[str, str] | None] = asyncio.Queue()
         self.retrieved = False
         self._released = False
         self._task = asyncio.create_task(
-            session.librarian.answer(question, on_token=self._on_token, on_retrieved=self._on_retrieved)
+            session.librarian.answer(question, on_token=self._on_token, on_retrieved=self._on_retrieved,
+                                     on_preliminary=self._on_preliminary)
         )
 
-    # `on_token` runs inside the answering call's streaming loop and must not block, so it
+    # Result callbacks must not block the producer, so each callback
     # only queues; `release` does the sending.
     def _on_token(self, delta: str) -> None:
         for chunk in self._chunker.feed(delta):
-            self._chunks.put_nowait(chunk)
+            self._chunks.put_nowait(("refinement", chunk))
+
+    def _on_preliminary(self, text: str) -> None:
+        if text:
+            self._chunks.put_nowait(("preliminary", text))
 
     def _on_retrieved(self) -> None:
         self.retrieved = True
@@ -537,19 +621,31 @@ class _Attempt:
         async def finish() -> None:
             try:
                 await self._task
-            finally:
                 for chunk in self._chunker.flush():
-                    self._chunks.put_nowait(chunk)
+                    self._chunks.put_nowait(("refinement", chunk))
+            finally:
+                # A failed stream's unfinished tail is not a result. Wake the consumer,
+                # then propagate the failure so the caller can explain what happened.
                 self._chunks.put_nowait(None)
 
         finisher = asyncio.create_task(finish())
         try:
-            while (chunk := await self._chunks.get()) is not None:
-                await self._session._hand_over(self._delegation, chunk)
+            while (item := await self._chunks.get()) is not None:
+                phase, chunk = item
+                before = self._delegation.said
+                await self._session._hand_over(self._delegation, chunk, phase=phase)
+                if self._delegation.said != before:
+                    self._delegation.answer_phase = phase
+                    self._delegation.mark(phase)
+                    if phase == "preliminary":
+                        self._delegation.preliminary = chunk
+                    self._session._publish(self._delegation.frame())
             await finisher
         except BaseException:
             finisher.cancel()
             await self.drop()
+            with contextlib.suppress(BaseException):
+                await finisher
             raise
         return self._task.result()
 

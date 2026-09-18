@@ -322,3 +322,12 @@ test("the circled ordinals run out gracefully rather than wrongly", () => {
   assert.equal(ordinalBadge(20), "⑳");
   assert.equal(ordinalBadge(21), "(21)");
 });
+
+test("final cards retain preliminary text, exact update history, and separate acknowledgment clocks", () => {
+  const updates = [{ event_id: "sent-1", type: "session.commentary.append", phase: "preliminary", content: "A partial fact.", state: "acknowledged", sent_ms: 2000, ack_ms: 2500, start_ms: 5000, end_ms: 5200 }];
+  const state = fold([delegation("d1", { preliminary: "A partial fact.", provider_id: "opaque-id", updates,
+    answer: { answer: "A complete answer." }, observed_speech: [{ delta: "A spoken fact.", start_ms: 5500, end_ms: 6000, received_ms: 3500 }] })]);
+  assert.equal(state.delegations[0].preliminary, "A partial fact.");
+  assert.deepEqual(state.delegations[0].updates, updates);
+  assert.equal(state.delegations[0].observed_speech[0].start_ms, 5500);
+});

@@ -1,5 +1,7 @@
 mod call;
 mod login;
+#[cfg(target_os = "macos")]
+mod native_panel;
 mod panel;
 mod pkchome;
 mod poller;
@@ -27,6 +29,7 @@ fn quit(app: tauri::AppHandle) {
 
 pub fn run() {
     let builder = tauri::Builder::default()
+        .runtime(tauri_runtime_wry::Wry::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
@@ -34,12 +37,11 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_positioner::init());
-    #[cfg(target_os = "macos")]
-    let builder = builder.plugin(tauri_nspanel::init());
     builder
         .invoke_handler(tauri::generate_handler![
             get_state,
             pkchome::run_action,
+            pkchome::resume_jobs,
             pkchome::search,
             login::login_status,
             login::set_login,
@@ -115,7 +117,7 @@ pub fn run() {
                     "quit" => app.exit(0),
                     _ => {}
                 })
-                .on_tray_icon_event(|tray, event| {
+                .on_tray_icon_event(move |tray, event| {
                     tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
                     if matches!(
                         event,
@@ -135,7 +137,9 @@ pub fn run() {
                 })
                 .build(app)?;
             #[cfg(target_os = "macos")]
-            tray.set_title(Some("●"))?;
+            {
+                tray.set_title(Some("●"))?;
+            }
             #[cfg(not(target_os = "macos"))]
             let _ = tray;
             panel::update_icon(app.handle(), health);

@@ -438,7 +438,12 @@ mod tests {
              openrouter rejected '\u{2022}\u{2022}\u{2022}' (401 Unauthorized)"
         );
         assert_eq!(
-            error_output(b"echoed [ synthetic-key-value ]", b"", stdin, "failed".into()),
+            error_output(
+                b"echoed [ synthetic-key-value ]",
+                b"",
+                stdin,
+                "failed".into()
+            ),
             "echoed [\u{2022}\u{2022}\u{2022}]"
         );
         // Silence still says something, and a tool that speaks on stdout is still heard.
@@ -491,4 +496,60 @@ mod tests {
         );
         assert!(stdin.is_none());
     }
+}
+
+/// Resume only this library's delayed and paused work through its tenant-scoped API.
+#[tauri::command]
+pub async fn resume_jobs(runtime: State<'_, Runtime>, library: String) -> Result<u64, String> {
+    name(&library)?;
+    let _guard = runtime.action_lock.lock().await;
+    let shallow = poller::shallow(&runtime.home, &runtime.login_path).await;
+    let row = shallow
+        .libraries
+        .iter()
+        .find(|l| l.status.name == library && l.status.engine.up)
+        .ok_or("Start this library's service before continuing tasks / 请先启动服务")?;
+    let base = format!("http://127.0.0.1:{}", row.status.engine.port);
+    // Older engines ignore unknown request fields. Refuse instead of reporting a false success.
+    let schema: serde_json::Value = runtime
+        .client
+        .get(format!("{base}/openapi.json"))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    if schema
+        .pointer("/components/schemas/ResumeJobsIn/properties/include_waiting")
+        .is_none()
+    {
+        return Err(
+            "Update the engine to continue waiting tasks / 请更新引擎以继续等待中的任务".into(),
+        );
+    }
+    let mut endpoint = reqwest::Url::parse(&base).map_err(|e| e.to_string())?;
+    endpoint
+        .path_segments_mut()
+        .map_err(|_| "Invalid engine URL")?
+        .extend(["v1", "users", &row.tenant, "jobs", "resume"]);
+    let result: serde_json::Value = runtime
+        .client
+        .post(endpoint)
+        .json(&serde_json::json!({"all": true, "include_waiting": true}))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .error_for_status()
+        .map_err(|e| e.to_string())?
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    runtime.wake.notify_one();
+    result
+        .get("resumed")
+        .and_then(|n| n.as_u64())
+        .ok_or("Invalid resume response".into())
 }

@@ -1,7 +1,8 @@
 """Canonical document text (de)serialization.
 
 A canonical document on disk is markdown with a YAML-style frontmatter fence. v1
-frontmatter is a flat map of scalar strings (doc_id/type/slug + optional extras), so a
+frontmatter is a flat map of scalar strings, except for the reserved `speech_terms`
+list encoded as inline JSON (also valid YAML). A
 minimal deterministic serializer round-trips it without pulling a YAML dependency into
 core (kept at pydantic + langchain-core). Keys are emitted sorted for byte-stability.
 
@@ -18,6 +19,8 @@ serialized, and nothing downstream ever sees two spellings of one field.
 """
 
 from __future__ import annotations
+
+import json
 
 import re
 from dataclasses import dataclass
@@ -40,11 +43,13 @@ def normalize_frontmatter(frontmatter: dict) -> dict:
     writes only the current spelling. An explicit `doc_id` always wins.
     """
     normalized = dict(frontmatter)
-    # Frontmatter is a flat map of scalar strings (module docstring). A caller — the
+    # Legacy fields are scalar strings; speech_terms is the structured exception. A caller — the
     # compile model passing `{"aliases": ["a", "b"]}` — may hand in a list; it is folded
     # to the one on-disk spelling, comma-separated, so the file never carries a Python
     # repr and every reader parses one shape.
     for key, value in list(normalized.items()):
+        if key == "speech_terms":
+            continue
         if isinstance(value, (list, tuple)):
             normalized[key] = ", ".join(str(item).strip() for item in value if str(item).strip())
     for legacy_key in LEGACY_DOC_ID_KEYS:
@@ -197,6 +202,8 @@ def render_document(frontmatter: dict, body: str) -> str:
     lines = [_FENCE]
     for key in sorted(frontmatter):
         value = frontmatter[key]
+        if key == "speech_terms" and isinstance(value, list):
+            value = json.dumps(value, ensure_ascii=False)
         if key == TITLE_KEY and isinstance(value, str) and _needs_quoting(value):
             value = _quote_scalar(value)
         lines.append(f"{key}: {value}")
@@ -231,6 +238,12 @@ def parse_document(text: str) -> tuple[dict, str]:
             # round trip cover the same set: a value nothing ever quotes must not be read as
             # quoted either, or a field that happens to open and close on a quote character
             # would lose two bytes every time its file was re-serialized.
+            if name == "speech_terms":
+                try:
+                    frontmatter[name] = json.loads(value.strip())
+                except ValueError:
+                    frontmatter[name] = value.strip()
+                continue
             frontmatter[name] = (
                 _unquote_scalar(value.strip()) if name == TITLE_KEY else value.strip()
             )

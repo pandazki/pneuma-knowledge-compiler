@@ -647,21 +647,14 @@ SURFACES: tuple[Surface, ...] = (
         title_en="Voice call",
         title_zh="语音通话",
         summary_en=(
-            "A full-duplex voice model conducts the call and knows nothing about the "
-            "library; whatever the library knows reaches it through a delegate this "
-            "framework runs. Three readers, three kinds of text: the VOICE model's standing "
-            "prompt (short by its provider's rule, policy labels kept verbatim), the small "
-            "text model that writes the question out of the transcript — the delegation "
-            "event says that help is wanted and never what about — and the lines the "
-            "delegate hands the voice when it has no answer to hand over. The answer itself "
-            "is the fast lane's, in the `spoken` style."
+            "One Live delegation can return a bounded first finding while broader recall "
+            "continues. The voice conducts the conversation; ask formation resolves the "
+            "transcript; the first selector chooses a complete record; refinement compares "
+            "broader evidence with the first finding and returns an addition or correction."
         ),
         summary_zh=(
-            "一个全双工语音模型主持通话，它对知识库一无所知；知识库知道的一切，都经由本框架运行的"
-            "委托交给它。三位读者、三种文字：**语音**模型的常驻提示词（按其提供方的规矩写得很短，"
-            "策略标签原样保留）、从转写里把问题写出来的小文本模型——委托事件只说需要帮助，从不说"
-            "关于什么——以及委托没有答案可交时交给语音的那几句话。答案本身出自快速车道，用 "
-            "`spoken` 风格。"
+            "同一次 Live 委派可先返回一条有界发现，同时继续较广召回。语音负责交谈，问题形成解析转写，"
+            "首段选择器选择完整记录，后续作答对照较广证据与首段，返回补充或修正。"
         ),
         segments=(
             f(
@@ -708,6 +701,71 @@ SURFACES: tuple[Surface, ...] = (
                 "call.ask.label.voice",
                 "Labels the voice model's lines of the transcript.",
                 "转写里语音模型那几行的标签。",
+            ),
+            f(
+                'call.progressive.summarize',
+                'Produce one brief partial answer from a selected complete record when none is short enough to quote.',
+                '没有适合直接引用的短记录时，从选中的完整记录生成一句局部回答。',
+            ),
+            f("call.lexicon.extract", "Select uncommon speech terms from canonical pages.", "从知识页提取语音易错词。"),
+            f("call.lexicon.curate", "Select useful spoken names across pages.", "跨页面筛选适合口语的名称。"),
+            f("call.lexicon.context", "Bounded spelling reference provided at call startup.", "通话开始时提供的有界拼写参考。"),
+            f("call.change.contract", "Classify explicit task corrections and cancellation in owner speech.", "识别主人话语中的明确任务修正和取消。"),
+            f("call.change.input", "Running question and newly accumulated owner transcript.", "当前问题和新累积的主人转写。"),
+            f(
+                'call.progressive.pick',
+                'System contract: choose one existing record or abstain; no authored first facts.',
+                '首段选择契约：只选现有记录或弃选，不撰写事实。',
+            ),
+            f(
+                'call.progressive.pick_input',
+                'Question and bounded complete records sent to the first selector.',
+                '交给首段选择器的问题及有限的完整记录。',
+            ),
+            f(
+                'call.progressive.first',
+                'Mechanical partial-scope wrapper around the selected verbatim record.',
+                '为选中的记录原文添加明确局部范围的说明。',
+            ),
+            f(
+                'call.progressive.previous',
+                'The exact first finding, as dialogue context rather than evidence.',
+                '首段原文，仅作对话上下文，不作为证据。',
+            ),
+            f(
+                'call.progressive.refine',
+                'Compare broader evidence with the earlier finding and classify the update.',
+                '对照较广证据与先行发现，判断更新属于补充还是修正。',
+            ),
+            f(
+                'call.progressive.extend',
+                'Spoken transition before additional facts.',
+                '新增事实之前的口头过渡。',
+            ),
+            f(
+                'call.progressive.correct',
+                'Mandatory spoken transition before a correction.',
+                '修正前由程序添加的明确口头过渡。',
+            ),
+            f(
+                'call.progressive.unresolved',
+                'Broader evidence cannot establish a conclusion after a partial finding.',
+                '已有局部发现，但较广证据仍不能支持结论。',
+            ),
+            f(
+                'call.progressive.incomplete',
+                'Broader lookup failed after a first finding was delivered.',
+                '首段交付后，进一步核对失败。',
+            ),
+            f(
+                'call.progressive.empty',
+                'No reliable answer and no earlier finding.',
+                '没有可靠答案，也没有先行发现。',
+            ),
+            f(
+                'call.progressive.confirm',
+                'Close the follow-up without repeating facts.',
+                '补充核对结束，不重复事实。',
             ),
             f(
                 "call.say.working",

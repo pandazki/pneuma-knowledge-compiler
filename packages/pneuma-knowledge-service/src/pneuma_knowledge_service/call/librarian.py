@@ -1,27 +1,27 @@
-"""The delegate's working half: the library, asked the way a voice has to ask it.
+"""Two overlapping lookups inside one Live delegation.
 
-It is the fast lane — the same function the console's Recall view and `pkc recall` call, fed
-by the same `_fast_recall_kwargs` the route assembles, so a call answers from exactly the
-evidence faces, archive scope and citation discipline every other answer does. What differs
-is a POSTURE, and every line of it was bought with a measurement on a real library
-(docs/design/voice-call.md §6): the `call` role (reasoning off) for every turn, no glance in
-the prompt, the `spoken` answer style, and a selection call held to a call's patience rather
-than a reader's. Together they took the first answer token from about ten seconds to under
-three, and the selection is what keeps a wide retrieval from reaching the answer as a flood.
+A bounded lexical first look selects a complete short record and hands it to Live with an
+explicit partial-scope wrapper. Broader fast recall runs concurrently; its answer compares
+against that exact first finding, returning an addition, correction or no new speech.
+Both phases share tenant, time and archive scope. Neither writes the library.
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from pneuma_knowledge_core.canonical_glance import display_identity
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.recall.call import Ask, Exchange, Ledger, form_ask, vocabulary_of
-from pneuma_knowledge_core.recall.fast import fast_recall
+from pneuma_knowledge_core.recall.fast import FastAnswer, add_usage, fast_recall
+from pneuma_knowledge_core.recall.call import speakable
+from pneuma_knowledge_core.recall.progressive import FirstFinding, first_finding, refine
+from pneuma_knowledge_core.recall.stage_timing import StageTiming
 
 #: How long one reading of the canonical tree serves a call. A compile can land mid-call and
 #: the next ask should see it; re-reading git on every ask would put that read in front of
@@ -37,20 +37,17 @@ DOCUMENTS_TTL_SECONDS = 60.0
 #: the path that protects a slow call must not be the one that floods it.
 SELECTION_TIMEOUT_SECONDS = 5.0
 
+# A slow or empty first look must not prevent the broader answer from completing.
+FIRST_LOOK_SECONDS = 6.0
+
 #: The fast lane's spoken posture — see the module docstring for why each line is here.
 POSTURE: dict[str, Any] = {
     "answer_style": "spoken",
     "render_glance": False,
-    # RELEVANCE IS A JUDGEMENT, so a model makes it. The lane retrieves widely and one small
-    # structured call picks what actually answers the question, returning coordinates the
-    # framework validates. The alternative this replaced — scoping the lookup itself with a
-    # mechanical name match — was a judgement wearing a mechanism's clothes: it worked when the
-    # owner said a project's whole name and missed when they said "that upload thing", and it
-    # put relevance inside a component, where this framework deliberately does not keep it
-    # (core `recall/component_rank.py`: paths return everything they know, the framework
-    # orders). Measured against it on a real library: +2.4s to the first spoken word, and a
-    # question about one project among several days of others is answered about that project.
+    # Preserve model relevance selection for wide pools; do not hide a brittle subject-name
+    # containment filter inside a component. Small pools can be judged during answering.
     "evidence_strategy": "select",
+    # The broader phase uses relevance selection; it runs alongside the bounded first look.
     "selection_reasoning_effort": None,
     "evidence_selection_timeout": SELECTION_TIMEOUT_SECONDS,
     # What survives into the answer — and, the reason it is stated here, how wide the DEGRADED
@@ -65,6 +62,11 @@ POSTURE: dict[str, Any] = {
     # what a spoken answer of two or three sentences can carry, and the most unjudged
     # evidence this posture is willing to answer from.
     "cap": 12,
+    "window_cap": 4,
+    "episode_summary_cap": 3,
+    "claim_provenance_passage_cap": 4,
+    "episode_provenance_passage_cap": 1,
+    "provenance_passage_max_chars": 6000,
     "answer_format": "text",
     "plan_queries_cap": 0,
     "reranker": None,
@@ -86,6 +88,8 @@ class Librarian(Protocol):
 
     async def vocabulary(self, heard: str) -> str: ...
 
+    async def speech_vocabulary(self) -> str: ...
+
     async def form_ask(
         self, ledger: Ledger, *, earlier: Sequence[Exchange], vocabulary: str
     ) -> Ask: ...
@@ -96,6 +100,7 @@ class Librarian(Protocol):
         *,
         on_token: Callable[[str], None],
         on_retrieved: Callable[[], None],
+        on_preliminary: Callable[[str], None],
     ) -> LibraryAnswer: ...
 
 
@@ -123,9 +128,15 @@ class LibraryLibrarian:
     async def vocabulary(self, heard: str) -> str:
         documents = (await self._inputs()).get("documents") or []
         by_path = {doc.path: doc for doc in documents}
-        return vocabulary_of(
-            [display_identity(by_path, path).title for path in by_path], heard=heard
-        )
+        titles = vocabulary_of([display_identity(by_path, path).title for path in by_path], heard=heard)
+        hints = await self.speech_vocabulary()
+        return hints + "\n" + titles if hints else titles
+
+    async def speech_vocabulary(self) -> str:
+        """Read the prepared lexicon and page metadata, with no model call at dial time."""
+        from .speech_lexicon import vocabulary
+        documents = (await self._inputs()).get("documents") or []
+        return await asyncio.to_thread(vocabulary, self._ctx.settings, str(self._user), documents)
 
     async def form_ask(
         self, ledger: Ledger, *, earlier: Sequence[Exchange], vocabulary: str
@@ -140,12 +151,17 @@ class LibraryLibrarian:
             **llm_call_config(self._ctx, operation="call.ask", user_id=str(self._user)),
         )
 
+    async def classify_change(self, question: str, owner_text: str) -> str:
+        from pneuma_knowledge_core.recall.call import task_change
+        return await task_change(self._ctx.get_chat_model("call"), question, owner_text)
+
     async def answer(
         self,
         question: str,
         *,
         on_token: Callable[[str], None],
         on_retrieved: Callable[[], None],
+        on_preliminary: Callable[[str], None],
     ) -> LibraryAnswer:
         from ..api.routes import v1
 
@@ -165,14 +181,76 @@ class LibraryLibrarian:
         model = ctx.get_chat_model("call")
         kwargs.update(POSTURE, model=model, answer_model=model, route_model=model, glance_model=None)
 
-        def on_event(event: Any) -> None:
-            # The lane's own clock says when retrieval settled; the card moves from
-            # "searching" to "answering" on that and not on a guess.
-            if getattr(event, "name", "") == "answer" and getattr(event, "phase", "") == "start":
-                on_retrieved()
-
-        answer = await fast_recall(
-            plane.retrieval_user, question, on_token=on_token, on_event=on_event, **kwargs
+        # Both phases share the resolved owner, archive scope, canonical view and as_of.
+        # The first lookup needs no embedding, routing, selection or answer model call.
+        quick_kwargs = dict(kwargs)
+        quick_kwargs.update(
+            model=None, answer_model=None, route_model=None, embeddings=None,
+            claim_vectors=None, vectors=None, fast_paths=(),
+            cap=6, claim_candidate_cap=8, window_cap=2, window_candidate_cap=3,
+            episode_summary_cap=0, evidence_strategy="select",
+            claim_provenance_passage_cap=6, episode_provenance_passage_cap=0,
+            evidence_only=True, image_mode="caption", media=None,
         )
-        out = v1._fast_answer_out(answer, as_of=as_of, plane=plane, settings=ctx.settings)
-        return LibraryAnswer(payload=out.model_dump(mode="json"), answer_text=answer.answer_text)
+        started = time.perf_counter()
+        first = FirstFinding()
+        first_reason = ""
+
+        async def quick() -> FirstFinding:
+            evidence = await fast_recall(plane.retrieval_user, question, **quick_kwargs)
+            return await first_finding(model, question, evidence,
+                callbacks=kwargs.get("callbacks"), trace_metadata=kwargs.get("trace_metadata"))
+
+        quick_task = asyncio.create_task(quick())
+        broad_task = asyncio.create_task(fast_recall(
+            plane.retrieval_user, question, evidence_only=True, **kwargs))
+        try:
+            try:
+                first = await asyncio.wait_for(quick_task, FIRST_LOOK_SECONDS)
+            except asyncio.TimeoutError:
+                first_reason = "timeout"
+            except Exception as exc:
+                first_reason = type(exc).__name__
+            first_ms = (time.perf_counter() - started) * 1000
+            if first.text:
+                on_preliminary(first.text)
+            elif not first_reason:
+                first_reason = "no_supported_finding"
+            evidence = await broad_task
+            on_retrieved()
+            answer_started = time.perf_counter()
+            refined = await refine(model, evidence, first.text,
+                callbacks=kwargs.get("callbacks"), trace_metadata=kwargs.get("trace_metadata"))
+            if refined.speech:
+                on_token(refined.speech)
+            answer_ms = (time.perf_counter() - answer_started) * 1000
+            total_ms = (time.perf_counter() - started) * 1000
+            stages = tuple(
+                replace(stage, ms=round(answer_ms), status="ran") if stage.name == "answer"
+                else replace(stage, ms=round(total_ms)) if stage.name == "total" else stage
+                for stage in evidence.stages
+            )
+            # Preserve the recall card's evidence shape, with both phases' model receipts.
+            common = {item.name: getattr(evidence, item.name) for item in fields(FastAnswer)
+                      if hasattr(evidence, item.name)
+                      and item.name not in {"answer", "answer_text", "token_usage", "stages"}}
+            answer = FastAnswer(
+                **common, answer=refined.answer, answer_text=speakable(refined.answer),
+                citation_handles=evidence.handles, evidence_manifest=evidence.manifest,
+                token_usage=add_usage(add_usage(evidence.token_usage, first.usage), refined.usage),
+                stages=(*(s for s in stages if s.name != "total"),
+                    StageTiming(name="first_lookup", ms=round(first_ms),
+                        status="degraded" if first_reason else "ran", detail=first_reason or None),
+                    *(s for s in stages if s.name == "total")),
+            )
+            out = v1._fast_answer_out(answer, as_of=as_of, plane=plane, settings=ctx.settings)
+            payload = out.model_dump(mode="json")
+            payload["progressive"] = {"preliminary": first.text, "locator": first.locator,
+                                      "relation": refined.relation, "spoken_update": refined.speech, "first_degraded": first_reason or None}
+            return LibraryAnswer(payload=payload, answer_text=answer.answer_text)
+        finally:
+            # Cancellation, errors and superseded session shutdown must leave no hidden work.
+            for task in (quick_task, broad_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(quick_task, broad_task, return_exceptions=True)

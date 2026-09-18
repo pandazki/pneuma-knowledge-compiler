@@ -323,3 +323,45 @@ def test_a_page_this_round_never_touched_stays_byte_identical():
 # machinery went with it rather than standing as an unexercised capability. The tests that
 # covered it (a forged entry, the internal write face, the carry-or-drop snapshot rule) are
 # deleted here for the same reason — they tested a mechanism, not a behaviour anyone has.
+
+
+def test_speech_metadata_creation_update_clear_and_atomic_rejection():
+    draft = _draft()
+    path = 'memory/topics/lyrra.md'
+    doc = draft.create_document(path, {'type': 'topic', 'slug': 'lyrra', 'speech_terms': ['Lyrra']},
+                                '# Lyrra\n\nLyrra is a synthetic project. [cite: s1 ¶0]')
+    draft.set_fields(path, {'speech_terms': [{'term': 'Lyrra', 'confusions': ['leera']}]})
+    before = dict(doc.frontmatter)
+    with pytest.raises(AnchorToolError, match='exact spelling'):
+        draft.set_fields(path, {'other': 'must not persist', 'speech_terms': ['invented']})
+    assert doc.frontmatter == before
+    with pytest.raises(AnchorToolError, match='duplicate'):
+        draft.set_fields(path, {'speech_terms': ['Lyrra', 'Lyrra']})
+    with pytest.raises(AnchorToolError, match='list'):
+        draft.set_fields(path, {'speech_terms': 'Lyrra'})
+    draft.set_fields(path, {'speech_terms': []})
+    assert doc.frontmatter['speech_terms'] == []
+    with pytest.raises(AnchorToolError, match='exact spelling'):
+        draft.create_document('memory/topics/other.md', {'type': 'topic', 'slug': 'other',
+                              'speech_terms': ['invented']}, '# Other')
+    assert 'memory/topics/other.md' not in draft.documents()
+
+
+def test_gate_rejects_speech_metadata_when_body_removes_spelling():
+    from pneuma_knowledge_core.compile.gate import run_gate
+    draft = _draft()
+    path = 'memory/topics/lyrra.md'
+    doc = draft.create_document(path, {'type': 'topic', 'slug': 'lyrra', 'speech_terms': ['Lyrra']}, '# Lyrra')
+    doc.body = '# Renamed'
+    violations = run_gate(draft, [])
+    assert any(v.kind == 'frontmatter' and 'speech_terms' in v.detail for v in violations)
+
+
+def test_speech_metadata_disk_round_trip_preserves_structure():
+    fields = {'type': 'topic', 'slug': 'lyrra', 'speech_terms': [
+        {'term': 'Lyrra', 'confusions': ['leera']}, '洛芮'], 'aliases': 'one, two'}
+    text = render_document(fields, '# Lyrra')
+    parsed, body = parse_document(text)
+    assert parsed == fields
+    assert body == '# Lyrra'
+    assert parse_document(render_document({'speech_terms': []}, body))[0]['speech_terms'] == []

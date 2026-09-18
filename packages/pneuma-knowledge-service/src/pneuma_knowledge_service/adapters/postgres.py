@@ -50,6 +50,7 @@ from ..job_retry import (
     resumed_detail,
     resumed_payload,
     waiting_reasons,
+    waiting_reason,
 )
 from ..job_lanes import (
     CANONICAL_LANE,
@@ -1850,6 +1851,7 @@ class PostgresStore:
         job_id: str | None = None,
         reason_like: str = "",
         every: bool = False,
+        include_waiting: bool = False,
     ) -> int:
         """Start paused jobs again with a fresh schedule; return how many (`job_retry.py`).
 
@@ -1864,25 +1866,27 @@ class PostgresStore:
         wanted = reason_like.strip().casefold()
         async with self._pool.connection() as conn:
             rows = await (await conn.execute(
-                "SELECT id, payload, detail FROM compile_jobs "
-                "WHERE user_id = %s AND status = %s"
-                + (" AND id = %s" if job_id else ""),
-                (str(user_id), PAUSED_STATUS, *((job_id,) if job_id else ())),
+                "SELECT id, payload, detail, status FROM compile_jobs "
+                "WHERE user_id = %s AND (status = %s OR (%s AND status = 'queued' AND not_before > now()))"
+                + (" AND id = %s" if job_id else "") + " FOR UPDATE",
+                (str(user_id), PAUSED_STATUS, include_waiting, *((job_id,) if job_id else ())),
             )).fetchall()
             resumed = 0
-            for row_id, payload, detail in rows:
-                if wanted and wanted not in paused_reason(detail).casefold():
+            for row_id, payload, detail, status in rows:
+                reason = paused_reason(detail) if status == PAUSED_STATUS else waiting_reason(detail)
+                if wanted and wanted not in reason.casefold():
                     continue
                 cur = await conn.execute(
                     "UPDATE compile_jobs SET status = 'queued', not_before = NULL, "
                     "payload = %s, detail = %s, claimed_at = NULL, claimed_by = NULL "
-                    "WHERE user_id = %s AND id = %s AND status = %s",
+                    "WHERE user_id = %s AND id = %s AND status = %s "
+                    "AND (status = 'paused' OR not_before > now())",
                     (
                         Json(resumed_payload(payload or {})),
                         resumed_detail(payload or {}),
                         str(user_id),
                         row_id,
-                        PAUSED_STATUS,
+                        status,
                     ),
                 )
                 resumed += cur.rowcount

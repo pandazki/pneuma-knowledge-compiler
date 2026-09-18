@@ -160,3 +160,14 @@ test('locale follows the system until explicitly selected and translations inter
   assert.equal(t('zh-CN', 'skill'), 'skill 包');
   assert.equal(t('en', 'skill'), 'Skill');
 });
+
+test('retry recovery shows waiting and paused work with a dated retry, not failed jobs', async () => {
+  const { retryReadout } = await import('../src/lib/readouts.ts');
+  assert.deepEqual(retryReadout(null, 'en'), { count: 0, text: '' });
+  const q = { pending: 205, failed: 50, last_compile_at: null,
+    waiting: { count: 117, reasons: [{ reason: 'payment', count: 117, next_retry_at: '2026-09-19T03:28:00Z' }] },
+    paused: { count: 2, reasons: [] } };
+  assert.equal(retryReadout(q, 'en').count, 119);
+  assert.match(retryReadout(q, 'zh-CN').text, /117 个等待重试.*2 个已暂停.*下次重试/);
+  assert.equal(retryReadout({ ...q, waiting: undefined, paused: undefined }, 'en').count, 0);
+});

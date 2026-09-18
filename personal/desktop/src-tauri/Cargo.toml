@@ -4,20 +4,21 @@ version = "0.1.0"
 description = "A quiet tray for your personal knowledge libraries"
 authors = ["Pneuma contributors"]
 edition = "2021"
-rust-version = "1.88"
+rust-version = "1.95"
 
 [lib]
 name = "pkc_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "=3.0.0-alpha.0", features = [] }
 
 [dependencies]
-tauri = { version = "2.11", features = ["tray-icon", "image-png"] }
-tauri-plugin-shell = "2"
-tauri-plugin-autostart = "2"
-tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
+tauri-runtime-wry = "=3.0.0-alpha.1"
+tauri = { version = "=3.0.0-alpha.1", features = ["tray-icon", "image-png"] }
+tauri-plugin-shell = "=3.0.0-alpha.0"
+tauri-plugin-autostart = "=3.0.0-alpha.0"
+tauri-plugin-positioner = { version = "=3.0.0-alpha.0", features = ["tray-icon"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 serde_yaml = "=0.9.34"
@@ -29,7 +30,7 @@ dirs = "=6.0.0"
 libc = "=0.2.176"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2", version = "=2.0.1" }
+cocoa = "=0.26.1"
 objc = "=0.2.7"
 
 [features]

@@ -50,7 +50,17 @@ export interface Delivery {
  * carries the delegation WHOLE, so the card is upserted by `id` and never patched field by
  * field.
  */
+export interface DelegationUpdate {
+  event_id: string; type: string; phase: string; content: string; state: string;
+  sent_ms: number; ack_ms?: number; start_ms?: number; end_ms?: number; error?: string;
+}
+
 export interface Delegation {
+  preliminary?: string;
+  provider_id?: string;
+  updates?: DelegationUpdate[];
+  observed_speech?: { delta: string; start_ms: number; end_ms: number; received_ms: number }[];
+  owner_changes?: { text: string; action: string; ms: number }[];
   id: string;
   state: DelegationState;
   /** False once a newer ask superseded it: the card still completes, the voice stays quiet. */
@@ -284,6 +294,11 @@ function normalize(delegation: Delegation): Delegation {
     spoken: delegation?.spoken !== false,
     ask: delegation?.ask ?? "",
     said: delegation?.said ?? "",
+    preliminary: delegation?.preliminary ?? "",
+    provider_id: delegation?.provider_id ?? "",
+    updates: delegation?.updates ?? [],
+    observed_speech: delegation?.observed_speech ?? [],
+    owner_changes: delegation?.owner_changes ?? [],
     answer: delegation?.answer ?? null,
     detail: delegation?.detail ?? "",
     offset_ms: delegation?.offset_ms ?? 0,
