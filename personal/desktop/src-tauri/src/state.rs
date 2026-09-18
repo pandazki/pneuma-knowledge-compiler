@@ -32,7 +32,23 @@ pub struct Engine {
     pub uptime: Option<f64>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct WaitGroup {
+    pub count: u64,
+    #[serde(default)]
+    pub reasons: Vec<WaitReason>,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct WaitReason {
+    pub reason: String,
+    pub count: u64,
+    pub next_retry_at: Option<String>,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Queue {
+    #[serde(default)]
+    pub waiting: Option<WaitGroup>,
+    #[serde(default)]
+    pub paused: Option<WaitGroup>,
     pub pending: u64,
     pub failed: u64,
     /// Failures by job kind and successes of every kind: forty failed evolve jobs beside
@@ -326,6 +342,24 @@ mod tests {
             ..Default::default()
         });
         assert!(after.changed_from(&before));
+    }
+
+    #[test]
+    fn retry_counts_and_dates_survive_the_native_status_projection() {
+        let queue: Queue = serde_json::from_value(serde_json::json!({
+            "pending": 205, "failed": 50, "last_compile_at": null,
+            "waiting": {"count": 117, "reasons": [{"reason": "payment", "count": 117,
+                "next_retry_at": "2026-09-19T03:28:00Z"}]},
+            "paused": {"count": 2, "reasons": [{"reason": "login", "count": 2, "since": "old"}]}
+        }))
+        .unwrap();
+        let serialized = serde_json::to_value(queue).unwrap();
+        assert_eq!(serialized["waiting"]["count"], 117);
+        assert_eq!(serialized["paused"]["count"], 2);
+        assert_eq!(
+            serialized["waiting"]["reasons"][0]["next_retry_at"],
+            "2026-09-19T03:28:00Z"
+        );
     }
 
     #[test]

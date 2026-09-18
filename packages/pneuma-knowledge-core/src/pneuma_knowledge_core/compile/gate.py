@@ -1193,6 +1193,17 @@ def run_gate(
 
     # 4. frontmatter completeness.
     violations.extend(check_frontmatter(docs))
+    from ..recall.speech_lexicon import validate_metadata
+    for path, doc in docs.items():
+        base = draft.base_documents().get(path)
+        if "speech_terms" not in doc.frontmatter:
+            continue
+        if base and base.body == doc.body and base.frontmatter.get("speech_terms") == doc.frontmatter["speech_terms"]:
+            continue
+        try:
+            validate_metadata(doc.frontmatter["speech_terms"], doc.body)
+        except ValueError as exc:
+            violations.append(Violation("frontmatter", path, str(exc)))
 
     # 4b. anchor coverage — every content block must carry an anchor, or it is
     # browse-visible canonical text that never enters the L3 claim index (orphaned). The

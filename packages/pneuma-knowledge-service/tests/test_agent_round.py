@@ -2047,3 +2047,25 @@ async def test_the_brief_survives_a_commit_that_could_not_be_made():
     h.rt.record_brief = record
     assert await draft_cmd.cmd_finish(h.rt) == 0, h.err()
     assert briefs == ["what this round did and what it left"]
+
+
+async def test_manual_resume_releases_cached_cooling_without_restarting_worker(monkeypatch):
+    user = UserId("u-resume-cooling")
+    jobs = InMemoryJobQueue()
+    later = datetime.now(timezone.utc) + timedelta(hours=2)
+    job_id = await jobs.enqueue(user, "compile", {"source_ids": ["synthetic"]}, not_before=later)
+    compile_worker._COOLING[str(user)] = (later, "quota exhausted")
+    ran = []
+
+    async def agent(ctx, user_id, job):
+        ran.append(job.job_id)
+        await ctx.store.complete(user_id, job.job_id, ok=True)
+
+    monkeypatch.setattr(compile_worker, "process_agent_job", agent)
+    ctx = WorkerCtx(worker_settings(), jobs)
+    await compile_worker.drain_user(ctx, None, SimpleNamespace(), user)
+    assert ran == []
+    assert await jobs.resume_jobs(user, every=True, include_waiting=True) == 1
+    await compile_worker.drain_user(ctx, None, SimpleNamespace(), user)
+    assert ran == [job_id]
+    assert compile_worker.agent_cooling(user) is None

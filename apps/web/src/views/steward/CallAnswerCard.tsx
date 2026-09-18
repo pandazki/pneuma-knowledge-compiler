@@ -102,6 +102,51 @@ export function CallAnswerCard({
         <p className="mt-1 pl-6 text-12 text-warn">{t("call.cards.unspoken")}</p>
       )}
 
+      {answer != null && delegation.preliminary && (
+        <details className="mt-2 pl-6 text-13">
+          <summary className="cursor-pointer text-ink-3">{t("call.trace.first")}</summary>
+          <p className="prose mt-2 text-ink-2">{delegation.preliminary}</p>
+        </details>
+      )}
+      <details className="mt-2 pl-6 text-13" open={highlighted || undefined}>
+        <summary className="cursor-pointer text-ink-3">{t("call.trace.title")}</summary>
+        <p className="mt-2 text-12 text-ink-3">{t("call.trace.note")}</p>
+        <Mono className="mt-2 block break-all text-12">{delegation.provider_id || delegation.id}</Mono>
+        <ol className="mt-2 space-y-1 text-12 text-ink-3">
+          {Object.entries(delegation.timings).sort((a, b) => a[1] - b[1]).map(([stage, ms]) => (
+            <li key={stage}>+{(ms / 1000).toFixed(3)}s · {stage}</li>
+          ))}
+        </ol>
+        <ol className="mt-3 space-y-3">
+          {(delegation.updates ?? []).map((update) => (
+            <li key={update.event_id} className="border-t border-line pt-2">
+              <p className="text-12 text-ink-3">+{(update.sent_ms / 1000).toFixed(3)}s · {update.phase} · {update.state}</p>
+              <Mono className="block break-all text-12 text-ink-3">{update.type} · {update.event_id}</Mono>
+              <p className="prose mt-1 whitespace-pre-wrap text-ink-2">{update.content}</p>
+              {update.ack_ms != null && update.start_ms != null && update.end_ms != null && (
+                <p className="mt-1 text-12 text-ink-3">{t("call.trace.ack", {
+                  time: (update.ack_ms / 1000).toFixed(3), start: (update.start_ms / 1000).toFixed(3), end: (update.end_ms / 1000).toFixed(3),
+                })}</p>
+              )}
+              {update.error && <p className="text-12 text-danger">{update.error}</p>}
+            </li>
+          ))}
+        </ol>
+        {!!delegation.owner_changes?.length && <div className="mt-3">
+          <p className="text-12 text-ink-3">{t("call.trace.change")}</p>
+          {delegation.owner_changes.map((change, i) => <p key={i} className="prose text-13">+{(change.ms / 1000).toFixed(3)}s · {change.action} · {change.text}</p>)}
+        </div>}
+        {!!delegation.observed_speech?.length && <div className="mt-3">
+          <p className="text-12 text-ink-3">{t("call.trace.speech")}</p>
+          <p className="prose mt-1 text-ink-2">{delegation.observed_speech.map(fragment => fragment.delta).join("")}</p>
+        </div>}
+        <button type="button" className="mt-3 text-12 text-accent" onClick={() => {
+          const url = URL.createObjectURL(new Blob([JSON.stringify(delegation, null, 2)], { type: "application/json" }));
+          const link = document.createElement("a"); link.href = url; link.download = `delegation-${delegation.id}.json`; link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }}>{t("call.trace.export")}</button>
+      </details>
+
       {answer != null ? (
         <>
           <div className="prose mt-2 max-w-measure pl-6 text-14">

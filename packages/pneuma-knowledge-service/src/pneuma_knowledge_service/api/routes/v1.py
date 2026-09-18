@@ -2471,6 +2471,8 @@ class ResumeJobsIn(BaseModel):
     job_id: str | None = None
     reason_like: str | None = None
     all: bool = False
+    # Explicit opt-in keeps older paused-only callers unchanged.
+    include_waiting: bool = False
 
 
 class ResumeJobsOut(BaseModel):
@@ -2497,6 +2499,7 @@ async def resume_jobs(user_id: str, body: ResumeJobsIn, request: Request) -> Res
         job_id=body.job_id or None,
         reason_like=(body.reason_like or "").strip(),
         every=bool(body.all),
+        include_waiting=body.include_waiting,
     )
     return ResumeJobsOut(resumed=resumed)
 

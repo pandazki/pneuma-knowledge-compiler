@@ -550,3 +550,26 @@ async def test_pkc_jobs_puts_the_paused_rows_under_their_own_heading(capsys):
     assert body["paused"]["count"] == 1
     assert body["paused"]["reasons"][0]["reason"] == "402 payment required"
     assert body["paused"]["reasons"][0]["since"]
+
+
+async def test_resume_waiting_is_explicit_scoped_and_preserves_history():
+    store = InMemoryLibraryStore()
+    held = await store.enqueue(USER, "index", {"source_id": "synthetic"})
+    await park(store, USER, held, payload={"source_id": "synthetic"}, reason="payment required")
+    other = UserId("other-resume-tenant")
+    foreign = await store.enqueue(other, "index", {})
+    await park(store, other, foreign, payload={}, reason="payment required")
+    history = (await store.get_job(USER, held)).payload["retry"]["history"]
+    assert await store.resume_jobs(USER, every=True) == 0
+    config = _settings()
+    app = create_app()
+    app.state.ctx = SimpleNamespace(store=store, settings=config)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.post(f"/v1/users/{USER}/jobs/resume", json={"include_waiting": True})).status_code == 422
+        response = await client.post(f"/v1/users/{USER}/jobs/resume", json={"all": True, "include_waiting": True})
+    assert response.json() == {"resumed": 1}
+    job = await store.get_job(USER, held)
+    assert job.payload["retry"] == {"attempts": 0, "history": history, "last_failure": history[-1]}
+    assert job.not_before is None
+    assert (await store.get_job(other, foreign)).not_before is not None
+    assert await store.resume_jobs(USER, every=True, include_waiting=True) == 0

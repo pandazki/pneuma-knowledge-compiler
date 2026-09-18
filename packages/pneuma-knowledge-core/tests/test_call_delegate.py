@@ -270,23 +270,18 @@ def test_line_breaks_become_spaces_so_one_hand_over_is_one_line():
 # ── the spoken chunker: token deltas → hand-overs ──────────────────────────────────────────
 
 
-def test_the_first_hand_over_is_released_at_a_clause_boundary_so_the_voice_starts_sooner():
-    """An answering model asked for three sentences often writes one long one, and waiting for
-    its full stop is measurable silence the owner sits through. The first clause is enough to
-    start speaking on; the rest arrives while the voice is saying it."""
+def test_a_preamble_waits_for_the_facts_it_introduces():
     chunker = SpokenChunker()
-    assert chunker.feed("这两天你主要做了三类工作：") == ["这两天你主要做了三类工作："]
-
-
-def test_a_later_hand_over_waits_for_a_finished_sentence_and_more_of_it():
-    """Every hand-over is a point where the voice may re-phrase, so after the first one the
-    chunks are coalesced: a clause is no longer enough."""
-    chunker = SpokenChunker()
-    assert chunker.feed("这两天的结论是这样的：") == ["这两天的结论是这样的："]
-    assert chunker.feed("排班重写做完了；") == []
-    assert chunker.feed("剩下的两件事都还没有开始，下周会继续推进，也会同步给码头那边的同事。") == [
-        "排班重写做完了；剩下的两件事都还没有开始，下周会继续推进，也会同步给码头那边的同事。"
+    assert chunker.feed("这两天你主要做了三类工作：") == []
+    assert chunker.feed("渡口排班重写、码头扩建、航线调整。") == [
+        "这两天你主要做了三类工作：渡口排班重写、码头扩建、航线调整。"
     ]
+
+
+def test_short_follow_on_sentences_do_not_wait_for_the_end_of_generation():
+    chunker = SpokenChunker()
+    assert chunker.feed("渡口排班重写已经做完了。") == ["渡口排班重写已经做完了。"]
+    assert chunker.feed("码头扩建还没开始。") == ["码头扩建还没开始。"]
 
 
 def test_a_bracket_still_open_holds_the_release_back():
@@ -304,7 +299,7 @@ def test_flush_emits_the_tail_that_never_finished_a_sentence():
 
 def test_flush_emits_nothing_when_nothing_is_pending():
     chunker = SpokenChunker()
-    assert chunker.feed("这两天的结论是这样的：") == ["这两天的结论是这样的："]
+    assert chunker.feed("渡口排班重写已经做完了。") == ["渡口排班重写已经做完了。"]
     assert chunker.flush() == []
 
 
@@ -452,3 +447,14 @@ def test_everything_volatile_rides_the_human_turn_so_the_contract_bytes_are_stab
 def test_with_no_vocabulary_and_no_earlier_asks_the_human_turn_says_so():
     human = ask_messages("Owner: hello")[1]
     assert human.content.count(prompt("call.ask.none")) == 2
+
+
+@pytest.mark.parametrize("text", ["𠀀" * 300, "🛳️" * 200, "港" * 420])
+def test_append_size_is_bounded_in_bytes_even_for_multibyte_text(text):
+    chunks = SpokenChunker().feed(text + "。")
+    assert "".join(chunks) == text + "。"
+    assert all(len(chunk.encode("utf-8")) <= 480 for chunk in chunks)
+
+
+def test_unclosed_citation_is_never_read_aloud_even_at_successful_stream_end():
+    assert speakable("The ramp opened [cite: s01 ¶") == "The ramp opened"

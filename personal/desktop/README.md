@@ -2,7 +2,7 @@
 
 [简体中文](README.zh-CN.md)
 
-A Tauri 2 menu-bar client for a personal knowledge home. The 360 × 520 panel has
+A Tauri 3 developer-edition menu-bar client for a personal knowledge home. The 380-point-wide, content-sized panel has
 Dashboard, Search and Settings panes. It reads `~/.pkc` (or `PKC_HOME`), probes the
 machine itself, and overlays each engine's `/home/status` response. It never writes
 home files: start, stop, restart, library selection, credentials and preferences go
@@ -15,7 +15,7 @@ system's reason.
 
 ## Development
 
-Use Node 22.13+ (Node 25 was used here), pnpm 11.21.0, Rust 1.88+, and the native
+Use Node 22.13+ (Node 25 was used here), pnpm 11.21.0, Rust 1.95.0 (selected by `rust-toolchain.toml`), and the native
 [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your platform.
 Run these commands in this directory:
 
@@ -66,13 +66,19 @@ are distribution steps; no signing identity or updater is configured here.
 Install `PKC.app` in `~/Applications` or `/Applications`. `pkchome tray` opens the first
 one it finds there, or prints the [release page](https://github.com/pandazki/pneuma-knowledge-compiler/releases).
 
-Direct dependency versions are exact in `package.json` and `src-tauri/Cargo.toml`;
-`pnpm-lock.yaml` fixes the frontend dependency graph. Native Tauri is 2.11.5,
-Tauri build is 2.6.3, shell is 2.3.6, autostart is 2.5.1, and positioner is 2.3.4; the Rust set floats within those minors and `Cargo.lock` pins it.
-macOS uses [tauri-nspanel 2.0.1 from its Tauri 2 branch](https://github.com/ahkohd/tauri-nspanel/tree/v2),
-with accessory activation policy, a real NSPanel, and a template glyph plus a separate
-colored dot. Tauri CLI 2.8.1's development version checker prints diagnostics for
-Cargo's exact `=version` syntax; Cargo itself accepts those exact pins.
+Tauri, CLI and the Wry runtime are pinned to `3.0.0-alpha.1`; the build crate,
+official plugins and JS API use `3.0.0-alpha.0`. Both lockfiles are committed.
+The builder explicitly selects Wry; there is no CEF runtime or local dependency fork.
+
+macOS uses accessory activation policy and the application's small `native_panel.rs`
+adapter over AppKit. Tauri owns the existing window and webview; the adapter gives it
+NSPanel behavior, checks main-thread access, and handles keyboard focus and resizing.
+It does not retain or release the window and does not depend on `tauri-nspanel`.
+The template glyph and separate colored status dot are preserved.
+
+`tray-icon 0.25.1` contains the upstream macOS 27 click fix. Left clicks open the panel;
+right clicks use the dependency's native menu. The application-level menu workaround
+has been removed. This developer edition deliberately uses pinned Tauri 3 alpha releases.
 
 ## Behavior and verification limits
 
@@ -102,13 +108,25 @@ Cargo's exact `=version` syntax; Cargo itself accepts those exact pins.
   against a running engine or a real browser.
 - Retry failed jobs is intentionally disabled with a tooltip. The optional global
   shortcut is not implemented. Fixed tray-anchored geometry needs no saved window prefs.
-- In the implementation environment, the frontend build and five state/routing tests
-  passed, icon generation passed, and CLI launch/fallback checks passed. Frontend
-  packages were restored from a local pnpm 10 cache; build/test commands used pnpm 11.
-  Native builds stopped before compilation because GitHub DNS was unavailable; no
-  `Cargo.lock`, app bundle or installer could be produced. The nspanel branch revision
-  therefore still needs locking with the first successful Cargo resolution.
-- `pnpm tauri dev` stopped at `listen EPERM 127.0.0.1:1420`. No native GUI appeared,
-  so tray anchoring, focus dismissal, appearance, autostart and real engine HTTP flows
-  still need a desktop smoke on an unrestricted host. No plain-window fallback was
-  selected: nspanel compatibility could not be evaluated before dependency fetching.
+- The Tauri 3 migration passes 29 frontend and 18 native tests and a release app build.
+  On macOS 27, real mouse events verify the panel on left click, the menu on right click,
+  and subsequent left clicks after closing the menu. The panel reads the running library's
+  status. Other platforms, login-time launch and long-running behavior require separate checks.
+
+## Continuing tasks and importing content
+
+The dashboard names three different operations:
+
+- **Continue now (N)** appears for delayed retries and paused jobs. After restoring quota,
+  login or connectivity, it releases their waits and restarts the retry schedule, preserving
+  job IDs and failure history. Running and finished jobs are untouched. Unattended compilation
+  must be enabled for the worker to run agent compilation automatically.
+- **Import new content** scans watched directories for new sessions and changes; it does not
+  release queued retry waits.
+- **Restart service** restarts all library engines and preserves scheduled retry times.
+
+The queue shows delayed and paused counts and the next retry date/time in local time.
+Continue uses the selected library's tenant-scoped `POST /jobs/resume` with
+`include_waiting: true`. Update both tray and engine for this feature; an older engine is
+reported explicitly rather than silently ignoring delayed tasks. The API and CLI retain
+paused-only behavior unless the API explicitly requests waiting jobs as well.

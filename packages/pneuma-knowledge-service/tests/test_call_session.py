@@ -175,7 +175,7 @@ class FakeLibrarian:
         await asyncio.sleep(0)
         return self._asks.pop(0) if len(self._asks) > 1 else self._asks[0]
 
-    async def answer(self, question: str, *, on_token, on_retrieved) -> LibraryAnswer:
+    async def answer(self, question: str, *, on_token, on_retrieved, on_preliminary) -> LibraryAnswer:
         reply = self._replies.get(question, self._reply)
         self.questions.append(question)
         self.started.append(question)
@@ -420,23 +420,24 @@ def sentence(index: int) -> str:
     return f"第{index}句" + "报" * 55 + "。"
 
 
-async def test_hand_overs_stop_at_the_spoken_budget_while_the_card_keeps_the_whole_answer():
-    """About twenty-five seconds of speech is the whole budget for one ask: an answering model
-    asked for seventy characters writes a hundred and fifty often enough, and the owner can
-    ask for the rest. The card is not budgeted — the screen has room."""
+async def test_a_requested_explanation_is_not_cut_at_the_old_summary_budget():
     sentences = [sentence(index) for index in range(1, 6)]
     librarian = FakeLibrarian(reply=Reply(tokens=tuple(sentences)))
-    async with running(librarian, events=[heard("第二点呢"), delegated("dg-1")]) as (
-        session,
-        channel,
-        _queue,
-    ):
+    async with running(librarian, events=[heard("第二点呢"), delegated("dg-1")]) as (session, channel, _queue):
         await until(lambda: card_state(session) == "done", what="the card to finish")
         delegation = session.delegations["d1"]
+    assert "".join(channel.spoken("dg-1")) == "".join(sentences)
+    assert delegation.answer["answer"] == "".join(sentences)
 
-    assert channel.spoken("dg-1") == sentences[:3]
-    assert len(delegation.said) >= SPOKEN_BUDGET_CHARS
-    assert sentences[3] not in delegation.said and sentences[4] not in delegation.said
+
+async def test_runaway_generation_has_a_safety_ceiling_and_keeps_the_complete_card():
+    sentences = [sentence(index) for index in range(1, 40)]
+    librarian = FakeLibrarian(reply=Reply(tokens=tuple(sentences)))
+    async with running(librarian, events=[heard("第二点呢"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: card_state(session) == "done", what="the card to finish")
+        delegation = session.delegations["d1"]
+    assert SPOKEN_BUDGET_CHARS <= len(delegation.said) < SPOKEN_BUDGET_CHARS + 100
+    assert sentences[-1] not in delegation.said
     assert delegation.answer["answer"] == "".join(sentences)
 
 
@@ -489,16 +490,14 @@ async def test_a_lookup_slow_enough_to_notice_gets_one_holding_line_and_only_one
         channel,
         _queue,
     ):
-        await until(lambda: channel.spoken("dg-1"), what="the holding line")
-        assert channel.spoken("dg-1") == [prompt("call.say.working")]
+        await until(lambda: any(e["type"] == "session.thinking.append" for e in channel.sent), what="quiet progress")
+        assert channel.spoken("dg-1") == []
         await asyncio.sleep(0.15)
         gate.set()
         await until(lambda: card_state(session) == "done", what="the card to finish")
 
-    assert channel.spoken("dg-1") == [
-        prompt("call.say.working"),
-        "The ramp was widened last week.",
-    ]
+    assert channel.spoken("dg-1") == ["The ramp was widened last week."]
+    assert sum(e["type"] == "session.thinking.append" for e in channel.sent) == 1
 
 
 async def test_a_second_ask_is_formed_knowing_what_was_already_asked_and_answered():
@@ -543,77 +542,13 @@ async def test_a_transcript_that_establishes_no_question_asks_the_owner_instead(
     assert librarian.questions == []
 
 
-# ── speculation ────────────────────────────────────────────────────────────────────────────
+# The progressive workflow starts after question formation, not speculatively on raw ASR.
 
-
-HEARD_ENOUGH = "渡口排班重写进度怎么样"
-
-
-async def test_the_owners_own_words_go_to_the_library_before_the_question_is_written():
-    """Writing the question out of the transcript is the largest single wait in a lookup, and
-    for a first question asked in a whole sentence it returns the owner's own words back. So
-    those words are tried at once, beside the call that may replace them."""
-    gate = asyncio.Event()
-    librarian = FakeLibrarian(
-        asks=[Ask(question=HEARD_ENOUGH + "？")],
-        reply=Reply(tokens=("排班重写上周做完了。",), gate=gate),
-    )
-    async with running(librarian, events=[heard(HEARD_ENOUGH), delegated("dg-1")]) as (
-        session,
-        channel,
-        _queue,
-    ):
-        await until(lambda: librarian.started == [HEARD_ENOUGH], what="the speculative lookup")
-        gate.set()
-        await until(lambda: card_state(session) == "done", what="the card to finish")
-        delegation = session.delegations["d1"]
-
-    # The formed question differed only in punctuation, so the attempt already running stood
-    # and exactly one lookup was spent.
-    assert librarian.questions == [HEARD_ENOUGH]
-    assert delegation.timings["speculated"] == 1
-    assert channel.spoken("dg-1") == ["排班重写上周做完了。"]
-
-
-async def test_a_speculative_attempt_the_formed_question_disagrees_with_is_never_spoken():
-    """The unused attempt is a cost this design owns; a WRONG answer spoken over the owner is
-    not one it may pay."""
-    librarian = FakeLibrarian(
-        asks=[Ask(question="上周渡口排班重写的结论是什么")],
-        replies={
-            HEARD_ENOUGH: Reply(tokens=("SPECULATIVE。",), delay=5.0),
-            "上周渡口排班重写的结论是什么": Reply(tokens=("FORMED。",)),
-        },
-    )
-    async with running(librarian, events=[heard(HEARD_ENOUGH), delegated("dg-1")]) as (
-        session,
-        channel,
-        _queue,
-    ):
-        await until(lambda: card_state(session) == "done", what="the card to finish")
-        delegation = session.delegations["d1"]
-
-    assert librarian.questions == [HEARD_ENOUGH, "上周渡口排班重写的结论是什么"]
-    assert librarian.cancelled == [HEARD_ENOUGH]
-    assert channel.spoken("dg-1") == ["FORMED。"]
-    assert delegation.timings["speculated"] == 0
-    assert delegation.ask == "上周渡口排班重写的结论是什么"
-
-
-async def test_words_too_few_to_be_a_question_are_not_speculated_on():
-    """A bare reference ("第二点呢" — "the second point?") is not a question, and a lookup on
-    it is wasted by construction."""
-    librarian = FakeLibrarian(asks=[Ask(question="上周渡口排班重写的结论是什么")])
-    async with running(librarian, events=[heard("第二点呢"), delegated("dg-1")]) as (
-        session,
-        _channel,
-        _queue,
-    ):
-        await until(lambda: card_state(session) == "done", what="the card to finish")
-        delegation = session.delegations["d1"]
-
-    assert librarian.questions == ["上周渡口排班重写的结论是什么"]
-    assert delegation.timings["speculated"] == 0
+async def test_only_the_formed_question_starts_a_paired_lookup():
+    librarian = FakeLibrarian(asks=[Ask(question="What changed in the ferry ramp plan?")])
+    async with running(librarian, events=[heard("What about that ramp thing?"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: card_state(session) == "done", what="answer")
+    assert librarian.questions == ["What changed in the ferry ramp plan?"]
 
 
 # ── acknowledgements, usage, the close ─────────────────────────────────────────────────────
@@ -890,3 +825,180 @@ def test_with_both_the_call_is_configured_and_the_status_names_model_and_voice()
         "voice": "marin",
         "live": True,
     }
+
+
+async def test_progress_does_not_hide_an_invoke_only_answer_or_count_as_evidence(monkeypatch):
+    monkeypatch.setattr(session_module, "PROGRESS_AFTER_SECONDS", 0.01)
+    gate = asyncio.Event()
+    librarian = FakeLibrarian(reply=Reply(tokens=(), text="The ferry ramp opened on Monday.", gate=gate))
+    async with running(librarian, events=[heard("第二点呢"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: any(e["type"] == "session.thinking.append" for e in channel.sent), what="quiet progress")
+        delegation = session.delegations["d1"]
+        assert delegation.said == ""
+        assert delegation.elapsed_ms is None
+        assert "first_words" not in delegation.timings
+        assert len(session._handovers) == 1
+        gate.set()
+        await until(lambda: card_state(session) == "done", what="answer")
+        assert delegation.said == "The ferry ramp opened on Monday."
+        assert delegation.elapsed_ms is not None
+        assert len(session._handovers) == 2
+    assert channel.spoken("dg-1") == ["The ferry ramp opened on Monday."]
+
+
+async def test_a_failed_stream_never_flushes_its_unfinished_tail():
+    class BrokenStream(FakeLibrarian):
+        async def answer(self, question, *, on_token, on_retrieved, on_preliminary):
+            on_retrieved()
+            on_token("The approved budget is [cite: s")
+            await asyncio.sleep(0)
+            raise RuntimeError("stream disconnected")
+
+    async with running(BrokenStream(), events=[heard("第二点呢"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: card_state(session) == "failed", what="failure")
+        assert session.delegations["d1"].said == ""
+    assert channel.spoken("dg-1") == [prompt("call.say.failed")]
+
+
+async def test_ask_formation_keeps_the_input_snapshot_while_vocabulary_is_loading():
+    gate = asyncio.Event()
+
+    class SlowVocabulary(FakeLibrarian):
+        async def vocabulary(self, heard):
+            self.vocabulary_calls.append(heard)
+            await gate.wait()
+            return self._vocabulary
+
+    librarian = SlowVocabulary()
+    async with running(librarian, events=[heard("About the ferry ramp?"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: librarian.vocabulary_calls, what="vocabulary read")
+        channel.feed(heard("Actually about the lighthouse", start_ms=4000, end_ms=5000))
+        await until(lambda: "lighthouse" in session.ledger.tail(), what="new transcript")
+        gate.set()
+        await until(lambda: card_state(session) == "done", what="answer")
+    assert "lighthouse" not in librarian.ask_calls[0]["tail"]
+
+
+async def test_long_clarifications_obey_the_same_append_bound_as_answers():
+    clarification = "Please clarify " + "港" * 500 + "?"
+    librarian = FakeLibrarian(asks=[Ask(question="", clarify=clarification)])
+    async with running(librarian, events=[heard("第二点呢"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: card_state(session) == "unclear", what="clarification")
+        assert session.delegations["d1"].said == ""
+        assert session.delegations["d1"].elapsed_ms is None
+    chunks = channel.spoken("dg-1")
+    assert "".join(chunks) == clarification
+    assert all(len(chunk.encode("utf-8")) <= 480 for chunk in chunks)
+
+
+async def test_one_delegation_delivers_a_first_finding_then_a_correction():
+    gate = asyncio.Event()
+
+    class Progressive(FakeLibrarian):
+        async def answer(self, question, *, on_token, on_retrieved, on_preliminary):
+            on_preliminary("One ramp record lists three tasks; I am checking the wider list.")
+            await gate.wait()
+            on_retrieved()
+            on_token("The broader check changes that picture: there are five tasks in this list.")
+            return LibraryAnswer(payload={"answer": "Five tasks."}, answer_text="Five tasks.")
+
+    async with running(Progressive(), events=[heard("What tasks remain?"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: card(session) and card(session).preliminary, what="first finding")
+        first = session.delegations["d1"]
+        assert first.state != "done"
+        assert first.answer_phase == "preliminary"
+        assert len(channel.commentary("dg-1")) == 1
+        gate.set()
+        await until(lambda: card_state(session) == "done", what="correction")
+        assert first.answer_phase == "refinement"
+        assert first.timings["preliminary"] <= first.timings["refinement"]
+    assert len(channel.commentary("dg-1")) == 2
+    assert "five" in channel.spoken("dg-1")[-1]
+
+
+async def test_failure_after_a_partial_finding_does_not_claim_the_partial_was_complete():
+    class BrokenBroad(FakeLibrarian):
+        async def answer(self, question, *, on_token, on_retrieved, on_preliminary):
+            on_preliminary("One record lists three tasks; the full scope is still being checked.")
+            await asyncio.sleep(0.01)
+            raise RuntimeError("broader lookup failed")
+
+    async with running(BrokenBroad(), events=[heard("How many tasks?"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: card_state(session) == "failed", what="partial failure")
+    assert channel.spoken("dg-1")[-1] == prompt("call.progressive.incomplete")
+
+
+async def test_superseding_a_question_suppresses_its_late_refinement():
+    gate = asyncio.Event()
+
+    class Progressive(FakeLibrarian):
+        async def answer(self, question, *, on_token, on_retrieved, on_preliminary):
+            if question == "old question":
+                on_preliminary("An early record concerns the old ferry ramp.")
+                await gate.wait()
+                on_token("Old late refinement must never be spoken.")
+            else:
+                on_token("The new lighthouse schedule is ready.")
+            return LibraryAnswer(payload={"answer": question}, answer_text=question)
+
+    librarian = Progressive(asks=[Ask(question="old question"), Ask(question="new question")])
+    async with running(librarian, events=[heard("The ramp?"), delegated("dg-1")]) as (session, channel, _queue):
+        await until(lambda: channel.spoken("dg-1"), what="old first finding")
+        channel.feed(heard("Actually the lighthouse"), delegated("dg-2"))
+        await until(lambda: card_state(session, "d2") == "done", what="new answer")
+        gate.set()
+        await until(lambda: card_state(session) == "done", what="old card")
+    assert len(channel.spoken("dg-1")) == 1
+    assert "Old late" not in " ".join(channel.spoken())
+
+
+@pytest.mark.parametrize("action, expected", [("continue", True), ("cancel", False), ("replace", False)])
+async def test_owner_change_is_reviewed_before_late_results_without_new_delegation(action, expected):
+    lookup_gate, review_gate = asyncio.Event(), asyncio.Event()
+    class Revisable(FakeLibrarian):
+        async def classify_change(self, question, text):
+            await review_gate.wait()
+            return action
+    librarian = Revisable(reply=Reply(tokens=("The original lookup result.",), gate=lookup_gate))
+    async with running(librarian, events=[heard("initial question"), delegated("dg-1")]) as (session, channel, queue):
+        await until(lambda: librarian.started)
+        channel.feed(heard("new owner speech", start_ms=4000, end_ms=4400))
+        await until(lambda: not card(session).review_ready.is_set())
+        lookup_gate.set()
+        await asyncio.sleep(0.03)
+        assert channel.commentary("dg-1") == []
+        review_gate.set()
+        await until(lambda: card_state(session) == "done")
+        assert bool(channel.commentary("dg-1")) is expected
+        assert card(session).owner_changes[0]["action"] == action
+
+
+async def test_append_trace_keeps_exact_content_and_matches_quiet_and_spoken_acknowledgments(monkeypatch):
+    monkeypatch.setattr(session_module, "PROGRESS_AFTER_SECONDS", 0.01)
+    gate = asyncio.Event()
+    librarian = FakeLibrarian(reply=Reply(tokens=("A grounded result.",), gate=gate))
+    async with running(librarian, events=[heard("question"), delegated("dg-1")]) as (session, channel, queue):
+        await until(lambda: card(session) is not None and len(card(session).updates) == 1)
+        quiet = card(session).updates[0]
+        channel.feed({"type": "session.thinking.appended", "client_event_id": quiet["event_id"], "start_ms": 100, "end_ms": 200})
+        await until(lambda: quiet["state"] == "acknowledged")
+        assert card(session).deliveries == []
+        gate.set()
+        await until(lambda: card_state(session) == "done")
+        result = card(session).updates[1]
+        channel.feed({"type": "session.commentary.appended", "client_event_id": result["event_id"], "start_ms": 300, "end_ms": 500})
+        await until(lambda: result["state"] == "acknowledged")
+        assert result["content"] == "A grounded result."
+        assert result["ack_ms"] >= result["sent_ms"]
+        assert card(session).deliveries == [{"start_ms": 300, "end_ms": 500}]
+        snapshot = card(session).frame()["delegation"]
+        assert snapshot["updates"][0]["type"] == "session.thinking.append"
+        assert snapshot["provider_id"] == "dg-1"
+
+
+def test_speech_vocabulary_is_dynamic_context_not_standing_instructions():
+    config = session_config(Settings(), zone="UTC", speech_vocabulary="Omne、omne assistant")
+    context = config["input"][0]["content"][0]["text"]
+    assert "<speech_vocabulary>" in context
+    assert "Omne、omne assistant" in context
+    assert "Omne" not in config["instructions"]

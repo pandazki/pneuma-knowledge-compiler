@@ -42,7 +42,7 @@ export default function App({ initial, subscribe }: {
     setPending(n => n + 1);
     try {
       await operation();
-      if (success) notify(success, false);
+      if (success) notify(typeof success === 'function' ? success() : success, false);
       return true;
     } catch (error) { notify(String(error), true); return false; }
     finally { setPending(n => n - 1); }

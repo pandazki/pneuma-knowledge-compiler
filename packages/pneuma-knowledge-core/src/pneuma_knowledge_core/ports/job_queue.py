@@ -194,8 +194,11 @@ class JobQueue(Protocol):
         job_id: str | None = None,
         reason_like: str = "",
         every: bool = False,
+        include_waiting: bool = False,
     ) -> int:
         """Put paused jobs back in the queue with a fresh schedule; return how many.
+
+        `include_waiting` also releases queued jobs whose retry time is still ahead.
 
         The other half of the pause: a person has done the thing the row was waiting for —
         topped up the account, logged the harness in, committed what they left in the tree —

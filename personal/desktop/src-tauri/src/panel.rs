@@ -3,33 +3,21 @@ use serde::Serialize;
 use std::sync::atomic::Ordering;
 use tauri::{image::Image, Emitter, Manager};
 
-pub fn init(app: &tauri::AppHandle) -> tauri::Result<()> {
+pub fn init(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let window = app.get_webview_window("panel").expect("configured panel");
     #[cfg(target_os = "macos")]
     {
-        use tauri_nspanel::WebviewWindowExt;
-        let panel = window.to_panel()?;
-        panel.set_level(25);
-        panel.set_style_mask(1 << 7); // NSWindowStyleMaskNonactivatingPanel
-        panel.set_floating_panel(true);
-        // NOT hidesOnDeactivate: an accessory app is never "active" when a non-activating
-        // panel is ordered front, and AppKit hides such a panel at once — it never appeared
-        // on a real screen. The panel hides on its own focus loss (below) instead.
-        panel.set_hides_on_deactivate(false);
-        panel.set_becomes_key_only_if_needed(false);
-        panel.set_has_shadow(true);
-        panel.set_released_when_closed(false);
-        panel.set_collection_behaviour(
-            tauri_nspanel::cocoa::appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
-                | tauri_nspanel::cocoa::appkit::NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
-        );
+        crate::native_panel::configure(&window)?;
     }
     let handle = app.clone();
     window.on_window_event(move |event| match event {
         tauri::WindowEvent::Focused(false) => {
             // A non-activating panel reports a focus change while it is still being
             // ordered on screen; only a loss after it has settled is the Owner clicking away.
-            let shown = handle.state::<Runtime>().shown_at_ms.load(Ordering::Relaxed);
+            let shown = handle
+                .state::<Runtime>()
+                .shown_at_ms
+                .load(Ordering::Relaxed);
             let age = crate::poller::now_ms().saturating_sub(shown);
             // `PKC_TRAY_PIN=1` keeps the panel up through focus changes: a review hand for
             // screenshots taken while the reviewer is typing elsewhere; never set by users.
@@ -103,6 +91,7 @@ pub fn reveal_panel(app: tauri::AppHandle) -> Result<(), String> {
     if !runtime.wants_open.load(Ordering::Relaxed) {
         return Ok(());
     }
+    #[cfg(not(target_os = "macos"))]
     let window = app.get_webview_window("panel").ok_or("Panel unavailable")?;
     // The panel belongs on the display the Owner is looking at: the one under the mouse at
     // the moment of the click (a tray icon exists on every menu bar, and Tauri's window
@@ -110,11 +99,10 @@ pub fn reveal_panel(app: tauri::AppHandle) -> Result<(), String> {
     // location, NSScreen's visible frame, the panel's own setFrameOrigin — points, y up.
     #[cfg(target_os = "macos")]
     {
-        use tauri_nspanel::cocoa::base::{id, nil};
-        use tauri_nspanel::cocoa::foundation::{NSPoint, NSRect};
-        use tauri_nspanel::objc::{class, msg_send, sel, sel_impl};
-        use tauri_nspanel::ManagerExt;
-        let panel = app.get_webview_panel("panel").map_err(|_| "Panel unavailable")?;
+        use cocoa::base::{id, nil};
+        use cocoa::foundation::{NSPoint, NSRect};
+        use objc::{class, msg_send, sel, sel_impl};
+        let panel = crate::native_panel::pointer(&app)?;
         unsafe {
             let mouse: NSPoint = msg_send![class!(NSEvent), mouseLocation];
             let screens: id = msg_send![class!(NSScreen), screens];
@@ -123,8 +111,10 @@ pub fn reveal_panel(app: tauri::AppHandle) -> Result<(), String> {
             for i in 0..count {
                 let screen: id = msg_send![screens, objectAtIndex: i];
                 let frame: NSRect = msg_send![screen, frame];
-                if mouse.x >= frame.origin.x && mouse.x < frame.origin.x + frame.size.width
-                    && mouse.y >= frame.origin.y && mouse.y < frame.origin.y + frame.size.height
+                if mouse.x >= frame.origin.x
+                    && mouse.x < frame.origin.x + frame.size.width
+                    && mouse.y >= frame.origin.y
+                    && mouse.y < frame.origin.y + frame.size.height
                 {
                     target = screen;
                     break;
@@ -135,15 +125,18 @@ pub fn reveal_panel(app: tauri::AppHandle) -> Result<(), String> {
             }
             if target != nil {
                 let visible: NSRect = msg_send![target, visibleFrame];
-                eprintln!("[panel] screen visible frame origin ({:.0}, {:.0})", visible.origin.x, visible.origin.y);
-                let frame: NSRect = msg_send![&*panel, frame];
+                eprintln!(
+                    "[panel] screen visible frame origin ({:.0}, {:.0})",
+                    visible.origin.x, visible.origin.y
+                );
+                let frame: NSRect = msg_send![panel, frame];
                 let margin = 8.0;
                 let x = (mouse.x - frame.size.width / 2.0)
                     .max(visible.origin.x + margin)
                     .min(visible.origin.x + visible.size.width - frame.size.width - margin);
                 let y = visible.origin.y + visible.size.height - frame.size.height - margin;
                 eprintln!("[panel] mouse ({:.0}, {:.0}) → origin ({x:.0}, {y:.0}) on a {:.0}x{:.0} screen", mouse.x, mouse.y, visible.size.width, visible.size.height);
-                let _: () = msg_send![&*panel, setFrameOrigin: NSPoint::new(x, y)];
+                let _: () = msg_send![panel, setFrameOrigin: NSPoint::new(x, y)];
             }
         }
     }
@@ -155,21 +148,19 @@ pub fn reveal_panel(app: tauri::AppHandle) -> Result<(), String> {
             let margin = (8.0 * scale) as i32;
             let x = monitor.position().x + monitor.size().width as i32 - size.width as i32 - margin;
             let y = monitor.position().y + (30.0 * scale) as i32;
-            window.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|e| e.to_string())?;
+            window
+                .set_position(tauri::PhysicalPosition::new(x, y))
+                .map_err(|e| e.to_string())?;
         }
     }
     #[cfg(target_os = "macos")]
     {
-        use tauri_nspanel::ManagerExt;
-        app.get_webview_panel("panel")
-            .map_err(|e| {
-                eprintln!("[panel] reveal: no NSPanel for the panel window: {e:?}");
-                "Panel unavailable"
-            })?
-            .show();
+        crate::native_panel::show(&app)?;
     }
     eprintln!("[panel] shown");
-    runtime.shown_at_ms.store(crate::poller::now_ms(), Ordering::Relaxed);
+    runtime
+        .shown_at_ms
+        .store(crate::poller::now_ms(), Ordering::Relaxed);
     #[cfg(not(target_os = "macos"))]
     {
         window.show().map_err(|e| e.to_string())?;
@@ -185,10 +176,7 @@ pub fn hide(app: &tauri::AppHandle) {
     runtime.panel_open.store(false, Ordering::Relaxed);
     #[cfg(target_os = "macos")]
     {
-        use tauri_nspanel::ManagerExt;
-        if let Ok(panel) = app.get_webview_panel("panel") {
-            panel.order_out(None);
-        }
+        crate::native_panel::hide(app);
     }
     #[cfg(not(target_os = "macos"))]
     if let Some(window) = app.get_webview_window("panel") {
@@ -251,6 +239,7 @@ fn set_native_dot(tray: &tauri::tray::TrayIcon, health: Health) {
                 let title: *mut Object = msg_send![title, initWithString: string attributes: attrs];
                 let _: () = msg_send![button, setAttributedTitle: title];
                 let _: () = msg_send![title, release];
+
             }
         }
     });
@@ -280,19 +269,18 @@ pub fn fit_panel(app: tauri::AppHandle, height: f64) -> Result<(), String> {
     let height = height.clamp(280.0, 720.0);
     #[cfg(target_os = "macos")]
     {
-        use tauri_nspanel::cocoa::foundation::{NSPoint, NSRect};
-        use tauri_nspanel::objc::{msg_send, sel, sel_impl};
-        use tauri_nspanel::ManagerExt;
-        let panel = app.get_webview_panel("panel").map_err(|_| "Panel unavailable")?;
+        use cocoa::foundation::{NSPoint, NSRect};
+        use objc::{msg_send, sel, sel_impl};
+        let panel = crate::native_panel::pointer(&app)?;
         unsafe {
-            let frame: NSRect = msg_send![&*panel, frame];
+            let frame: NSRect = msg_send![panel, frame];
             if (frame.size.height - height).abs() < 1.0 {
                 return Ok(());
             }
             let top_left = NSPoint::new(frame.origin.x, frame.origin.y + frame.size.height);
-            panel.set_content_size(frame.size.width, height);
-            let _: () = msg_send![&*panel, setFrameTopLeftPoint: top_left];
-            let after: NSRect = msg_send![&*panel, frame];
+            let _: () = msg_send![panel, setContentSize: cocoa::foundation::NSSize::new(frame.size.width, height)];
+            let _: () = msg_send![panel, setFrameTopLeftPoint: top_left];
+            let after: NSRect = msg_send![panel, frame];
             eprintln!("[panel] fit {:.0}x{:.0}@({:.0},{:.0}) -> {:.0}x{:.0}@({:.0},{:.0}) for content {height:.0}",
                 frame.size.width, frame.size.height, frame.origin.x, frame.origin.y,
                 after.size.width, after.size.height, after.origin.x, after.origin.y);
@@ -301,10 +289,14 @@ pub fn fit_panel(app: tauri::AppHandle, height: f64) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     {
         if let Some(window) = app.get_webview_window("panel") {
-            let width = window.outer_size().map(|s| s.width as f64 / window.scale_factor().unwrap_or(1.0)).unwrap_or(380.0);
-            window.set_size(tauri::LogicalSize::new(width, height)).map_err(|e| e.to_string())?;
+            let width = window
+                .outer_size()
+                .map(|s| s.width as f64 / window.scale_factor().unwrap_or(1.0))
+                .unwrap_or(380.0);
+            window
+                .set_size(tauri::LogicalSize::new(width, height))
+                .map_err(|e| e.to_string())?;
         }
     }
     Ok(())
 }
-

@@ -645,6 +645,7 @@ class FastEvidence:
     # The same rendered evidence, with assembly boundaries retained for read surfaces.
     # These never change the bytes or ordering of `content` sent to an answering model.
     sections: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    token_usage: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -3162,6 +3163,7 @@ async def fast_recall(
     # terminal reads the bytes a model would have read.
     evidence_only: bool = False,
     claim_provenance_passage_cap: int = 12,
+    provenance_passage_max_chars: int = 0,
     episode_provenance_passage_cap: int = 4,
     # The SHAPE of the answer: "concise" (the bare exact value — graders, scripts),
     # "conversational" (a natural chat reply, the default), or "detailed" (a
@@ -3952,6 +3954,14 @@ async def fast_recall(
                     "dropped_provenance_claims": before_claims - len(claims),
                     "dropped_provenance_episodes": before_episodes - len(episode_summaries),
                 })
+            if provenance_passage_max_chars > 0:
+                # Omit complete oversized expansion passages, never truncate qualifications.
+                # Source spans have already been checked; the cited claim remains available.
+                before_passages = len(claim_passages) + len(episode_passages)
+                claim_passages = [p for p in claim_passages if len(p.text) <= provenance_passage_max_chars]
+                episode_passages = [p for p in episode_passages if len(p.text) <= provenance_passage_max_chars]
+                if len(claim_passages) + len(episode_passages) < before_passages:
+                    timer.degrade("assemble", "provenance:oversized_passage_omitted")
             timer.preview(
                 "assemble",
                 {
@@ -4124,6 +4134,8 @@ async def fast_recall(
             glance_chars=len(glance or ""),
             stages=(*semantic_skipped_stages(embeddings), *timer.emit()),
             sections=aliased_sections,
+            token_usage=add_usage(add_usage(select_usage, plan_usage),
+                                  add_usage(evidence_selection_usage, route_usage)),
         )
     if answer_format == "structured":
         with timer.measure("answer"):

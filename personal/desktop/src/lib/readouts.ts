@@ -1,5 +1,5 @@
 import { t, type Locale, type Message } from './i18n.ts';
-import { deepLibrary, type Snapshot, type ShallowLibrary } from './state.ts';
+import { deepLibrary, type Snapshot, type ShallowLibrary, type LibraryStatus } from './state.ts';
 
 export function shortUptime(seconds: number | null): string {
   if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return '—';
@@ -64,4 +64,17 @@ export function readoutRows(state: Snapshot, library: ShallowLibrary, now: numbe
     { id: 'key', value: known(deep?.key ?? library.key, 'present', 'absent') },
     { id: 'skill', value: known(deep?.skill_fresh ?? library.skill_fresh, 'fresh', 'stale') },
   ];
+}
+
+export function retryReadout(queue: LibraryStatus['queue'], locale: Locale) {
+  const count = (n: number | undefined) => Number.isSafeInteger(n) && n! > 0 ? n! : 0;
+  const waiting = count(queue?.waiting?.count);
+  const paused = count(queue?.paused?.count);
+  const parts = [waiting ? t(locale, 'waitingCount', { count: waiting }) : '',
+    paused ? t(locale, 'pausedCount', { count: paused }) : ''].filter(Boolean);
+  const dates = (queue?.waiting?.reasons ?? []).map(r => Date.parse(r.next_retry_at ?? '')).filter(Number.isFinite);
+  if (waiting && dates.length) parts.push(t(locale, 'nextRetry', { time: new Date(Math.min(...dates)).toLocaleString(locale, {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+  }) }));
+  return { count: waiting + paused, text: parts.join(' · ') };
 }

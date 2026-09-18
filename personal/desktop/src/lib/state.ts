@@ -19,9 +19,10 @@ export interface SyncStatus {
   last_result: { scanned: number; new: number; increments: number; held: number; unchanged: number; rewritten: number; ingested: number; skipped: number } | null;
   watching: string[]; next_due: string | null; running: boolean; held: number;
 }
+export interface WaitGroup { count: number; reasons: { reason: string; count: number; next_retry_at?: string | null }[] }
 export interface LibraryStatus {
   name: string; current: boolean; engine: Engine;
-  queue: { pending: number; failed: number; succeeded?: number; failed_by_kind?: Record<string, number>; last_compile_at: string | null } | null;
+  queue: { waiting?: WaitGroup | null; paused?: WaitGroup | null; pending: number; failed: number; succeeded?: number; failed_by_kind?: Record<string, number>; last_compile_at: string | null } | null;
   key: Known; engine_dir: string; canonical_head: string | null;
   skill_fresh: Known; steps: Steps; last_used: string | null;
   sync?: SyncStatus | null;

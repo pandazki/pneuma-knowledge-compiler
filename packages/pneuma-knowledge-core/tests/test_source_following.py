@@ -247,3 +247,19 @@ async def test_fast_select_skips_bad_evidence_and_answers_with_later_complete_so
     human = answerer.seen[0][1].content
     assert TEXTS[1] in human and TEXTS[2] in human
     assert bad.text not in human and "¶0-9" not in human
+
+
+async def test_voice_omits_whole_oversized_provenance_but_keeps_valid_claim():
+    from pneuma_knowledge_core.recall.fast import fast_recall
+    c = claim()
+    result = await fast_recall(
+        UID, "What is approved?", as_of=datetime(2026, 1, 15),
+        claim_lexical=FakeClaimIndex([ClaimStub(c.anchor, c.document_path, c.text,
+            citations=[cite.model_dump() for cite in c.citations])]),
+        claim_vectors=None, embeddings=None, model=None, content=Content(),
+        evidence_strategy="select", evidence_only=True, provenance_passage_max_chars=20,
+    )
+    assert len(result.used_claims) == 1
+    assert result.used_windows == ()
+    assert any(s.name == "assemble" and "oversized_passage" in (s.detail or "") for s in result.stages)
+    assert c.text in result.content

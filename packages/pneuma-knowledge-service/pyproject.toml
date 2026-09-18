@@ -17,9 +17,14 @@ dependencies = [
     # The Live API (`client.live`, the voice call's session and sideband) arrived in 3.12;
     # the `realtime` extra is the SDK's name for its WebSocket dependency.
     "openai[realtime]>=3.12,<4",
+    # websockets discovers SOCKS proxy settings at runtime; keep the optional connector
+    # installed so a network change cannot turn sideband attach into a bare ImportError.
+    "python-socks>=2.7,<3",
     "pyyaml>=6",
     "jsonschema>=4.26,<5",
     "httpx>=0.28,<1",
+    # httpx2 (used by the Live SDK) needs socksio when HTTP(S) traffic follows a SOCKS proxy.
+    "socksio>=1.0.0,<2",
     "boto3>=1.40,<2",
     "pypinyin>=0.53,<1",
 ]

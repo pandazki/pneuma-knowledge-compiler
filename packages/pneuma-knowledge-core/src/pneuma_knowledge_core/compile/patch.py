@@ -613,6 +613,12 @@ class PatchDraft:
         # round teaching nothing. `set_fields` refuses it, because there the field IS the
         # call.
         fm = with_derived_title(fm, anchored)
+        if "speech_terms" in fm:
+            from ..recall.speech_lexicon import validate_metadata
+            try:
+                validate_metadata(fm["speech_terms"], anchored)
+            except ValueError as exc:
+                raise AnchorToolError(str(exc)) from exc
         doc = DraftDoc(path=path, doc_id=doc_id, frontmatter=fm, body=anchored)
         self._working[path] = doc
         # Whoever just wrote a document has, by definition, seen everything in it.
@@ -853,6 +859,12 @@ class PatchDraft:
                         reserved=", ".join(RESERVED_FRONTMATTER),
                     )
                 )
+        if "speech_terms" in incoming:
+            from ..recall.speech_lexicon import validate_metadata
+            try:
+                validate_metadata(incoming["speech_terms"], self._working[path].body)
+            except ValueError as exc:
+                raise AnchorToolError(str(exc)) from exc
         problems: list[str] = []
         for component in registered_components():
             check = getattr(component, "validate_fields", None)

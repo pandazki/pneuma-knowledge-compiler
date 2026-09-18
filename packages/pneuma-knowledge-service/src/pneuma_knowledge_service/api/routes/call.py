@@ -96,18 +96,26 @@ async def post_call(user_id: str, body: CallIn, request: Request) -> dict[str, A
     await registry.replace(user_id)
     gateway = _gateway(app, ctx.settings)
     zone = await _subject_zone(ctx, UserId(user_id))
+    librarian_factory = getattr(app.state, "call_librarian", None) or LibraryLibrarian
+    librarian = librarian_factory(ctx, user_id)
     try:
-        created = await gateway.create(session=session_config(ctx.settings, zone=zone), offer_sdp=body.sdp)
+        try:
+            speech_vocabulary = await librarian.speech_vocabulary()
+        except Exception:  # noqa: BLE001 — ASR hints are an enhancement, never a call prerequisite
+            speech_vocabulary = ""
+        created = await gateway.create(
+            session=session_config(ctx.settings, zone=zone, speech_vocabulary=speech_vocabulary),
+            offer_sdp=body.sdp,
+        )
     except LiveUnavailable as exc:
         message = scrub(str(exc), secrets=[ctx.settings.openai_api_key])
         raise HTTPException(
             status_code=502, detail={"code": "live_unavailable", "message": message}
         ) from None
 
-    librarian_factory = getattr(app.state, "call_librarian", None) or LibraryLibrarian
     session = CallSession(
         user_id=user_id,
-        librarian=librarian_factory(ctx, user_id),
+        librarian=librarian,
         idle_seconds=float(ctx.settings.call_idle_seconds),
         max_seconds=float(ctx.settings.call_max_seconds),
     )
@@ -122,7 +130,7 @@ async def post_call(user_id: str, body: CallIn, request: Request) -> dict[str, A
                 finally:
                     orphan.cancel()
         except Exception as exc:  # noqa: BLE001 — a call that cannot attach ends; the API does not
-            logger.warning("call %s: could not attach: %s", session.call_id, type(exc).__name__)
+            logger.warning("call %s: could not attach: %s: %s", session.call_id, type(exc).__name__, scrub(str(exc), secrets=[ctx.settings.openai_api_key])[:300])
             session.close_reason = session.close_reason or "attach_failed"
             session.closed.set()
 
