@@ -135,3 +135,24 @@ async def test_cancellation_joins_both_lookups(librarian, monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert sorted(cancelled) == ["broad", "quick"]
+
+
+async def test_exact_subject_overview_bypasses_lexical_first_look(librarian, monkeypatch):
+    from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+    from pneuma_knowledge_service.api.routes import v1
+    doc = CanonicalDocument(doc_id='synthetic', path='projects/lyrra/overview.md',
+        frontmatter={'title': 'Lyrra Framework', 'slug': 'lyrra-framework'},
+        body='# Lyrra Framework\n\n<!-- overview -->\n<!-- overview:definition -->\n\n'
+             'Lyrra Framework builds applications. [cite: synthetic-source ¶0] <!-- c:aa11 -->\n\n<!-- /overview -->')
+    async def kwargs(*args, **kw):
+        return {'as_of': kw['as_of'], 'documents': [doc]}
+    async def retrieve(user, question, **kw):
+        assert kw['model'] is not None, 'exact canonical identity must not use lexical first look'
+        return evidence()
+    monkeypatch.setattr(v1, '_fast_recall_kwargs', kwargs)
+    monkeypatch.setattr(module, 'fast_recall', retrieve)
+    first = []
+    answer = await librarian.answer('介绍 Lyrra Framework', on_preliminary=first.append,
+        on_token=lambda text: None, on_retrieved=lambda: None)
+    assert first and 'builds applications' in first[0]
+    assert answer.payload['progressive']['locator'] == 'projects/lyrra/overview.md#aa11'

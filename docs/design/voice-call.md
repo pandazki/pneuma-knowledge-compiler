@@ -160,6 +160,16 @@ audio. A lexical occurrence check or a unit-test pass is not an ASR accuracy mea
 
 ## 5. One delegation, two overlapping lookups
 
+For an explicitly named subject, the first look resolves a unique normalized canonical
+title before using the lexical index. Title identity takes precedence over a shared slug
+(such as an evolution page); duplicate identities defer to broader retrieval. Only the
+matched page's source-backed definition and summary slots enter first-answer selection.
+The model sees their document locators and must decline when those slots do not answer the
+requested aspect. A named page without eligible overview evidence does not fall back to
+incidental lexical mentions. Unmatched names retain the lexical path. This uses the same
+caller-scoped document snapshot and archive filter; it neither guesses fuzzy identities
+nor treats title matching as proof of answer correctness.
+
 Every formed question starts both lookups. This is not a choice between a small and a large
 pool, and the earlier size-based shortcut is removed. Both phases share the resolved tenant,
 `as_of`, canonical document set and archive policy. This is a shared read context, not a

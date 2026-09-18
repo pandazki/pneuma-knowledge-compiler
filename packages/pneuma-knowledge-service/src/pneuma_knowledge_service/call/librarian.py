@@ -1,6 +1,6 @@
 """Two overlapping lookups inside one Live delegation.
 
-A bounded lexical first look selects a complete short record and hands it to Live with an
+A bounded canonical-or-lexical first look selects a complete short record and hands it to Live with an
 explicit partial-scope wrapper. Broader fast recall runs concurrently; its answer compares
 against that exact first finding, returning an addition, correction or no new speech.
 Both phases share tenant, time and archive scope. Neither writes the library.
@@ -20,7 +20,7 @@ from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.recall.call import Ask, Exchange, Ledger, form_ask, vocabulary_of
 from pneuma_knowledge_core.recall.fast import FastAnswer, add_usage, fast_recall
 from pneuma_knowledge_core.recall.call import speakable
-from pneuma_knowledge_core.recall.progressive import FirstFinding, first_finding, refine
+from pneuma_knowledge_core.recall.progressive import FirstFinding, canonical_first_claims, first_finding, refine
 from pneuma_knowledge_core.recall.stage_timing import StageTiming
 
 #: How long one reading of the canonical tree serves a call. A compile can land mid-call and
@@ -197,7 +197,18 @@ class LibraryLibrarian:
         first_reason = ""
 
         async def quick() -> FirstFinding:
-            evidence = await fast_recall(plane.retrieval_user, question, **quick_kwargs)
+            claims = canonical_first_claims(question, kwargs.get("documents") or ())
+            if claims is None:
+                evidence = await fast_recall(plane.retrieval_user, question, **quick_kwargs)
+            else:
+                from pneuma_knowledge_core.recall.archive_filter import archive_view, filter_claims
+                from pneuma_knowledge_core.recall.fast import FastEvidence
+                view = await archive_view(plane.retrieval_user, kwargs.get("content"),
+                                          documents_archived=kwargs.get("archive_active", False))
+                claims, _ = filter_claims(claims, view,
+                                         live_paths={d.path for d in kwargs.get("documents") or ()})
+                evidence = FastEvidence(question=question, as_of=as_of, system="", content="",
+                                        handles={}, used_claims=tuple(claims))
             return await first_finding(model, question, evidence,
                 callbacks=kwargs.get("callbacks"), trace_metadata=kwargs.get("trace_metadata"))
 
