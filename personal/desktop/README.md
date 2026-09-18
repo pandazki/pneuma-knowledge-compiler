@@ -26,8 +26,9 @@ pnpm tauri dev
 
 Click the book in the menu bar to open the panel. Escape, clicking outside, or the
 close button dismisses it; quitting the tray leaves your libraries running. The
-right-click menu offers Open PKC, Search and Quit. On Linux, where a desktop does
-not expose tray geometry, opening uses the top-right corner of the active monitor.
+right-click menu offers Open PKC, Search, Call the library and Quit. On Linux,
+where a desktop does not expose tray geometry, opening uses the top-right corner
+of the active monitor.
 
 For an isolated manual smoke, point `PKC_HOME` at an empty temporary directory before
 launch; the icon should be grey and the panel should explain `pkchome setup`. Do not
@@ -90,6 +91,15 @@ Cargo's exact `=version` syntax; Cargo itself accepts those exact pins.
   stderr in a dismissible toast, with the submitted key redacted. No key is persisted
   in frontend storage or sent in argv. The installed CLI path is reread for each action;
   macOS resolves the login-shell PATH once at startup.
+- Call the library opens the current library's console at `#/steward?call=1` in your
+  default browser, never in the panel: the panel's content security policy reaches `ipc:`
+  alone, this bundle declares no microphone purpose, and a popover that hides on focus loss
+  is no place to hold a conversation. Port and tenant are read from disk at the click, and
+  the engine is asked whether it can place one (`GET /v1/users/<tenant>/call`). No current
+  library, a stopped engine, a deployment with no voice key, or an engine older than the
+  call opens the panel on Dashboard with the reason on its message line; the item is never
+  greyed, because a disabled item cannot say which of those it was. Not exercised here
+  against a running engine or a real browser.
 - Retry failed jobs is intentionally disabled with a tooltip. The optional global
   shortcut is not implemented. Fixed tray-anchored geometry needs no saved window prefs.
 - In the implementation environment, the frontend build and five state/routing tests

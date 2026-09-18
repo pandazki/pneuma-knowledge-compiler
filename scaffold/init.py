@@ -777,6 +777,10 @@ answer_reasoning_effort: {models["answer_reasoning_effort"] if models["answer_re
 # The fast lane's glance pick runs beside retrieval under an 8-second ceiling and chooses
 # among titles already in front of it; reasoning is pinned off. Empty borrows recall.
 glance_pick: ""
+# The voice call's delegate: writes the question out of a live transcript, routes the fast
+# lane and says the answer, all while someone waits in silence. Reasoning is pinned off for
+# the same reason as the pick's. Empty borrows recall.
+call: ""
 deep: {deep if deep else '""'}
 # Discovery may decide no retrieval is needed; pick runs only when candidates exist.
 live_discover: {models["live_discover"] if models["live_discover"] else '""'}
@@ -852,6 +856,14 @@ rerank_candidates: 120
 
 component_paths: true
 component_budget_chars: 6000
+
+# The voice call (docs/design/voice-call.md), which exists only where OPENAI_API_KEY does.
+# The two ceilings are money, not policy: a voice session bills by the minute for as long as
+# it is open, silent or not, so a call nobody is speaking into ends here. 0 switches off.
+call_model: gpt-live-1
+call_voice: marin
+call_idle_seconds: 180
+call_max_seconds: 1800
 """,
         "persona/profile.yaml": profile,
         "prompts/overlays.yaml": f"""\

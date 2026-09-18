@@ -507,6 +507,22 @@ Owner 的入口，也是唯一入口——本版本没有任何东西会自动�
 
 **这场对话不存进知识库。** 所有者的每一轮只在会话存活期间留在 `steward_turns` 里，只被一条命令读取——`pkc owner say`，它会拒绝任何不是其中某一轮逐字子串的文本（裁定 13）——并在会话结束或过期时删除。
 
+## 语音通话
+
+仅所有者可见，且只在设置了 `OPENAI_API_KEY` 时存在：一个全双工语音模型主持通话，它对这座库一无所知；库知道的一切，都经由本进程运行的委托交给它——从转写里写出问题、走平常的 fast 车道、用 `spoken` 风格作答。音频从不经过这个引擎：浏览器与供应商之间直接持有 WebRTC，引擎只交换一次 SDP，随后挂上一条 sideband。设计：[voice-call](../design/voice-call.zh-CN.md)。
+
+| 方法 | 路径 | 用途 |
+|---|---|---|
+| GET | `/…/call` | `{configured, reason, detail, model, voice, live}`——这里能不能打电话；不能的话，缺的是哪一样（`no_openai_key`、`no_recall_model`）。没有这个功能的引擎回 404，控制台把它读作「这里没有通话」，而不是错误 |
+| POST | `/…/call` | `{sdp, locale}` → `201 {call_id, session_id, sdp, expires_at}`。浏览器的 SDP offer 用项目密钥换成供应商的 answer，而这个密钥只在这里用、别处都不用——浏览器收到的是一份 answer 和两个 id，从不是凭据。部署未配置时 `503`，供应商拒绝时 `502`（带上它自己的说明，已擦除密钥）。创建会话是计费的，所以这道门只由一次点击抵达 |
+| WS | `/…/call/{call_id}` | 引擎知道而浏览器数据通道不知道的那些。服务端先发 `attached`，随后每次状态变化发一帧 `delegation`（按 `delegation.id` upsert：`hearing → searching → answering → done`，或 `unclear` / `failed`；每一帧带着库理解到的问题、已经交给语音的内容、完成后的召回载荷、各次交付的区间，以及一份分阶段的耗时分解），另有 `usage`、`closed`、`error` 与 `ping`。客户端发 `{"type":"end"}` 挂断 |
+
+**一位所有者同时一通电话。** 第二次 `POST` 结束前一通：前一通还开着的通常原因，是某个标签页在通话中途死了，而那个会话还在按分钟计费。
+
+**浏览器不能操纵语音。** 创建会话时其数据通道被收窄到三条命令——关闭、静音、取消静音——所以页面若想给语音模型追加一条指令，是被供应商拒绝，而不是被一条约定拒绝。
+
+**引擎对沉默挂断。** 连续 `CALL_IDLE_SECONDS` 没听到所有者出声、累计到 `CALL_MAX_SECONDS`、或者套接字始终没开，都会结束通话，`closed.reason` 说明是哪一种。
+
 ## 引擎控制台
 
 按部署划分，不按用户：引擎目录是这套安装自己的配置，而不是某个租户的知识，路径里没有 `user_id`，因为这里能拿到的东西没有一样属于用户（不变量 I1 不受影响）。除非 `PNEUMA_KNOWLEDGE_ENGINE_DIR` 有值，否则每条路由都返回 **404**——没有采用这个概念的部署一点新界面也不会多出来。设计见 [design/engine-console.zh-CN.md](../design/engine-console.zh-CN.md)。

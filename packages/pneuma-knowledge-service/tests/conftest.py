@@ -47,3 +47,15 @@ os.environ["PNEUMA_KNOWLEDGE_QDRANT_COLLECTION"] = "pneuma_knowledge_chunks_test
 # published evaluations ran. A test that wants the unchosen state passes
 # `Settings(user_schema_base_version="")` explicitly; init kwargs outrank this.
 os.environ["PNEUMA_KNOWLEDGE_USER_SCHEMA_BASE_VERSION"] = "v1"
+# No test reads a dotenv file at all. The overrides above outrank `.env` one variable at a
+# time, and a list kept by hand drifts: a role added later (`LLM_MODEL_EVOLVE`) was never on
+# it, and a test that deletes `OPENROUTER_API_KEY` to stand keyless uncovered the real key
+# underneath — three tests that passed on CI and failed on any machine with a working
+# `.env`. So the file is switched off at both doors instead: `get_settings()` reads the
+# variable, and a bare `Settings(...)` reads the class config. A test that means to load a
+# dotenv passes `_env_file=` itself, which outranks both.
+os.environ["PNEUMA_KNOWLEDGE_ENV_FILE"] = ""
+
+from pneuma_knowledge_service.settings import Settings  # noqa: E402
+
+Settings.model_config["env_file"] = None

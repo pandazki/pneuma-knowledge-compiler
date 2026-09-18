@@ -218,12 +218,12 @@ def test_public_answer_contracts_are_byte_stable(name):
 @pytest.mark.parametrize("contract", [selector_contract, deep_contract])
 def test_answer_style_presets_swap_exactly_the_style_clause(contract):
     """Each preset yields a distinct contract; the default IS "conversational"; and the
-    three variants share every byte except the style clause (truth discipline never
-    varies with style). Unknown names raise instead of answering in the default voice."""
+    variants share every byte except the style clause (truth discipline never varies with
+    style). Unknown names raise instead of answering in the default voice."""
     from pneuma_knowledge_core.recall.spine import ANSWER_STYLES, style_clause
 
     variants = {s: contract(answer_style=s) for s in ANSWER_STYLES}
-    assert len(set(variants.values())) == 3
+    assert len(set(variants.values())) == len(ANSWER_STYLES)
     assert contract() == variants["conversational"]
     for style, text in variants.items():
         clause = style_clause(style)

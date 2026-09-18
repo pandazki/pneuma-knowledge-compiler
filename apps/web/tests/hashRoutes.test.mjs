@@ -94,6 +94,27 @@ test("a retired route name still resolves, and normalizes to its successor's add
   assert.equal(hashToState("#/nowhere"), null);
 });
 
+test("a view parameter travels on the address and selects nothing", () => {
+  // `#/steward?call=1` sets the page UP — the call surface open and armed — where a path
+  // segment would be a SELECTION. The two must not be confused, so the parameter parses
+  // beside the selection and never into it.
+  const armed = hashToState("#/steward?call=1");
+  assert.equal(armed.view, "steward");
+  assert.equal(armed.selection, null);
+  assert.deepEqual(armed.params, { call: "1" });
+  assert.equal(selectionToHash("steward", null, { call: "1" }), "#/steward?call=1");
+
+  // A selection and a parameter are independent; an address with neither carries an empty map.
+  const both = hashToState("#/library/document/doc-a11c?call=1");
+  assert.deepEqual(both.selection, { kind: "document", id: "doc-a11c" });
+  assert.deepEqual(both.params, { call: "1" });
+  assert.deepEqual(hashToState("#/steward").params, {});
+  assert.equal(selectionToHash("steward", null), "#/steward");
+
+  // The query never bleeds into the path: a view is still the first segment of one.
+  assert.equal(hashToState("#/nowhere?call=1"), null);
+});
+
 test("the rail's section numbers are unique and in order", () => {
   const numbers = TOC.flatMap((group) => group.items).map((item) => item.no);
   assert.deepEqual(numbers, [...numbers].sort());

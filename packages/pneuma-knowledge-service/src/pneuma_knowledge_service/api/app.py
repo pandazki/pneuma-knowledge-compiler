@@ -29,6 +29,7 @@ from .routes.archive import router as archive_router
 from .routes.live_context import root_router as live_context_root_router, router as live_context_router
 from .routes.engine import router as engine_router
 from .routes.evolve import router as evolve_router
+from .routes.call import close_calls, router as call_router
 from .routes.steward import close_sessions as close_steward_sessions, router as steward_router
 from .routes.v1 import drain_recording_tasks, root_router, router as v1_router
 
@@ -92,6 +93,8 @@ def create_app(
             # No harness outlives the process that owns it: every live Steward session's
             # process group is reaped here (docs/design/coding-agent-mode.md §5.6).
             await close_steward_sessions(app)
+            # …and no voice session outlives the process that pays for it by the minute.
+            await close_calls(app)
             await app.state.ctx.aclose()
 
     app = FastAPI(title="pneuma-knowledge-service", version=__version__, lifespan=lifespan)
@@ -195,6 +198,8 @@ def create_app(
     # The console's Steward view: one WebSocket per Owner over the harness's own session,
     # plus the GET the view reads its empty/disabled state from.
     app.include_router(steward_router)
+    # The voice call in that view (docs/design/voice-call.md): SDP exchange, then the cards.
+    app.include_router(call_router)
     if static_dir is not None:
         app.router.routes.append(_SPAMount(app, static_dir))
     return app

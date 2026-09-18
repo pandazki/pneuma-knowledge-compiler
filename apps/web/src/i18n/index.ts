@@ -11,6 +11,7 @@
  */
 import { archive } from "./archive";
 import { ask } from "./ask";
+import { call } from "./call";
 import { common } from "./common";
 import { consultations } from "./consultations";
 import { engineConsole } from "./engineConsole";
@@ -55,6 +56,7 @@ export const BUNDLES = [
   recall,
   review,
   ask,
+  call,
   liveContext,
   steward,
   library,
@@ -83,6 +85,7 @@ export const MESSAGES = {
     ...recall.zh,
     ...review.zh,
     ...ask.zh,
+    ...call.zh,
     ...liveContext.zh,
     ...steward.zh,
     ...library.zh,
@@ -109,6 +112,7 @@ export const MESSAGES = {
     ...recall.en,
     ...review.en,
     ...ask.en,
+    ...call.en,
     ...liveContext.en,
     ...steward.en,
     ...library.en,

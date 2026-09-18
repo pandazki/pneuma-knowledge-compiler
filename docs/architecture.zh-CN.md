@@ -216,6 +216,9 @@ Git 二进制是运行时必备（正本适配器通过子进程调用它）。�
 
 模型接线按角色划分——compile、recall、answer、deep、skill、evolve、challenge、live-context——各自独立可配，带一跳回退和共享默认值。`recall` 负责检索规划/概览，`answer` 只负责 fast 最终答题，因此质量优先的推理不会拖累每一次检索辅助调用。`scripted:` 模型规格回放录制好的响应，用于零密钥、确定性的运行；向量模型同理接受确定性的 `fake:<dim>`。追踪（Langfuse）在未完整配置时整体为空操作。
 
+
+第五条路根本不是一条车道：**语音通话**。一个全双工语音模型与所有者进行口头对话，它对这座库一无所知——库知道的一切，都经由本进程运行的委托交给它：从实时转写里写出问题（供应商的委托事件不带问题），用平常的 fast 车道在同一道引用闸门下作答，再把几段简短可念的内容交回去。音频从不经过引擎：浏览器与供应商之间直接持有 WebRTC，引擎只交换一次 SDP，所以项目密钥留在这里，交给浏览器的是一份 answer 而不是凭据。语音说出口而并非来自库的部分，在旁边的屏幕上被标成这样。设计见 [design/voice-call.zh-CN.md](design/voice-call.zh-CN.md)。
+
 编译角色还接受一种规格 `agent:<backend>`（`codex`、`claude-code`）：由部署所在机器上的一个 **coding agent**、用所有者自己的订阅来驾驭这一轮，而不是 API 模型。知识库本身一处未变——claim 级 draft、写工具和 gate 是同一道门，langchain 循环和 agent 的 `pkc` 命令是它的两个客户端，被同一份代码施以同样的拒绝——所以执行器是 Steward 内部的选择（design/steward-owner-visitor.zh-CN.md），从不进入归因 trailer，后者照旧只写契约、措辞和组件；作业记录写明执行器，agent 产出的提交另带它所受教的 skill 包哈希。agent 的全部词汇是框架的 CLI：`pkc` 读每一层、经 `pkc draft` 写正本，draft 在命令之间存于 Postgres，每次写入都用 gate 自己的谓词做后置检查。两种姿态共用它：worker 为排队作业无头拉起 harness；所有者在项目里与 agent 同坐——在终端，或在控制台的 Steward 视图。完整设计见 [design/coding-agent-mode.zh-CN.md](design/coding-agent-mode.zh-CN.md)。
 
 ## 11. 引擎目录

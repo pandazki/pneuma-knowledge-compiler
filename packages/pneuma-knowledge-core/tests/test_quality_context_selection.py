@@ -588,3 +588,70 @@ async def test_the_cross_face_selection_call_stays_on_the_answering_model(monkey
     )
 
     assert seen["model"] is answering
+
+
+# ────────────────────────────────────────────── what the selection must report about itself
+
+
+class UsageOnlyWhenInvoked(BaseChatModel):
+    """A provider that reports its tokens on `ainvoke` and on no chunk of `astream`.
+
+    This is not a hypothetical: measured against a real provider, a structured call bound to
+    a response format streams its JSON in chunks that carry no `usage_metadata` at all, and
+    neither langchain's `stream_usage` nor the provider's own `stream_options` puts it back.
+    A lane that streams this call therefore answers correctly and bills nothing, which is the
+    shape of cost bug nobody notices until the ledger is audited.
+    """
+
+    @property
+    def _llm_type(self) -> str:
+        return "usage-only-when-invoked"
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # noqa: ANN001, ARG002
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=""))])
+
+    def with_structured_output(self, schema, **kwargs):  # noqa: ANN001, ARG002
+        class Bound:
+            async def ainvoke(self, messages, config=None):  # noqa: ANN001, ARG002
+                return {
+                    "raw": AIMessage(
+                        content="",
+                        usage_metadata={
+                            "input_tokens": 31, "output_tokens": 7, "total_tokens": 38
+                        },
+                    ),
+                    "parsed": EvidenceSelection(claims=[0]),
+                    "parsing_error": None,
+                }
+
+            async def astream(self, messages, config=None):  # noqa: ANN001, ARG002
+                yield {
+                    "raw": AIMessage(content=""),  # the stream knows nothing about tokens
+                    "parsed": EvidenceSelection(claims=[0]),
+                    "parsing_error": None,
+                }
+
+        return Bound()
+
+
+async def test_the_selection_reports_what_it_spent():
+    """One of the three model calls an answer makes is this one, and its tokens reach the
+    cost ledger. Pinned against the OUTCOME rather than the call shape: any implementation
+    is welcome that still comes back with the usage the provider reported."""
+    claims = [
+        RetrievedClaim(
+            anchor=AnchorId("a1f3"), document_path="p.md", section_path=(), text="A claim.",
+            citations=[Citation(source_id=SourceId("s01"), block_start=0, block_end=1)],
+            paths=["lexical"], score=1.0,
+        )
+    ]
+
+    selection, usage, degraded = await select_evidence(
+        UsageOnlyWhenInvoked(), "what does the record say?",
+        claims=claims, episode_summaries=[], windows=[],
+    )
+
+    assert degraded is None
+    assert selection is not None and selection.claim_indexes == (0,)
+    assert usage["input_tokens"] == 31, "the selection's tokens vanished from the ledger"
+    assert usage["output_tokens"] == 7

@@ -197,6 +197,7 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
     ("feedback", "Rejection wording", "反馈文案"),
     ("eval", "Evaluation", "评测"),
     ("steward", "Coding-agent Steward", "编码代理 Steward"),
+    ("call", "Voice call", "语音通话"),
 )
 
 
@@ -276,6 +277,9 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("steward.consume.", "Reading the library", "阅读知识库"),
     ("steward.reference.", "Steward reference", "Steward 参考"),
     ("steward.", "Steward", "Steward"),
+    ("call.voice.", "Voice model", "语音模型"),
+    ("call.ask.", "Ask formation", "问题成形"),
+    ("call.say.", "Handed to the voice", "交给语音"),
 )
 
 # The refinements: the segments somebody actually opens, reads and rewrites. Everything
@@ -308,6 +312,7 @@ _LABELS: dict[str, tuple[str, str]] = {
     "recall.style.concise": ("Style: concise", "风格：精确简短"),
     "recall.style.conversational": ("Style: conversational", "风格：自然对话"),
     "recall.style.detailed": ("Style: detailed", "风格：详尽书面"),
+    "recall.style.spoken": ("Style: spoken", "风格：说出口"),
     "recall.fast.contract_head": ("Fast lane head", "快速车道开头"),
     "recall.deep.contract_head": ("Deep lane head", "深度车道开头"),
     "recall.briefing.contract_head": ("Briefing session head", "简报会话开头"),
@@ -406,6 +411,12 @@ _ANSWER_STYLE = (
         "Appended instead of the style above when this deployment's answer style is "
         "`detailed`.",
         "当本部署的回答风格设为 `detailed` 时，取代上面那一段风格附在契约末尾。",
+    ),
+    v(
+        "recall.style.spoken",
+        "Appended instead of the style above when the caller is the voice call's delegate: "
+        "the answer will be said aloud, not read.",
+        "调用方是语音通话的委托时，取代上面那一段风格附在契约末尾：这个答案是要说出口的，不是给人读的。",
     ),
 )
 
@@ -625,6 +636,93 @@ SURFACES: tuple[Surface, ...] = (
                 "check.form.legacy_sections.action",
                 "The repair: fold what those sections still say into the overview.",
                 "修复动作：把那些小节还在说的东西并进总览。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    # ─────────────────────────────── the voice call: a voice in front, the library behind
+    Surface(
+        id="call.voice",
+        group="call",
+        title_en="Voice call",
+        title_zh="语音通话",
+        summary_en=(
+            "A full-duplex voice model conducts the call and knows nothing about the "
+            "library; whatever the library knows reaches it through a delegate this "
+            "framework runs. Three readers, three kinds of text: the VOICE model's standing "
+            "prompt (short by its provider's rule, policy labels kept verbatim), the small "
+            "text model that writes the question out of the transcript — the delegation "
+            "event says that help is wanted and never what about — and the lines the "
+            "delegate hands the voice when it has no answer to hand over. The answer itself "
+            "is the fast lane's, in the `spoken` style."
+        ),
+        summary_zh=(
+            "一个全双工语音模型主持通话，它对知识库一无所知；知识库知道的一切，都经由本框架运行的"
+            "委托交给它。三位读者、三种文字：**语音**模型的常驻提示词（按其提供方的规矩写得很短，"
+            "策略标签原样保留）、从转写里把问题写出来的小文本模型——委托事件只说需要帮助，从不说"
+            "关于什么——以及委托没有答案可交时交给语音的那几句话。答案本身出自快速车道，用 "
+            "`spoken` 风格。"
+        ),
+        segments=(
+            f(
+                "call.voice.instructions",
+                "The voice model's whole standing prompt, sent once when the call's session is created.",
+                "语音模型的全部常驻提示词，在通话会话创建时发送一次。",
+            ),
+            f(
+                "call.voice.context",
+                "Seeded as the session's first developer message: what day it is, in whose zone.",
+                "作为会话的第一条 developer 消息注入：今天几号、按谁的时区。",
+            ),
+            f(
+                "call.voice.weekdays",
+                "The seven weekday names `{weekday}` above is filled from, Monday first, comma-separated.",
+                "上面 `{weekday}` 取值的七个星期名，周一在前，逗号分隔。",
+            ),
+            f(
+                "call.ask.contract",
+                "System message of ask formation, run once per delegation before anything is looked up.",
+                "问题成形的 System 消息，每次委托在检索之前运行一次。",
+            ),
+            f(
+                "call.ask.request",
+                "Its human turn: the library's page titles, this call's earlier asks, then the transcript tail.",
+                "它的 human 轮：知识库的页面标题、本次通话此前的提问，然后是转写的末段。",
+            ),
+            f(
+                "call.ask.exchange",
+                "One line pair per earlier ask, substituted into `{earlier}` above.",
+                "此前每次提问一组两行，填入上面的 `{earlier}`。",
+            ),
+            f(
+                "call.ask.none",
+                "Stands in for an empty vocabulary or an empty list of earlier asks.",
+                "词表为空、或此前没有提问时的占位。",
+            ),
+            f(
+                "call.ask.label.owner",
+                "Labels the owner's lines of the transcript.",
+                "转写里知识主体那几行的标签。",
+            ),
+            f(
+                "call.ask.label.voice",
+                "Labels the voice model's lines of the transcript.",
+                "转写里语音模型那几行的标签。",
+            ),
+            f(
+                "call.say.working",
+                "Handed to the voice when a lookup is slow enough to be worth a word — once, never again for that ask.",
+                "一次检索慢到值得说一句时交给语音——只说一次，同一次提问不再重复。",
+            ),
+            f(
+                "call.say.failed",
+                "Handed to the voice when the lookup raised or timed out; the voice paraphrases it.",
+                "检索出错或超时时交给语音，由语音转述。",
+            ),
+            f(
+                "call.say.unclear",
+                "Handed to the voice when ask formation found no question and wrote no clarifying one.",
+                "问题成形没有得出问题、也没有写出澄清问句时交给语音。",
             ),
         ),
         kind=FRAGMENTS,

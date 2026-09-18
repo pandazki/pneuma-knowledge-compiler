@@ -24,12 +24,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, ChevronRight, Plug, RotateCcw, Terminal } from "lucide-react";
+import { Bot, ChevronRight, Phone, Plug, RotateCcw, Terminal } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useT } from "@/lib/useT";
 import {
   StewardSocket,
+  getCallStatus,
   getStewardStatus,
+  type CallStatus,
   type LiveContextSocketStatus,
   type StewardStatus,
 } from "@/lib/api";
@@ -55,6 +57,8 @@ import { EmptyState } from "@/ui/EmptyState";
 import { Dialog } from "@/ui/Dialog";
 import { Mono } from "@/ui/Mono";
 import { ScrollRegion } from "@/ui/ScrollRegion";
+import { Tooltip } from "@/ui/Tooltip";
+import { CallSurface } from "./CallSurface";
 import { StewardComposer } from "./StewardComposer";
 import { StewardMarkdown } from "./StewardMarkdown";
 
@@ -63,8 +67,15 @@ export default function StewardView() {
   const currentUser = useApp((s) => s.currentUser);
   const setView = useApp((s) => s.setView);
   const libraryChanged = useApp((s) => s.libraryChanged);
+  const viewParams = useApp((s) => s.viewParams);
+  const clearViewParams = useApp((s) => s.clearViewParams);
 
   const [status, setStatus] = useState<StewardStatus | null>(null);
+  // The call is its own feature on its own endpoint: an engine that predates it answers 404
+  // and this stays null, which is the whole of "the button is not there".
+  const [callStatus, setCallStatus] = useState<CallStatus | null>(null);
+  const [callOpen, setCallOpen] = useState(false);
+  const [callArmed, setCallArmed] = useState(false);
   const [socketState, setSocketState] = useState<LiveContextSocketStatus>("connecting");
   const [conversation, setConversation] = useState<StewardState>(emptyConversation);
   const [draft, setDraft] = useState("");
@@ -85,6 +96,31 @@ export default function StewardView() {
       live = false;
     };
   }, [currentUser]);
+
+  // The call does not need the harness — it answers from the library, not from a coding
+  // agent — so it is probed on its own and shown whatever the Steward's own state is.
+  useEffect(() => {
+    if (!currentUser) return;
+    let live = true;
+    getCallStatus(currentUser)
+      .then((s) => live && setCallStatus(s))
+      .catch(() => live && setCallStatus(null));
+    return () => {
+      live = false;
+    };
+  }, [currentUser]);
+
+  /**
+   * `#/steward?call=1` opens the call surface with the Start button focused — and stops
+   * there. A call costs money by the minute, so an address may set one up and may never
+   * start one: the gesture stays the Owner's. The parameter is read once and dropped.
+   */
+  useEffect(() => {
+    if (viewParams.call !== "1") return;
+    setCallOpen(true);
+    setCallArmed(true);
+    clearViewParams();
+  }, [viewParams.call, clearViewParams]);
 
   useEffect(() => {
     if (!currentUser || status == null || !status.configured) return;
@@ -132,38 +168,74 @@ export default function StewardView() {
     socketRef.current?.end();
   }, []);
 
+  // The call surface is open only where there is something to call: a null status is an
+  // engine that never promised the feature, and an unconfigured one says why on the button.
+  const showCall = callOpen && callStatus?.configured === true && currentUser != null;
+
   const header = (
     <PageHeader
       title={t("steward.title")}
       description={t("steward.description")}
       actions={
-        status?.configured ? (
-          <div className="flex items-center gap-2">
-            <Badge tone={conversation.exited ? "warn" : socketState === "open" ? "ok" : "neutral"}>
-              {conversation.exited
-                ? t("steward.status.exited")
-                : socketState === "open"
-                  ? t("steward.status.live")
-                  : socketState === "connecting"
-                    ? t("steward.status.connecting")
-                    : t("steward.status.closed")}
-            </Badge>
-            <Badge>
-              {t("steward.status.backend", {
-                label: status.label || status.backend,
-                protocol: status.protocol,
-              })}
-            </Badge>
-            {!conversation.exited && (
-              <Button size="sm" variant="ghost" onClick={endSession}>
-                {t("steward.end")}
-              </Button>
-            )}
-          </div>
-        ) : null
+        <div className="flex flex-wrap items-center gap-2">
+          {status?.configured && (
+            <>
+              <Badge
+                tone={conversation.exited ? "warn" : socketState === "open" ? "ok" : "neutral"}
+              >
+                {conversation.exited
+                  ? t("steward.status.exited")
+                  : socketState === "open"
+                    ? t("steward.status.live")
+                    : socketState === "connecting"
+                      ? t("steward.status.connecting")
+                      : t("steward.status.closed")}
+              </Badge>
+              <Badge>
+                {t("steward.status.backend", {
+                  label: status.label || status.backend,
+                  protocol: status.protocol,
+                })}
+              </Badge>
+            </>
+          )}
+          {/* The call stands beside the text session whatever the Steward's own state is:
+              it answers from the library and needs no harness at all. */}
+          {callStatus != null && !showCall && (
+            <CallButton
+              status={callStatus}
+              onOpen={() => {
+                setCallOpen(true);
+                setCallArmed(false);
+              }}
+            />
+          )}
+          {status?.configured && !conversation.exited && (
+            <Button size="sm" variant="ghost" onClick={endSession}>
+              {t("steward.end")}
+            </Button>
+          )}
+        </div>
       }
     />
   );
+
+  if (showCall) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {header}
+        <CallSurface
+          userId={currentUser}
+          status={callStatus}
+          armed={callArmed}
+          onBack={() => {
+            setCallOpen(false);
+            setCallArmed(false);
+          }}
+        />
+      </div>
+    );
+  }
 
   if (status != null && !status.configured) {
     return (
@@ -273,6 +345,37 @@ function WorkingNote() {
       />
       {t("steward.compose.working")}
     </p>
+  );
+}
+
+/**
+ * The way into a call, beside the text session.
+ *
+ * Disabled rather than hidden when the engine cannot place one: the Owner is told what is
+ * missing in the engine's own sentence, which is more use than a control that quietly is not
+ * there. The tooltip hangs on a focusable wrapper, because a disabled button receives neither
+ * pointer nor keyboard events and would carry its explanation where nobody can reach it.
+ */
+function CallButton({ status, onOpen }: { status: CallStatus; onOpen: () => void }) {
+  const t = useT();
+  if (status.configured) {
+    return (
+      <Button size="sm" variant="ghost" onClick={onOpen}>
+        <Phone size={14} aria-hidden />
+        {t("call.open")}
+      </Button>
+    );
+  }
+  const why = status.detail || t("call.open.unavailable");
+  return (
+    <Tooltip content={why}>
+      <span tabIndex={0} className="inline-flex rounded-2" aria-label={why}>
+        <Button size="sm" variant="ghost" disabled>
+          <Phone size={14} aria-hidden />
+          {t("call.open")}
+        </Button>
+      </span>
+    </Tooltip>
   );
 }
 

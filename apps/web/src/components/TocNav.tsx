@@ -9,6 +9,7 @@ import { LensBadge } from "./LensBadge";
 
 interface TocItem {
   view: ViewName;
+  /** The § number, STAMPED from position by `numbered` below — never written by hand. */
   no: string;
   label: MessageKey;
 }
@@ -16,6 +17,12 @@ interface TocItem {
 interface TocGroup {
   group: MessageKey;
   items: TocItem[];
+}
+
+/** A chapter as it is declared: order and grouping, with no number in it. */
+interface Chapter {
+  group: MessageKey;
+  items: { view: ViewName; label: MessageKey }[];
 }
 
 /**
@@ -31,64 +38,80 @@ const HOME_GROUP: TocGroup = {
 
 /**
  * The chapter table from DESIGN.md §3 (the hidden "components" route stays out of it).
- * Structure — § numbers, order, grouping — lives here; the words live in i18n/nav.ts.
+ * Structure — order and grouping — lives here; the words live in i18n/nav.ts.
+ *
+ * The Steward is not in it. It is not a chapter of this library at all: it is the person you
+ * talk to about it, from wherever you happen to be standing, so it sits in the top bar
+ * (`components/StewardEntry.tsx`) beside the other global controls.
  */
-export const TOC: TocGroup[] = [
+const CHAPTERS: Chapter[] = [
   {
     group: "nav.group.front",
-    items: [{ view: "overview", no: "01", label: "nav.view.overview" }],
+    items: [{ view: "overview", label: "nav.view.overview" }],
   },
   {
     group: "nav.group.materials",
     items: [
-      { view: "sources", no: "02", label: "nav.view.sources" },
-      { view: "ingest", no: "03", label: "nav.view.ingest" },
+      { view: "sources", label: "nav.view.sources" },
+      { view: "ingest", label: "nav.view.ingest" },
     ],
   },
   {
     group: "nav.group.process",
-    items: [
-      { view: "process", no: "04", label: "nav.view.process" },
-      // The Steward sits in the process chapter because that is what it does: it is the body
-      // that runs the compile, and the views on either side of it are the queue it works and
-      // the versions it leaves behind.
-      { view: "steward", no: "04b", label: "nav.view.steward" },
-    ],
+    items: [{ view: "process", label: "nav.view.process" }],
   },
   {
     group: "nav.group.retrieval",
     items: [
-      { view: "recall", no: "05", label: "nav.view.recall" },
-      { view: "ask", no: "06", label: "nav.view.ask" },
-      { view: "live_context", no: "07", label: "nav.view.live_context" },
+      { view: "recall", label: "nav.view.recall" },
+      { view: "ask", label: "nav.view.ask" },
+      { view: "live_context", label: "nav.view.live_context" },
       // The record of everything the three lanes above it answered — the retrieval chapter
       // read backwards, which is why it closes that chapter rather than opening another.
-      { view: "consultations", no: "08", label: "nav.view.consultations" },
+      { view: "consultations", label: "nav.view.consultations" },
     ],
   },
   {
     group: "nav.group.canon",
     items: [
-      { view: "library", no: "09", label: "nav.view.library" },
-      { view: "lens", no: "10", label: "nav.view.lens" },
+      { view: "library", label: "nav.view.library" },
+      { view: "lens", label: "nav.view.lens" },
       // The check sits beside the lens because they read the same library from two heights:
       // the lens says what the whole is becoming, the check lists what one page has to fix.
-      { view: "review", no: "10b", label: "nav.view.review" },
-      { view: "history", no: "11", label: "nav.view.history" },
+      { view: "review", label: "nav.view.review" },
+      { view: "history", label: "nav.view.history" },
     ],
   },
   {
     group: "nav.group.evolution",
     items: [
-      { view: "evolve", no: "12", label: "nav.view.evolve" },
-      { view: "engine_console", no: "13", label: "nav.view.engine_console" },
+      { view: "evolve", label: "nav.view.evolve" },
+      { view: "engine_console", label: "nav.view.engine_console" },
     ],
   },
   {
     group: "nav.group.back",
-    items: [{ view: "profile", no: "14", label: "nav.view.profile" }],
+    items: [{ view: "profile", label: "nav.view.profile" }],
   },
 ];
+
+/**
+ * Stamp the § numbers from POSITION, running across the groups in order.
+ *
+ * A sequence number is bookkeeping, not meaning: there is nothing to save by squeezing a new
+ * chapter in as 「04b」, and a book that numbers itself cannot disagree with its own order.
+ * Insert or remove a chapter above and everything below it renumbers, which is what a
+ * renumbered book does.
+ */
+function numbered(chapters: Chapter[]): TocGroup[] {
+  let n = 0;
+  return chapters.map((chapter) => ({
+    group: chapter.group,
+    items: chapter.items.map((item) => ({ ...item, no: String(++n).padStart(2, "0") })),
+  }));
+}
+
+export const TOC: TocGroup[] = numbered(CHAPTERS);
 
 /**
  * The rail this lens actually gets. Nothing here keeps a second list of who sees what: it
@@ -121,8 +144,8 @@ export interface TocNavProps {
  * bar to the global functions it already had.
  *
  * Under a visitor lens the rail collapses to the reading room's two entries, and the chapter
- * apparatus goes with the chapters: § numbers and group headings name a book of fourteen
- * sections, and printing 「§05」 above two lines would keep pointing at twelve pages that
+ * apparatus goes with the chapters: § numbers and group headings name a book of fifteen
+ * sections, and printing 「§05」 above two lines would keep pointing at thirteen pages that
  * are not there. Same component, same rows, fewer of them — the foot is unchanged by the
  * lens, because the way back out of the reading room must never be one of the things the
  * reading room subtracts.
@@ -142,7 +165,7 @@ export function TocNav({ onNavigate }: TocNavProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* The chapters scroll, the foot does not: fourteen sections are taller than a short
+      {/* The chapters scroll, the foot does not: fifteen sections are taller than a short
           window, and an identity you have to scroll to find is not one you can see you are
           wearing. */}
       <nav

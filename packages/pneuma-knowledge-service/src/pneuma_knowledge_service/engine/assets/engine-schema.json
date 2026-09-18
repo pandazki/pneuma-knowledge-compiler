@@ -523,6 +523,66 @@
             "en": "When enabled index components offer lookup paths, fast spends one routing tool-call turn to choose which run, concurrently with the built-in retrieval; their results form their own evidence face. No path offered = no routing call. Off ignores component paths entirely.",
             "zh": "已启用的索引组件提供查询路时，fast 用一轮路由 tool call 选择哪些路运行，与内置检索并发；其结果构成独立的证据面。没有路 = 没有路由调用。关闭则完全忽略组件路。"
           }
+        },
+        {
+          "key": "call_model",
+          "env": "PNEUMA_KNOWLEDGE_CALL_MODEL",
+          "type": "string",
+          "default": "gpt-live-1",
+          "apply": "restart",
+          "label": {
+            "en": "Voice call · voice model",
+            "zh": "语音通话·语音模型"
+          },
+          "description": {
+            "en": "The full-duplex model that conducts a call: it hears the owner and speaks back, and it knows nothing about the library — everything the library knows reaches it through the delegate (`models.call`). It is reached with OPENAI_API_KEY, which never leaves this process: the browser is handed an SDP answer, not a credential. With no key this deployment reports the call unconfigured instead of offering it.",
+            "zh": "主持通话的全双工模型：它听见知识主体、也说回去，而它对知识库一无所知——知识库知道的一切，都经由委托（`models.call`）交到它手上。它用 OPENAI_API_KEY 连接，而这个密钥从不离开本进程：浏览器拿到的是一份 SDP 应答，不是凭据。没有密钥时，这个部署会明说通话未配置，而不是把它摆出来。"
+          }
+        },
+        {
+          "key": "call_voice",
+          "env": "PNEUMA_KNOWLEDGE_CALL_VOICE",
+          "type": "string",
+          "default": "marin",
+          "apply": "restart",
+          "label": {
+            "en": "Voice call · voice",
+            "zh": "语音通话·音色"
+          },
+          "description": {
+            "en": "Which voice the model above speaks in. The vocabulary is the voice provider's, not this framework's, and the session is created with this name verbatim.",
+            "zh": "上面那个模型用哪一种嗓音说话。可选值由语音服务商定义，不是本框架的词表；创建会话时这个名字原样发送。"
+          }
+        },
+        {
+          "key": "call_idle_seconds",
+          "env": "PNEUMA_KNOWLEDGE_CALL_IDLE_SECONDS",
+          "type": "int",
+          "default": 180,
+          "apply": "restart",
+          "label": {
+            "en": "Voice call · idle close (seconds)",
+            "zh": "语音通话·静默挂断（秒）"
+          },
+          "description": {
+            "en": "How long a call may hear nothing from the owner before the engine closes it. A voice session is billed by the minute for as long as it is open, silent or not, so a call nobody is speaking into is ended rather than left running. 0 = never closed on this count.",
+            "zh": "一通电话最多可以多久听不到知识主体说话，之后由引擎把它挂断。语音会话只要开着就按分钟计费，说不说话都一样，所以没人在讲的通话是被结束掉，而不是留在那里。0 = 不因静默挂断。"
+          }
+        },
+        {
+          "key": "call_max_seconds",
+          "env": "PNEUMA_KNOWLEDGE_CALL_MAX_SECONDS",
+          "type": "int",
+          "default": 1800,
+          "apply": "restart",
+          "label": {
+            "en": "Voice call · maximum length (seconds)",
+            "zh": "语音通话·最长时长（秒）"
+          },
+          "description": {
+            "en": "The other end of the same guard: how long one call may run, however lively. 0 = no ceiling.",
+            "zh": "同一道保险的另一端：一通电话最长能开多久，哪怕一直在讲。0 = 不设上限。"
+          }
         }
       ]
     },
@@ -702,6 +762,21 @@
           "description": {
             "en": "The fast lane's glance pick: one small call that reads the library's glance — titles and one-line definitions — plus the question, and names the documents worth reading whole. A WEAK FAST model is right: this is a choice among titles already in front of it. The pass runs alongside retrieval under an 8-second ceiling and is additive, so a model that stops to think simply misses it and the answer is built on retrieval alone. Reasoning is pinned off in code. Empty borrows the recall role.",
             "zh": "快速召回的概览挑选：一次小调用，读知识库概览——标题与一句定义——加上问题，指出哪些文档值得整篇读。**又弱又快**的模型才对：这是在已经摆在面前的标题里做选择。这一段与检索并行，只有 8 秒上限，而且是加分项——模型若停下来推理，就只是错过它，答案退回到仅凭检索。推理在代码里被钉死为关闭。留空则借用召回角色。"
+          }
+        },
+        {
+          "key": "call",
+          "env": "PNEUMA_KNOWLEDGE_LLM_MODEL_CALL",
+          "type": "string",
+          "default": "",
+          "apply": "restart",
+          "label": {
+            "en": "Voice call · delegate model",
+            "zh": "语音通话·委托模型"
+          },
+          "description": {
+            "en": "The voice call's delegate — the model that stands between the voice on the line and this library. It does three small turns: write the question out of the transcript, route the fast lane, and say the answer in the `spoken` style. All three happen while a person waits in silence, so a FAST model is right for the same reason the glance pick's is, and its reasoning is pinned off in code. Empty borrows the recall role. The voice itself is a different model, named under Recall (`recall.call_model`).",
+            "zh": "语音通话的委托——站在电话那头的声音与这个知识库之间的那个模型。它做三件小事：从转写里把问题写出来、路由快速召回、用 `spoken` 风格把答案说出来。三件都发生在有人静静等着的那几秒里，所以和概览挑选一样，要的是**快**模型，推理也在代码里被钉死为关闭。留空则借用召回角色。声音本身是另一个模型，在「召回」里指定（`recall.call_model`）。"
           }
         },
         {
@@ -957,6 +1032,18 @@
             "archive.record.facts",
             "archive.record.facts_span",
             "archive.record.reason",
+            "call.ask.contract",
+            "call.ask.exchange",
+            "call.ask.label.owner",
+            "call.ask.label.voice",
+            "call.ask.none",
+            "call.ask.request",
+            "call.say.failed",
+            "call.say.unclear",
+            "call.say.working",
+            "call.voice.context",
+            "call.voice.instructions",
+            "call.voice.weekdays",
             "canonical.volume_label",
             "check.corr.single_source.action",
             "check.corr.single_source.impact",
@@ -1506,6 +1593,7 @@
             "recall.style.concise",
             "recall.style.conversational",
             "recall.style.detailed",
+            "recall.style.spoken",
             "recall.suggestion.contract_head",
             "recall.suggestion.detail_card",
             "recall.suggestion.detail_contract",

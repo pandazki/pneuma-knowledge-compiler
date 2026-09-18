@@ -4,7 +4,7 @@ import type { MessageKey, MessageParams } from "./i18n";
 import { LOCALE_STORAGE_KEY, detectLocale, setActiveLocale, type Locale } from "./i18n";
 import { adoptHandoffPreferences } from "./handoff";
 import { buildModel, type Model } from "./model";
-import { hashToState, sameSelection, selectionToHash } from "./hash";
+import { hashToState, sameSelection, selectionToHash, type ViewParams } from "./hash";
 import { LENS_HOME, isLens, resolveView, type Lens } from "./lenses";
 import { needsCanonicalDataset } from "./datasetLoading";
 import { appendUniqueSnapshots } from "./snapshotPagination";
@@ -318,6 +318,14 @@ interface AppState {
 
   view: ViewName;
   selection: Selection;
+  /**
+   * The `?key=value` tail the address arrived with, for the view it named — `#/steward?call=1`
+   * and nothing else so far. A parameter sets a page UP rather than selecting anything in it,
+   * so it is read once by the view it belongs to and dropped (`clearViewParams`): re-arming a
+   * surface on every re-render would make the address a standing instruction instead of an
+   * opening one.
+   */
+  viewParams: ViewParams;
   theme: Theme;
   /**
    * Who is at this console. NOT per user: it is the person at the keyboard, and switching
@@ -464,7 +472,11 @@ interface AppState {
   setLiveContext: (patch: Partial<LiveContextCache>) => void;
   /** empty the conversation, keeping the roles the operator set up. */
   clearLiveContextTurns: () => void;
-  setView: (v: ViewName) => void;
+  /** go to a view; `params` sets that page UP the way `#/steward?call=1` does (see
+   *  `viewParams`), and a click with none leaves the instruction the last address carried. */
+  setView: (v: ViewName, params?: ViewParams) => void;
+  /** The view read the parameter it was addressed with; it must not act on it twice. */
+  clearViewParams: () => void;
   select: (s: Selection) => void;
   /** cross-view jump: set selection and optionally switch the active view */
   jump: (s: Selection, view?: ViewName) => void;
@@ -585,9 +597,14 @@ function applyLocale(locale: Locale) {
  * entry and emits a hashchange whose parsed state equals the store's, so the
  * listener no-ops (no loop). `replace` is used for the initial normalization.
  */
-function writeHash(view: ViewName, selection: Selection, replace = false) {
+function writeHash(
+  view: ViewName,
+  selection: Selection,
+  replace = false,
+  params: ViewParams = {},
+) {
   if (typeof window === "undefined") return;
-  const next = selectionToHash(view, selection);
+  const next = selectionToHash(view, selection, params);
   if (window.location.hash === next) return;
   if (replace) {
     window.history.replaceState(null, "", next);
@@ -642,6 +659,7 @@ export const useApp = create<AppState>((set, get) => ({
   currentKbSnapshot: null,
   view: LENS_HOME[bootLens],
   selection: null,
+  viewParams: {},
   theme: initialTheme(),
   lens: bootLens,
   sessionAsks: [],
@@ -668,9 +686,12 @@ export const useApp = create<AppState>((set, get) => ({
         set({
           view,
           selection: blocked ? null : initial.selection,
+          // A parameter belongs to the view it named: a guarded redirect drops it with the
+          // selection, because it was an instruction to a page this lens is not on.
+          viewParams: blocked ? {} : initial.params,
           ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}),
         });
-        writeHash(view, blocked ? null : initial.selection, true);
+        writeHash(view, blocked ? null : initial.selection, true, blocked ? {} : initial.params);
       } else {
         writeHash(get().view, get().selection, true);
       }
@@ -686,6 +707,7 @@ export const useApp = create<AppState>((set, get) => ({
           // (leaving it in the bar makes Back a loop) and say why nothing happened, or a
           // deep link into the cockpit from the reading room looks like a dead address bar.
           if (blocked) set({ notice: { key: "nav.notice.lensGuard" } });
+          else if (Object.keys(parsed.params).length > 0) set({ viewParams: parsed.params });
           // Normalize unconditionally: a RETIRED route name (`#/graph` → `#/lens`) parses to
           // the state already on screen, so without this the old spelling would stay in the
           // address bar and be shared onward. `writeHash` no-ops when nothing differs.
@@ -695,6 +717,7 @@ export const useApp = create<AppState>((set, get) => ({
         set({
           view: next,
           selection: nextSelection,
+          viewParams: blocked ? {} : parsed.params,
           ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}),
         });
         // Replace, never push: the blocked entry is already in history, and pushing the
@@ -1165,10 +1188,20 @@ export const useApp = create<AppState>((set, get) => ({
   // people in it every time would be the opposite of a saved setup.
   clearLiveContextTurns: () => set((s) => ({ liveContext: { ...s.liveContext, turns: [] } })),
 
+  clearViewParams: () => {
+    if (Object.keys(get().viewParams).length === 0) return;
+    set({ viewParams: {} });
+  },
+
   setView: (requested) => {
     const view = resolveView(requested, get().lens);
     const blocked = view !== requested;
-    set({ view, ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}) });
+    // A click is not the address: leaving a page leaves the instruction it arrived with.
+    set({
+      view,
+      viewParams: {},
+      ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}),
+    });
     writeHash(view, get().selection, blocked);
     if (needsCanonicalDataset(view) && get().dataset == null) {
       void get().loadUserDataset();
@@ -1189,6 +1222,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({
       selection,
       view: nextView,
+      viewParams: {},
       ...(blocked ? { notice: { key: "nav.notice.lensGuard" as const } } : {}),
     });
     writeHash(nextView, selection, blocked);

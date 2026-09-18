@@ -31,6 +31,10 @@ export const nav = defineMessages({
     "nav.view.ask": "问答 Ask",
     "nav.view.live_context": "即时上下文 Live Context",
     "nav.view.steward": "管家 Steward",
+    // The top-bar entry (components/StewardEntry.tsx). Short, because it stands beside the
+    // library selector rather than in the contents, where a chapter's full name belongs.
+    "nav.steward.label": "管家",
+    "nav.steward.title": "和管家说话",
     "nav.view.consultations": "咨询 Consultations",
     "nav.view.library": "正本 Canonical",
     "nav.view.lens": "结构透镜 Structure Lens",
@@ -119,6 +123,8 @@ export const nav = defineMessages({
     "nav.view.ask": "Ask",
     "nav.view.live_context": "Live Context",
     "nav.view.steward": "Steward",
+    "nav.steward.label": "Steward",
+    "nav.steward.title": "Talk to the Steward",
     "nav.view.consultations": "Consultations",
     "nav.view.library": "Canonical",
     "nav.view.lens": "Structure Lens",

@@ -12,6 +12,7 @@ import { Mono } from "@/ui/Mono";
 import { Stamp } from "@/ui/Stamp";
 import { cn } from "@/ui/cn";
 import { TocNav } from "./TocNav";
+import { StewardEntry } from "./StewardEntry";
 import { UserPicker } from "./UserPicker";
 import { SnapshotPicker } from "./SnapshotPicker";
 import { ThemeToggle } from "./ThemeToggle";
@@ -52,10 +53,10 @@ const VIEWPORT_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>([
 const WIDE_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>(["live_context"]);
 
 /**
- * The app shell: top bar (wordmark + mobile contents button + UserPicker / SnapshotPicker /
- * LocaleToggle / ThemeToggle) + the desktop contents rail (232px) + the content column
- * (max-w-content). The notice strip, the offline warning and the historical-snapshot archive
- * stamp banner all live here.
+ * The app shell: top bar (wordmark + mobile contents button + StewardEntry / UserPicker /
+ * SnapshotPicker / LocaleToggle / ThemeToggle) + the desktop contents rail (232px) + the
+ * content column (max-w-content). The notice strip, the offline warning and the
+ * historical-snapshot archive stamp banner all live here.
  *
  * The top bar is the console's GLOBAL administration, and identity is not an administrative
  * control — it decides what the whole app is. So the lens switcher is not here: it sits at
@@ -106,6 +107,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {/* Left of which library is on the bench: the Steward is who you talk to ABOUT a
+              library, so it stands with the global controls and not in the contents. */}
+          <StewardEntry />
           {showsShellChrome("userPicker", lens) && <UserPicker />}
           {showsShellChrome("snapshotPin", lens) && <SnapshotPicker />}
           <LocaleToggle />
