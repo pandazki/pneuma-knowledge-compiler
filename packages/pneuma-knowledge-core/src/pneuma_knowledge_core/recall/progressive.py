@@ -7,6 +7,7 @@ by the card and voice. Citation admission checks addresses, not semantic entailm
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from dataclasses import dataclass, field
 from typing import Literal
@@ -18,7 +19,7 @@ from ..prompts import prompt
 from ..domain.consultation import parse_span_ref
 from .call import speakable
 from .citation_alias import iter_answer_citations, parse_citation_markers
-from .fast import FastEvidence, evidence_manifest, extract_usage, invoke_config, zero_usage
+from .fast import RetrievedClaim, FastEvidence, evidence_manifest, extract_usage, invoke_config, zero_usage
 
 
 class FirstChoice(BaseModel):
@@ -62,6 +63,57 @@ class RefinedAnswer:
     usage: dict[str, int]
 
 
+def canonical_first_claims(question, documents):
+    """None permits lexical fallback; [] means a named subject needs the broader answer.
+
+    Exact normalized names only: no fuzzy entity guessing. Only current overview slots
+    are eligible, never an incidental mention in a different subject's ledger.
+    """
+    from ..compile.documents import derived_title
+    from ..domain.archive import is_archived_path, is_archive_record
+    from .projection import project_document_claims
+    from .provenance import CanonicalProvenance
+
+    def normalized(text):
+        return re.sub(r"[\s_-]+", " ", unicodedata.normalize("NFKC", text).casefold()).strip()
+
+    docs = [d for d in documents if not is_archived_path(d.path)]
+    query = normalized(question)
+    title_matches, slug_matches = [], []
+    for doc in docs:
+        if is_archive_record(doc):
+            continue
+        title = normalized(derived_title(doc.body) or str(doc.frontmatter.get("title", "")))
+        slug = normalized(str(doc.frontmatter.get("slug", "")))
+        def mentioned(name):
+            return len(name) >= 3 and re.search(r"(?<![a-z0-9])" + re.escape(name) + r"(?![a-z0-9])", query)
+        if mentioned(title):
+            title_matches.append((len(title), doc))
+        elif mentioned(slug):
+            slug_matches.append((len(slug), doc))
+    # Related evolution/decision pages can share a slug. A title identity outranks that
+    # organizational key; duplicate title identities still require broader retrieval.
+    matches = title_matches or slug_matches
+    if not matches:
+        return None
+    # Multiple subjects, including comparisons, need broader retrieval rather than a
+    # single-subject first answer. Do not let index ranking break an identity tie.
+    if len(matches) != 1:
+        return []
+    doc = matches[0][1]
+    resolver = CanonicalProvenance(docs)
+    rows = []
+    for claim in project_document_claims(doc):
+        if claim.labels not in (("overview", "definition"), ("overview", "summary")):
+            continue
+        provenance = resolver.resolve(doc.path, str(claim.anchor))
+        if not provenance.citations or provenance.missing_anchors or provenance.ambiguous_anchors:
+            continue
+        rows.append(RetrievedClaim(claim.anchor, doc.path, claim.section_path, claim.text,
+                                  provenance.citations, paths=("canonical",), labels=claim.labels))
+    return sorted(rows, key=lambda r: r.labels[-1] != "definition")
+
+
 def first_candidates(evidence: FastEvidence, *, max_bytes: int = 300) -> list[tuple[str, str]]:
     """Keep complete short records with source addresses. Never cut a qualification away."""
     rows: list[tuple[str, str]] = []
@@ -102,7 +154,7 @@ async def first_finding(model, question: str, evidence: FastEvidence, *, callbac
     result = await model.with_structured_output(FirstSummary if summarize else FirstChoice, include_raw=True).ainvoke(
         [SystemMessage(content=prompt("call.progressive.summarize" if summarize else "call.progressive.pick")),
          HumanMessage(content=prompt("call.progressive.pick_input", question=question,
-             candidates="\n".join(f"{i}: {text}" for i, (text, _) in enumerate(candidates))))],
+             candidates="\n".join(f"{i}: [{locator}] {text}" for i, (text, locator) in enumerate(candidates))))],
         config=invoke_config("call.first", callbacks, trace_metadata),
     )
     parsed, usage = unpack(result)

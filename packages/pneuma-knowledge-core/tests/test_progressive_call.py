@@ -185,3 +185,41 @@ async def test_confirmed_units_finish_without_repeating_the_preliminary():
     result = await refine(Model(decision), evidence(), "The ramp has handrails.")
     assert result.speech == "" and "handrails" in result.answer
     assert (await refine(Model(decision), evidence(), "")).speech == "The ramp has handrails."
+
+
+def subject_document(path='projects/lyrra-framework/overview.md', title='Lyrra Framework'):
+    from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+    return CanonicalDocument(doc_id='synthetic', path=path, frontmatter={'title': title, 'slug': 'lyrra-framework'}, body=(
+        f'# {title}\n\n<!-- overview -->\n<!-- overview:definition -->\n\n'
+        'Lyrra Framework builds governed applications. c:aa11 <!-- c:bb22 -->\n\n'
+        '<!-- /overview -->\n\n## Ledger\n\n'
+        'Lyrra Framework builds governed applications. [cite: synthetic-source ¶0] <!-- c:aa11 -->\n'))
+
+
+def test_named_subject_routes_to_current_overview_with_transitive_provenance():
+    from pneuma_knowledge_core.recall.progressive import canonical_first_claims
+    rows = canonical_first_claims('介绍一下 Lyrra framework 这个项目', [subject_document()])
+    assert len(rows) == 1
+    assert rows[0].labels == ('overview', 'definition')
+    assert rows[0].citations[0].source_id == 'synthetic-source'
+    assert rows[0].document_path == 'projects/lyrra-framework/overview.md'
+
+
+def test_subject_resolution_does_not_guess_or_break_ambiguity_with_ranking():
+    from pneuma_knowledge_core.recall.progressive import canonical_first_claims
+    doc = subject_document()
+    assert canonical_first_claims('Lyrra frameworkish', [doc]) is None
+    assert canonical_first_claims('Lyrra Framework', [doc.model_copy(update={'path': 'archive/lyrra.md'})]) is None
+    assert canonical_first_claims('Lyrra Framework', [doc, doc.model_copy(update={'path': 'other.md'})]) == []
+    assert canonical_first_claims('Lyrra Framework', [doc.model_copy(update={'body': '# Lyrra Framework'})]) == []
+    assert canonical_first_claims('Lyrra Framework', [doc.model_copy(update={'body': doc.body.replace('c:aa11 <!--', 'c:deadbeef <!--')})]) == []
+
+
+def test_exact_page_title_beats_evolution_page_sharing_the_subject_slug():
+    from pneuma_knowledge_core.recall.progressive import canonical_first_claims
+    doc = subject_document()
+    evolution = doc.model_copy(update={'path': 'projects/lyrra-framework/evolution.md',
+        'body': doc.body.replace('# Lyrra Framework', '# Lyrra Framework Evolution').replace('aa11', 'cc33').replace('bb22', 'dd44'),
+        'frontmatter': {'title': 'Lyrra Framework Evolution', 'slug': 'lyrra-framework'}})
+    rows = canonical_first_claims('Introduce Lyrra Framework', [evolution, doc])
+    assert rows and all(row.document_path == doc.path for row in rows)
