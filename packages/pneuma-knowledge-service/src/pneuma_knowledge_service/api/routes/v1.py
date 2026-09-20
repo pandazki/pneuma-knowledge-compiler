@@ -1615,6 +1615,11 @@ async def _fast_recall_kwargs(
         selection_reasoning_effort=(
             ctx.settings.recall_selection_reasoning_effort or None
         ),
+        # None unless this deployment composes `select` with a scorer; the lane reads None
+        # as "the recall model selects", which is the historical path.
+        evidence_scorer=ctx.get_evidence_scorer(),
+        select_score_floor=ctx.settings.recall_select_score_floor,
+        evidence_selection_timeout=ctx.settings.recall_selection_timeout_s,
         answer_format=body.answer_format or ctx.settings.recall_answer_format,
         answer_style=body.answer_style or ctx.settings.recall_answer_style,
         plan_queries_cap=ctx.settings.recall_plan_queries,

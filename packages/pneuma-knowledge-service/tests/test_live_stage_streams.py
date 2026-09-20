@@ -149,6 +149,7 @@ def _request(store: _FakeStore | None = None) -> SimpleNamespace:
         store=store or _FakeStore(),
         get_chat_model=lambda role="default": None,
         get_reranker=lambda: None,
+        get_evidence_scorer=lambda: None,
         settings=SimpleNamespace(
             recall_answer_style="conversational",
             recall_evidence_strategy="ranked",
@@ -160,6 +161,8 @@ def _request(store: _FakeStore | None = None) -> SimpleNamespace:
             recall_window_candidate_cap=8,
             recall_episode_summary_cap=3,
             recall_selection_reasoning_effort="",
+            recall_select_score_floor=0.5,
+            recall_selection_timeout_s=30.0,
             recall_plan_queries=0,
             recall_rerank_candidates=0,
             recall_component_paths=False,

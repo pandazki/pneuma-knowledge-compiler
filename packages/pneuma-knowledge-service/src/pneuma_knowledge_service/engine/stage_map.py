@@ -484,6 +484,88 @@ STAGES: tuple[Stage, ...] = (
                 ),
             ),
             Knob(
+                key="evidence_selector",
+                type="enum",
+                enum=("model", "scorer"),
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_SELECTOR",
+                setting="recall_evidence_selector",
+                label_en="Evidence selector",
+                label_zh="证据选择器",
+                description_en=(
+                    "Who composes the context under evidence_strategy=select. model is one "
+                    "structured recall-model call over the whole candidate pool. scorer hands "
+                    "the same pool to a calibrated evidence scorer — one usefulness score per "
+                    "candidate — and the keep/drop decision becomes a floor in code. What "
+                    "follows the selection is identical either way."
+                ),
+                description_zh=(
+                    "在 evidence_strategy=select 下由谁编排上下文。model 是对整个候选池的一次"
+                    "结构化召回模型调用；scorer 把同一个池交给标定过的证据打分器——每条候选一个"
+                    "有用度分数——留弃由代码里的阈值决定。选择之后的环节两者完全一致。"
+                ),
+            ),
+            Knob(
+                key="evidence_scorer",
+                type="string",
+                apply="restart",
+                env="PNEUMA_KNOWLEDGE_RECALL_EVIDENCE_SCORER",
+                setting="recall_evidence_scorer",
+                label_en="Evidence scorer",
+                label_zh="证据打分器",
+                description_en=(
+                    "The scorer as <provider>:<model>, e.g. typesafe:jev-1.13-20260917. "
+                    "Required when the selector is scorer. Pin a dated version: the keep "
+                    "floor is fitted against one model's calibration."
+                ),
+                description_zh=(
+                    "打分器，写作 <provider>:<model>，如 typesafe:jev-1.13-20260917。选择器为 "
+                    "scorer 时必填。要钉住带日期的版本：保留阈值是对着某一个模型的标定拟合的。"
+                ),
+            ),
+            Knob(
+                # A 0–1 number, and the frozen knob vocabulary has no float (see
+                # `_type_problem`): declared as a string so the console can carry a
+                # fractional floor, which `Settings` then coerces. An int knob could only
+                # ever offer 0 or 1, which is not a threshold, it is a switch.
+                key="select_score_floor",
+                type="string",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_SELECT_SCORE_FLOOR",
+                setting="recall_select_score_floor",
+                label_en="Keep floor (0–1)",
+                label_zh="保留阈值（0–1）",
+                description_en=(
+                    "Keep a candidate the scorer places at or above this, on its fixed scale "
+                    "(0.0 = a different subject, 1.0 = states the asked-for fact). Re-fit it "
+                    "on your own material: it is a number about your library, not a constant "
+                    "of the framework. Read only when the selector is scorer."
+                ),
+                description_zh=(
+                    "打分器给出的分数达到或超过这个值就保留，分数在它固定的量表上"
+                    "（0.0 = 换了个主题，1.0 = 正好陈述被问的事实）。请对着自己的材料重新拟合："
+                    "它是关于你这座库的数字，不是框架常量。只有选择器为 scorer 时才会读。"
+                ),
+            ),
+            Knob(
+                key="selection_timeout_s",
+                type="int",
+                apply="hot",
+                env="PNEUMA_KNOWLEDGE_RECALL_SELECTION_TIMEOUT_S",
+                setting="recall_selection_timeout_s",
+                label_en="Selection timeout (seconds)",
+                label_zh="选择超时（秒）",
+                description_en=(
+                    "The select stage's ceiling, model selector or scorer. Past it the lane "
+                    "answers out of its exact ranked heads and marks the answer degraded. "
+                    "The setting accepts fractions; the console steps in whole seconds."
+                ),
+                description_zh=(
+                    "select 阶段的上限，对模型选择器和打分器都适用。超时后车道用精确的排序头部"
+                    "作答，并把回答标为降级。设置本身接受小数，控制台按整秒步进。"
+                ),
+            ),
+            Knob(
                 key="answer_format",
                 type="enum",
                 enum=("text", "structured"),

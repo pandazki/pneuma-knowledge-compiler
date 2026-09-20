@@ -1036,6 +1036,10 @@ class AppContext:
     # Lazily built claim reranker (core Reranker port), or None while
     # settings.recall_rerank_model is empty — the fast lane treats None as "pass off".
     _reranker: object | None = field(default=None, repr=False)
+    # Lazily built evidence scorer (core EvidenceScorer port), or None while the deployment
+    # composes `select`'s context with the recall model — which the fast lane reads as
+    # "keep the model selector". Built once and reused: it holds an httpx client.
+    _evidence_scorer: object | None = field(default=None, repr=False)
     # Lazily built supplementary web search (core WebSearch port), or None while the
     # deployment has not enabled one. Built once and reused: it holds an httpx client.
     _web_search: object | None = field(default=None, repr=False)
@@ -1099,6 +1103,46 @@ class AppContext:
                     spec, self.settings.openrouter_api_key
                 )
         return self._reranker
+
+    def get_evidence_scorer(self):
+        """The configured evidence scorer, or None while `select` is composed by the model.
+
+        None is the historical lane, not a degradation: the fast lane reads it as "the
+        recall model selects". A deployment that asked for a scorer and did not say which
+        one — or named a provider nothing implements, or has no key for the one it named —
+        is misconfigured, and a misconfiguration that silently answers with the OTHER
+        selector is the expensive kind, so it raises with the setting named.
+
+        Provider selection by spec shape, as `get_reranker` does:
+          "typesafe:<model>" → `TypeSafeEvidenceScorer` on OpenRouter's decisions route,
+                               e.g. `typesafe:jev-1.13-20260917` → `typesafe/jev-…`.
+        """
+        if self.settings.recall_evidence_selector != "scorer":
+            return None
+        if self._evidence_scorer is None:
+            spec = self.settings.recall_evidence_scorer.strip()
+            if not spec:
+                raise RuntimeError(
+                    "recall_evidence_selector is 'scorer' but recall_evidence_scorer is "
+                    "empty — name the scorer (e.g. typesafe:jev-1.13-20260917)"
+                )
+            provider, _, model = spec.partition(":")
+            if provider != "typesafe" or not model:
+                raise RuntimeError(
+                    f"recall_evidence_scorer {spec!r} names no known scorer provider; "
+                    "the shipped one is typesafe:<model>"
+                )
+            if not self.settings.openrouter_api_key:
+                raise RuntimeError(
+                    "recall_evidence_scorer needs an OPENROUTER_API_KEY to reach the "
+                    "decisions route"
+                )
+            from .adapters.typesafe_scorer import TypeSafeEvidenceScorer
+
+            self._evidence_scorer = TypeSafeEvidenceScorer(
+                f"typesafe/{model}", self.settings.openrouter_api_key
+            )
+        return self._evidence_scorer
 
     @property
     def steward_turns(self):
@@ -1194,6 +1238,8 @@ class AppContext:
             await self.media.aclose()
         if self._reranker is not None:
             await self._reranker.aclose()
+        if self._evidence_scorer is not None:
+            await self._evidence_scorer.aclose()
         if self._web_search is not None:
             await self._web_search.aclose()
 

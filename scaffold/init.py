@@ -840,6 +840,18 @@ answer_style: {config["answer_style"]}
 evidence_strategy: select
 answer_format: structured
 selection_reasoning_effort: ""
+# Who does that choosing: the recall model, or a calibrated evidence scorer that
+# gives every candidate one usefulness score and lets the floor below decide.
+evidence_selector: model
+# The scorer, as <provider>:<model>, e.g. typesafe:jev-1.13-20260917.
+# Required when evidence_selector is scorer; pin a dated version.
+evidence_scorer: ""
+# Keep what the scorer places at or above this (0-1). Re-fit it on your own
+# material — it is a number about your library, not a framework constant.
+select_score_floor: "0.5"
+# How long the select stage may take, either selector. Past it the lane
+# answers out of its ranked heads and says the answer degraded.
+selection_timeout_s: 30
 # Used only by all; 0 means no character ceiling.
 all_context_chars: 120000
 

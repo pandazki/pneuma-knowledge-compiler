@@ -108,6 +108,12 @@ def test_generates_a_complete_project_from_answers(tmp_path):
     assert "evidence_strategy: select" in recall
     assert "answer_format: structured" in recall
     assert 'selection_reasoning_effort: ""' in recall
+    # Who selects, and on what terms — generated OFF, so a new project is the lane the
+    # measurements were taken on until its owner says otherwise.
+    assert "evidence_selector: model" in recall
+    assert 'evidence_scorer: ""' in recall
+    assert 'select_score_floor: "0.5"' in recall
+    assert "selection_timeout_s: 30" in recall
 
 
 def test_generated_env_carries_free_distinct_ports_and_framework_repo(tmp_path):
