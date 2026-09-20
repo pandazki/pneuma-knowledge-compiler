@@ -66,6 +66,7 @@ from ..domain.pricing import USAGE_FIELDS
 from ..domain.source import BlockImage, NormalizedBlock, NormalizedSource
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
+from ..ports.evidence_scorer import EvidenceScorer
 from ..ports.lexical_index import LexicalIndex
 from ..ports.media_store import MediaStore
 from ..ports.reranker import Reranker
@@ -159,6 +160,24 @@ DEFAULT_SELECTION_EPISODE_ANCHORS = 4
 DEFAULT_SELECTION_WINDOW_ANCHORS = 4
 DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS = 30.0
 DEFAULT_STRUCTURED_ANSWER_TIMEOUT_SECONDS = 60.0
+
+#: Where the scored selector cuts. An `EvidenceScorer` places every candidate on ONE fixed
+#: scale (0.0 = a different subject, 1.0 = states the asked-for fact), so this number means
+#: the same thing across faces and across asks — which is the whole reason the keep/drop
+#: decision can live in code instead of in a model's list. 0.5 is "part of the asked-for
+#: fact" on the shipped adapter's 0–3 rubric, divided by 3; a deployment re-fits it against
+#: its own material rather than inheriting it as doctrine.
+DEFAULT_SELECT_SCORE_FLOOR = 0.5
+
+#: How much of one candidate the scorer is asked to read. A decision model's per-request
+#: budget is bounded and a shard carries dozens of candidates, so an unbounded card would
+#: make the shard size depend on whichever window happened to be retrieved. The ANSWER still
+#: reads the full text: this bound is on the judgement, never on the evidence.
+SCORER_CANDIDATE_MAX_CHARS = 1_500
+#: Head + tail, never head-only: answers hide at both ends of a long passage and the middle
+#: is the cheapest part to lose. The marker is explicit so a clipped card never pretends to
+#: be whole (the same splice the service's rerank adapters make, `clip_document`).
+SCORER_CLIP_MARKER = " … [middle truncated] … "
 
 #: The `all` strategy's ONE bound. It hands the whole candidate pool to the answer with no
 #: selection call and no score truncation, so the thing that would otherwise be unbounded is
@@ -2142,6 +2161,218 @@ async def select_evidence(
             ),
         ),
         usage,
+        None,
+    )
+
+
+def clip_candidate(text: str, max_chars: int = SCORER_CANDIDATE_MAX_CHARS) -> str:
+    """Head+tail splice for an over-long candidate; identity for anything within budget."""
+
+    if len(text) <= max_chars:
+        return text
+    keep = max_chars - len(SCORER_CLIP_MARKER)
+    head = (keep * 2) // 3
+    tail = keep - head
+    return text[:head] + SCORER_CLIP_MARKER + text[-tail:]
+
+
+def selection_candidate_texts(
+    *,
+    claims: Sequence[RetrievedClaim],
+    episode_summaries: Sequence[EpisodeSummary],
+    windows: Sequence[RecallHit],
+    components: Sequence[ComponentCandidate] = (),
+) -> list[str]:
+    """What the scorer reads, face by face, in POOL ORDER — claims, episode summaries,
+    windows, component items.
+
+    The same facts the model selector's lines carry (`recall.fast.evidence_select.*`), minus
+    the `C{index}:` label: the scorer's own request addresses each candidate by key, and a
+    second addressing scheme in the text is one more thing to miscount. The pool order is
+    the contract: the returned list is index-aligned with the faces as concatenated here,
+    and `select_evidence_scored` slices the scores back apart by the same lengths.
+    """
+
+    out: list[str] = [
+        prompt(
+            "recall.fast.evidence_score.claim",
+            path=claim.document_path,
+            section=" / ".join(claim.section_path) or "-",
+            text=clip_candidate(claim.text),
+        )
+        for claim in claims
+    ]
+    out.extend(
+        prompt(
+            "recall.fast.evidence_score.episode",
+            occurred_on=summary.source_occurred_on or "-",
+            start=summary.block_start,
+            end=summary.block_end,
+            text=clip_candidate(summary.text),
+        )
+        for summary in episode_summaries
+    )
+    out.extend(
+        prompt(
+            "recall.fast.evidence_score.window",
+            source_id=window.source_id,
+            start=window.block_start,
+            end=window.block_end,
+            text=clip_candidate(window.text),
+        )
+        for window in windows
+    )
+    out.extend(
+        prompt(
+            "recall.fast.evidence_score.component",
+            kind=candidate.kind,
+            locator=candidate.locator,
+            text=clip_candidate(candidate.text),
+        )
+        for candidate in components
+    )
+    return out
+
+
+def _kept_indexes(
+    scores: Sequence[float | None], *, offset: int, count: int, floor: float
+) -> list[int]:
+    """One face's keepers: at or above the floor, best first, ties in pool order.
+
+    An unscored candidate (None) is neither kept nor dropped here — it simply was not
+    judged, and the ranked safety anchors go on protecting the head exactly as they do
+    when the whole pass fails."""
+
+    scored = [
+        (index, scores[offset + index])
+        for index in range(count)
+        if offset + index < len(scores) and scores[offset + index] is not None
+    ]
+    keepers = [(index, score) for index, score in scored if score >= floor]
+    keepers.sort(key=lambda row: (-row[1], row[0]))
+    return [index for index, _score in keepers]
+
+
+async def select_evidence_scored(
+    scorer: EvidenceScorer,
+    question: str,
+    *,
+    claims: Sequence[RetrievedClaim],
+    episode_summaries: Sequence[EpisodeSummary],
+    windows: Sequence[RecallHit],
+    components: Sequence[ComponentCandidate] = (),
+    keep_floor: float = DEFAULT_SELECT_SCORE_FLOOR,
+    claim_cap: int = DEFAULT_CLAIM_CAP,
+    episode_summary_cap: int = DEFAULT_EPISODE_SUMMARY_CAP,
+    window_cap: int = DEFAULT_WINDOW_CAP,
+    component_cap: int = DEFAULT_COMPONENT_SELECT_CAP,
+    timeout: float | None = DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS,
+) -> tuple[SelectedEvidence | None, int, str | None]:
+    """`select_evidence`'s other selector: one scoring pass, and a floor in code.
+
+    Every face's candidates are scored in ONE pass on a fixed scale; what survives the floor
+    then goes through EXACTLY the model path's mechanics — `_selected_indexes`, the same
+    ranked safety anchors, the same final caps — so the two selectors differ in who judges
+    and in nothing else.
+
+    It picks no whole documents (`document_paths=()`): reading a page whole is a judgement
+    about the page, and this scorer is asked about candidates.
+
+    Returns (selection, the scorer's input tokens, degradation). A partially scored pass
+    keeps what it scored; unscored candidates are neither kept nor dropped, and the anchors
+    protect the head as always. `model_*_count` carries the number kept before anchors.
+    """
+
+    if not claims and not episode_summaries and not windows and not components:
+        return SelectedEvidence((), (), (), (), ()), 0, None
+    candidates = selection_candidate_texts(
+        claims=claims,
+        episode_summaries=episode_summaries,
+        windows=windows,
+        components=components,
+    )
+    try:
+        call = scorer.score(question, candidates)
+        result = await (asyncio.wait_for(call, timeout) if timeout else call)
+    except (asyncio.TimeoutError, TimeoutError):
+        return None, 0, "timeout"
+    except Exception:  # noqa: BLE001 — additive selector degrades to ranked evidence
+        return None, 0, "error"
+
+    scores = tuple(result.scores)
+    tokens = int(result.input_tokens or 0)
+    if all(score is None for score in scores) or not scores:
+        # Nothing was judged, so there is no selection to make — the same fail-soft answer
+        # the model path gives when its output does not parse.
+        return None, tokens, "error"
+
+    claim_start = 0
+    episode_start = claim_start + len(claims)
+    window_start = episode_start + len(episode_summaries)
+    component_start = window_start + len(windows)
+    kept_claims = _kept_indexes(
+        scores, offset=claim_start, count=len(claims), floor=keep_floor
+    )
+    kept_episodes = _kept_indexes(
+        scores, offset=episode_start, count=len(episode_summaries), floor=keep_floor
+    )
+    kept_windows = _kept_indexes(
+        scores, offset=window_start, count=len(windows), floor=keep_floor
+    )
+    kept_components = _kept_indexes(
+        scores, offset=component_start, count=len(components), floor=keep_floor
+    )
+    return (
+        SelectedEvidence(
+            claim_indexes=_selected_indexes(
+                kept_claims,
+                available=len(claims),
+                cap=claim_cap,
+                anchors=DEFAULT_SELECTION_CLAIM_ANCHORS,
+            ),
+            episode_indexes=_selected_indexes(
+                kept_episodes,
+                available=len(episode_summaries),
+                cap=episode_summary_cap,
+                anchors=DEFAULT_SELECTION_EPISODE_ANCHORS,
+            ),
+            window_indexes=_selected_indexes(
+                kept_windows,
+                available=len(windows),
+                cap=window_cap,
+                anchors=DEFAULT_SELECTION_WINDOW_ANCHORS,
+            ),
+            component_indexes=_selected_indexes(
+                kept_components,
+                available=len(components),
+                cap=component_cap,
+                anchors=0,
+            ),
+            document_paths=(),
+            model_claim_count=len(
+                _model_selected_indexes(
+                    kept_claims, available=len(claims), cap=claim_cap
+                )
+            ),
+            model_episode_count=len(
+                _model_selected_indexes(
+                    kept_episodes,
+                    available=len(episode_summaries),
+                    cap=episode_summary_cap,
+                )
+            ),
+            model_window_count=len(
+                _model_selected_indexes(
+                    kept_windows, available=len(windows), cap=window_cap
+                )
+            ),
+            model_component_count=len(
+                _model_selected_indexes(
+                    kept_components, available=len(components), cap=component_cap
+                )
+            ),
+        ),
+        tokens,
         None,
     )
 

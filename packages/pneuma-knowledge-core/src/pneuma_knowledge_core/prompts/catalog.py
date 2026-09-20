@@ -2721,6 +2721,20 @@ DEFAULTS: dict[str, str] = {
     "recall.fast.evidence_select.component_item": (
         "K{index}: [{kind}; {locator}] {text}"
     ),
+    # ─────────────────────── recall: the scored selector's candidate cards
+    # The same facts the model selector's lines carry, minus the `C{index}:` label: a scorer
+    # addresses each candidate by its own key, so a number in the text would only be a second
+    # addressing scheme for the model to miscount. One card per candidate, read alone.
+    "recall.fast.evidence_score.claim": (
+        "[note · document={path}; section={section}] {text}"
+    ),
+    "recall.fast.evidence_score.episode": (
+        "[episode summary · occurred_on={occurred_on}; span={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_score.window": (
+        "[verbatim source passage · source={source_id}; span={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_score.component": "[{kind}; {locator}] {text}",
     # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
     # Used by the LLMReranker adapter — a cheap non-reasoning chat call that plays the
     # cross-encoder's role: read the actual candidate texts against the question and say

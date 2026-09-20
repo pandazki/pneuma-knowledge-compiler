@@ -240,6 +240,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("ingest.email.", "Email rendering", "邮件渲染"),
     ("ingest.", "Transcript rendering", "转写渲染"),
     ("recall.fast.evidence_select.", "Evidence composition", "证据编排"),
+    ("recall.fast.evidence_score.", "Evidence scoring", "证据打分"),
     ("recall.fast.select.", "Full-document selection", "整篇选取"),
     ("recall.fast.plan.", "Retrieval planning", "检索规划"),
     ("recall.fast.window_note.", "Window annotation", "窗口批注"),
@@ -4135,6 +4136,46 @@ SURFACES: tuple[Surface, ...] = (
                 "recall.fast.evidence_select.component_item",
                 "One component candidate: what kind it is, where it resolves to, and its text.",
                 "一条组件候选：它是哪种、落到哪个地址、正文是什么。",
+            ),
+        ),
+        kind=FRAGMENTS,
+    ),
+    Surface(
+        id="recall.fast_evidence_score",
+        group="recall",
+        title_en="Scored evidence candidates",
+        title_zh="打分证据候选",
+        summary_en=(
+            "The other way `select` composes a context: a calibrated scorer reads one "
+            "candidate card at a time and returns a usefulness score, and the keep/drop "
+            "decision is a floor in code. These are the cards — no instruction, no numbering, "
+            "because the scorer's own request addresses each candidate by key."
+        ),
+        summary_zh=(
+            "`select` 编排上下文的另一条路：由标定过的打分器逐条读候选卡片、给出有用度分数，"
+            "留还是弃由代码里的阈值决定。这里只有卡片——没有指令、没有编号，"
+            "因为打分请求本身就用键名寻址每条候选。"
+        ),
+        segments=(
+            f(
+                "recall.fast.evidence_score.claim",
+                "One compiled-claim candidate, with the canonical page and section it lives in.",
+                "一条已编译断言候选，带它所在的 canonical 页与章节。",
+            ),
+            f(
+                "recall.fast.evidence_score.episode",
+                "One derived episode summary, with its date and exact source span.",
+                "一条派生 episode 摘要，带日期与精确源区间。",
+            ),
+            f(
+                "recall.fast.evidence_score.window",
+                "One verbatim source window, with its source id and exact block span.",
+                "一个逐字源窗口，带来源 id 与精确块区间。",
+            ),
+            f(
+                "recall.fast.evidence_score.component",
+                "One component-lookup candidate: what kind it is and where it resolves to.",
+                "一条组件查询候选：它是哪种、落到哪个地址。",
             ),
         ),
         kind=FRAGMENTS,
