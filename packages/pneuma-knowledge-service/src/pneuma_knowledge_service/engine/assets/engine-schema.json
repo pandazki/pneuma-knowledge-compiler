@@ -1258,6 +1258,7 @@
             "compile.skill_lede",
             "compile.task.about_pages",
             "compile.task.agent_session",
+            "compile.task.agent_session_project",
             "compile.task.block_context",
             "compile.task.block_line",
             "compile.task.context_unavailable",

@@ -1680,6 +1680,12 @@ SURFACES: tuple[Surface, ...] = (
                 '声明来源种类、哪个标签是 Owner 的回合，以及代理叙述和动作短记各自的作者含义。',
             ),
             f(
+                'compile.task.agent_session_project',
+                "The project the agent ran in, from the session's own metadata — the subject "
+                "binding the transcript cannot show, stated rather than guessed.",
+                '代理运行所在的项目，取自会话自身的元数据——转录里看不出的主体归属，是被告知的事实，不靠猜。',
+            ),
+            f(
                 "compile.task.source_heading",
                 "The heading of each source — this is where the `source_id` a citation must "
                 "name is shown.",

@@ -387,6 +387,19 @@ def _render_task(
                 "compile.task.agent_session",
                 owner=agent_session_owner_label(s.raw.meta.get("owner_name")),
             )
+            # WHERE the agent ran, when the boundary recorded it. A session's transcript shows
+            # the work and not the subject it belongs to: the project is in the source's own
+            # metadata and nowhere in its text but incidental command paths, which the sentence
+            # above has just told the compiler are activity and not knowledge. Left out, the
+            # binding is a guess between whichever pages read alike. Stated, it is a fact the
+            # compiler was handed — the same footing a component's source line stands on.
+            project = s.raw.meta.get("project")
+            name = str((project or {}).get("name") or "").strip() if isinstance(project, Mapping) else ""
+            path = str((project or {}).get("path") or "").strip() if isinstance(project, Mapping) else ""
+            if name:
+                preamble += " " + prompt(
+                    "compile.task.agent_session_project", name=name, path=path or name
+                )
         if preamble:
             parts.append(preamble)
         # What the source boundary knows and the transcript cannot show — an enabled
