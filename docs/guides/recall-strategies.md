@@ -38,6 +38,20 @@ a selection. Provenance is the one thing it does not soften: when a chosen claim
 back to a source L0 cannot produce, the request fails rather than answering on evidence it
 could not resolve.
 
+Who does that choosing is a second decision, and the default is the recall model above.
+The other selector is a calibrated **evidence scorer**: instead of one call that reads the
+whole pool and returns a list, every candidate is scored on its own against a fixed scale
+(`0.0` = a different subject, `1.0` = states the asked-for fact), and what the answer gets
+is decided by a floor in code — `select_score_floor`. Everything after that judgement is
+the same mechanism: the same validation, the same ranked safety anchors, the same per-face
+caps, the same provenance following. Two things differ. It never asks for a whole document,
+because reading a page whole is a judgement about the page and this scorer is asked about
+candidates; and the cost shape changes — one prefill-heavy model call becomes a handful of
+small decision calls that run concurrently, billed in their own currency and reported
+apart from the token ledger (`scorer_input_tokens`). Which of the two is right for your
+material is a measurement, not a doctrine: the floor in particular is a number about your
+library, and the shipped default is a starting point to re-fit, not a constant.
+
 Source navigation follows canonical claim chains within the supplied snapshot. A partially
 overlapping or truncated window cannot discharge a whole source read: the framework checks
 complete verbatim coverage before deduplicating, and otherwise fetches the valid cited span.

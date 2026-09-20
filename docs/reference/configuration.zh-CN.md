@@ -181,6 +181,10 @@ id，于是一张按模型报的价目表，也能给通过网关买的同一个
 | `RECALL_ALL_CONTEXT_CHARS` | `120000` | 只有 `RECALL_EVIDENCE_STRATEGY=all` 会读它，也是那条路径唯一的边界：组装后的证据面最多可占多少字符。超出时依次丢弃窗口、episode 摘要、排名最低的断言，并在回答上标记 `evidence_selection_degraded="all:truncated"`、在 `assemble` 阶段预览里给出各面的丢弃条数。`0` 表示不设上限 |
 | `RECALL_ANSWER_FORMAT` | `text` | 仅 fast 的回答线格式：`text` 是既有自由文本调用；`structured` 将回答类型、干净回答正文与精确引用分开，再只准入证据中出现过的精确区间。逐次覆盖字段：`answer_format` |
 | `RECALL_SELECTION_REASONING_EFFORT` | （空） | `select` 调用的可选 provider 推理强度提示；留空不发送覆盖值 |
+| `RECALL_EVIDENCE_SELECTOR` | `model` | 在 `RECALL_EVIDENCE_STRATEGY=select` 下由谁编排上下文：`model` 是对整个候选池的一次结构化召回模型调用；`scorer` 把同一个池交给标定过的证据打分器——每条候选一个有用度分数，落在固定的 0–1 量表上——留弃改由代码里的 `RECALL_SELECT_SCORE_FLOOR` 决定。选择之后的环节两者完全一致（范围校验、高排名安全锚点、各面上限、出处追溯）；打分选择器不会选整篇文档 |
+| `RECALL_EVIDENCE_SCORER` | （空） | 打分器，写作 `<provider>:<model>`，如 `typesafe:jev-1.13-20260917`（走 OpenRouter 的 decisions 路由）。选择器为 `scorer` 时必填。要钉住带日期的版本：保留阈值是对着某一个模型的标定拟合的 |
+| `RECALL_SELECT_SCORE_FLOOR` | `0.5` | 打分器给出的分数达到或超过这个值就保留，分数在端口固定的量表上（`0.0` = 换了个主题，`1.0` = 正好陈述被问的事实）。请按部署重新拟合——它是关于你这批材料的数字，不是框架常量。只有选择器为 `scorer` 时才会读 |
+| `RECALL_SELECTION_TIMEOUT_S` | `30` | `select` 阶段的上限，对模型选择器和打分器都适用。超时后车道用精确的排序头部作答，并把回答标为 `evidence_selection_degraded="timeout"` |
 | `RECALL_PLAN_QUERIES` | `0` | `0` 关；N>0 = 一次规划调用派生至多 N 条额外检索查询，单次 RRF 融合成池 |
 | `RECALL_RERANK_MODEL` | （空） | 空为关；`llm` = 召回模型 + reasoning effort `none` 做 LLM 重排；`llm:<spec>` 指定模型；裸模型名（如 `cohere/rerank-4-pro`）走 OpenRouter `/rerank` 端点 |
 | `RECALL_RERANK_CANDIDATES` | `120` | 重排时每查询每路的检索深度；reranker 对完整去重并集打分（硬上限 1000） |
