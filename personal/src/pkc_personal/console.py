@@ -58,7 +58,15 @@ def tarball_url(version: str | None = None) -> str:
 
 
 def _complete(path: Path) -> bool:
-    return path.is_dir() and any(path.iterdir())
+    """A page, not merely a directory with something in it.
+
+    The three sources are tried in order and the first COMPLETE one wins, so "has a file in
+    it" is the wrong test: a `dist/` carrying only `assets/` — a wheel built from the git
+    tree, where the built page is ignored and only a stray artifact came along — then
+    shadows a downloaded build that is whole, and the engine serves a static root with no
+    `index.html` at all. Every route 404s and the machinery all looks healthy. The page IS
+    `index.html`; require it."""
+    return (path / "index.html").is_file()
 
 
 def env_dist() -> Path | None:
