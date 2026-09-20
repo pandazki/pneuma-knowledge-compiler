@@ -171,6 +171,19 @@ claim/episode/raw candidates plus the canonical glance and returns coordinates o
 framework rejects invented coordinates, unions deterministic high-ranked anchors, enforces
 the existing final caps, and follows selected claim and episode provenance back to bounded,
 deduplicated L0 passages. This is ephemeral query composition, never a new authority.
+WHO composes that context is a seam, not a fixed model call (`RECALL_EVIDENCE_SELECTOR`).
+The default is the recall model, byte-for-byte the lane above. The alternative is an
+`EvidenceScorer` port (core): one usefulness score per candidate on a fixed 0–1 scale, and
+the keep decision becomes a floor in code (`RECALL_SELECT_SCORE_FLOOR`) instead of a list the
+model returns. Everything after the selection is the same mechanism either way — range
+validation, the deterministic ranked anchors, the per-face caps, the provenance following —
+so the two differ in who judges and in nothing else. A scorer picks no whole documents:
+reading a page whole is a judgement about the page, which it is not asked. It is fail-soft on
+the same channel, and its tokens are a DIFFERENT currency from the answer model's, carried in
+`scorer_input_tokens` rather than summed into `token_usage`. One scorer ships
+(`RECALL_EVIDENCE_SCORER=typesafe:<model>`, a calibrated decision model over OpenRouter's
+decisions route); the port is what a deployment implements to wire another.
+
 `answer_format=structured` independently separates answer kind, clean answer text and
 citations; only exact aliased spans present in the evidence are admitted. Either stage is
 fail-soft with explicit degradation telemetry. The selector is serial between retrieval and

@@ -38,6 +38,12 @@ fix an answer model that already received exact evidence.
   cross-face composition misses. Compare its model-selected counts with candidates and final
   evidence: near-zero model choices plus a large final ledger means safety anchors, not the
   serial selector, are doing the work.
+- When `select` earns its place, the selector itself is a second measurement, not a given:
+  the recall model and an evidence scorer compose the same pool under the same anchors and
+  caps, and they differ in what they cost. Compare them on the same harness — answer quality,
+  the `select` stage's own latency, and the two currencies apart (`token_usage` for the model,
+  `scorer_input_tokens` for the scorer). A scorer's floor is a number about YOUR library:
+  sweep it on your own labelled material rather than inheriting the shipped starting point.
 - Use `answer_format: structured` when downstream systems need a clean semantic answer and a
   separately validated citation ledger. Consume `answer_text` for automation and `answer` for
   interactive cited rendering.
