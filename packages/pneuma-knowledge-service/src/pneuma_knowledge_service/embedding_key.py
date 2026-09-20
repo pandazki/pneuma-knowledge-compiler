@@ -71,3 +71,26 @@ def embedding_key_notice(spec: str, key: str, semantic_retrieval: str = "on") ->
         return "semantic retrieval is off — no key needed"
     env_var = missing_embedding_key(spec, key)
     return embedding_key_reminder(spec, env_var) if env_var else ""
+
+
+#: The setting that names the vector collection, spelled once.
+COLLECTION_SETTING = "PNEUMA_KNOWLEDGE_QDRANT_COLLECTION"
+
+
+def fresh_collection_notice(collection: str) -> str:
+    """What it means that the vector collection had to be created, said in one line.
+
+    Creating it is correct on a library that has never indexed anything, and it is the
+    whole failure on a library that has: the name moved, so every vector this deployment
+    already wrote is in the OLD collection and the lane reads an empty one. Nothing raises
+    — an empty index is a legitimate state — so the only thing that can keep this from
+    being silent is saying it.
+    """
+    return (
+        f"Qdrant collection {collection!r} did not exist and was created empty. On a new "
+        f"library that is expected. On a library that already holds indexed material it "
+        f"means the collection NAME changed ({COLLECTION_SETTING}, or "
+        f"PNEUMA_APP_QDRANT_COLLECTION in a scaffold project): semantic recall (L2) and "
+        f"semantic claim retrieval (L3) will return nothing until something indexes into "
+        f"this name — `scripts/ops/rebuild_derived.py`, or point the setting back."
+    )
