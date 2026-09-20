@@ -19,7 +19,7 @@
 | `ENV_FILE` | 工作目录下的 `.env` | 通过进程环境控制 `get_settings()`：未设置时保留本地 `.env` 加载行为；空字符串完全禁用 dotenv；路径则改为加载指定文件。从任意目录运行时，设置 `PNEUMA_KNOWLEDGE_ENV_FILE=` 即可忽略该目录的 `.env`。此项只从进程环境读取，不从 dotenv 或引擎目录读取 |
 | `PG_DSN` | `postgresql://pneuma_knowledge:pneuma_knowledge@localhost:15432/pneuma_knowledge` | Postgres（L0、任务队列、投影、各注册表） |
 | `QDRANT_URL` | `http://localhost:16333` | 向量库 |
-| `QDRANT_COLLECTION` | `pneuma_knowledge_chunks` | 单 collection；向量维度建库时锁定——换嵌入模型要换 collection 名 |
+| `QDRANT_COLLECTION` | `pneuma_knowledge_chunks` | 单 collection；向量维度建库时锁定——换嵌入模型要换 collection 名。名字不存在时会被创建为空，并在启动时告警：对已有向量的库，改名等于静默失去 L2/L3 语义检索，直到有东西索引进这个名字 |
 | `QDRANT_UPSERT_BATCH` | `256` | 一次 Qdrant 写请求最多带多少个点。适配器里的每一处写入——一个来源的 L2 分片、断言投影、快照拷贝、增量里的删除——都按这个上限分批发出：请求有多大是写方唯一能决定的事，而先崩掉的是等它回话的那次读——一个来源的整份 L2 曾作为单次 `upsert(wait=True)` 发出，读在响应途中断掉（`httpx.ReadError`），连着三次，最后那个 episodes 作业就为此被判失败。点 id 是确定性的（对租户与被索引对象做 uuid5），所以已经落地的一批再发一次只是覆盖自己，写到一半也是安全的 |
 | `QDRANT_TIMEOUT_S` | `60` | 单次 Qdrant 请求最多等多久。客户端库自带的默认是 5 秒——对一次检索是读超时，对几百条向量的写入就是伏击；分批限住了请求的大小，这一项限住等待的时长。以整秒为单位（客户端只收整数）|
 | `MEILI_URL` | `http://localhost:17700` | 词法索引 |

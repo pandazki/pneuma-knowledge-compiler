@@ -183,8 +183,13 @@ class QdrantVectorIndex:
         ("layer", models.PayloadSchemaType.KEYWORD),
     )
 
-    async def ensure_collection(self) -> None:
+    async def ensure_collection(self) -> bool:
         """Create the collection if absent, and declare the payload indexes EITHER WAY.
+
+        Returns whether this call CREATED the collection. A caller that knows nothing else
+        about the deployment still knows this much: a name that had to be created is a name
+        nothing has ever indexed into, which on a library that already holds material is a
+        renamed collection rather than a new one (`build_context` says so out loud).
 
         The index declaration deliberately runs on an existing collection too. A deployment
         that already holds one predates every index added since it was created, and an
@@ -209,7 +214,7 @@ class QdrantVectorIndex:
                     "PNEUMA_KNOWLEDGE_QDRANT_COLLECTION or rebuild the collection"
                 )
             await self._ensure_payload_indexes()
-            return
+            return False
 
         await self._client.create_collection(
             self._collection,
@@ -218,6 +223,7 @@ class QdrantVectorIndex:
             ),
         )
         await self._ensure_payload_indexes()
+        return True
 
     async def _ensure_payload_indexes(self) -> None:
         for field_name, schema in self._PAYLOAD_INDEXES:

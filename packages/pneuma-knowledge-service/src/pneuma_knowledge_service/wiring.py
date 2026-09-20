@@ -41,7 +41,11 @@ from .adapters.qdrant import QdrantVectorIndex, existing_dimension
 from .adapters.s3_media import S3MediaStore
 from .adapters.scripted_model import load_scripted_model
 from .adapters.user_info_provider_composite import PersistedUserInfoProvider, UnstatedUserInfoProvider
-from .embedding_key import embedding_key_notice, embedding_key_requirement
+from .embedding_key import (
+    embedding_key_notice,
+    embedding_key_requirement,
+    fresh_collection_notice,
+)
 from .settings import Settings
 from pneuma_knowledge_core.ports.user_info_provider import UserInfoProvider
 
@@ -854,6 +858,22 @@ def check_executors(settings: Settings) -> None:
 #: builds a context once (the API, the worker) or once per command (`pkc`), and a reminder
 #: repeated on every build would train the reader to skip it.
 _EMBEDDING_KEY_WARNED: set[tuple[str, str]] = set()
+#: Collections this process has already said were created empty — one line each, not one per build.
+_FRESH_COLLECTION_WARNED: set[str] = set()
+
+
+def warn_fresh_collection(collection: str) -> str:
+    """One WARNING, once per process per collection, when the vector collection was created.
+
+    Same posture as `warn_missing_embedding_key`: L0, L1 and canonical are untouched, so
+    this warns and returns rather than refusing to start. It exists because the failure it
+    names is otherwise SILENT — a renamed collection answers every question, just without
+    the half of the evidence that lives in vectors."""
+    notice = fresh_collection_notice(collection)
+    if collection not in _FRESH_COLLECTION_WARNED:
+        _FRESH_COLLECTION_WARNED.add(collection)
+        log.warning("%s", notice)
+    return notice
 
 
 def warn_missing_embedding_key(settings: Settings) -> str:
@@ -1294,7 +1314,8 @@ async def build_context(
                 upsert_batch=settings.qdrant_upsert_batch,
             )
             cleanup.push_async_callback(vectors.aclose)
-            await vectors.ensure_collection()
+            if await vectors.ensure_collection():
+                warn_fresh_collection(settings.qdrant_collection)
         canonical = GitCanonicalStore(settings.canonical_root)
         media = S3MediaStore(
             bucket=settings.media_s3_bucket,
