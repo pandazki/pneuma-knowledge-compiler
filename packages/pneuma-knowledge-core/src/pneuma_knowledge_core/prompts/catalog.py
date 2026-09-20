@@ -2187,6 +2187,12 @@ DEFAULTS: dict[str, str] = {
     "source.preamble.title_quoted": " \"{title}\"",
     # ─────────────────────────────────────────────── ingest rendering
     "compile.task.agent_session": "This is a coding-agent session. The turns labelled \"{owner}\" are the Owner's own words; the agent's narrative is a machine's account of its own work and evidence of what was done, not of what the Owner thinks; action stubs are a log of activity, never knowledge.",
+    # The project a coding-agent session ran in, from the source boundary's own metadata
+    # (`agent-session/v1` carries it). Stated for the same reason a component states the
+    # identities it found: the transcript cannot show it, so without this line the compiler
+    # must GUESS which subject the work belongs to — and two neighbouring projects with
+    # similar definitions are exactly where a guess goes wrong. A fact it was given.
+    "compile.task.agent_session_project": "The agent ran in the project {name} ({path}).",
     "compile.owner_voice_template": ' (owner_voice: true; only Owner-authored source spans)',
     "gate.owner_voice_unresolved": 'Claim {anchor} on an owner_voice path needs provenance resolving to Owner-authored source blocks; a missing or cyclic claim reference does not establish authorship.',
     "gate.owner_voice": 'Claim {anchor} requires only Owner-authored source blocks; {source_id} ¶{start}-{end} includes non-Owner or unknown authorship.',

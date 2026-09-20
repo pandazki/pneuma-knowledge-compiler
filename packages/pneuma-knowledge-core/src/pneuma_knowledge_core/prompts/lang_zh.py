@@ -1659,6 +1659,7 @@ _ZH: dict[str, str] = {
     ),
     "source.preamble.title_quoted": "「{title}」",
     # ─────────────────────────────────────────────── ingest rendering
+    "compile.task.agent_session_project": "本次代理运行在项目 {name}（{path}）中。",
     "compile.task.agent_session": '这是一次编码代理会话。标为「{owner}」的回合是知识主体自己的原话；代理叙述是机器对自身工作的记述，可作为做过什么的证据，不能代表知识主体的想法；动作短记只是活动日志，不是知识。',
     "compile.owner_voice_template": '（owner_voice: true；只能引用知识主体亲自撰写的来源范围）',
     "gate.owner_voice_unresolved": 'owner_voice 路径上的主张 {anchor} 必须有可追溯到知识主体原文块的出处；缺失或循环的主张引用不能证明作者身份。',
