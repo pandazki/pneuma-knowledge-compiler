@@ -496,6 +496,26 @@ class Settings(BaseSettings):
     # other strategy. 0 = no ceiling.
     recall_all_context_chars: int = 120_000
 
+    # WHO composes `select`'s context, and on what terms. "model" is the historical one
+    # structured recall-model call over the whole candidate pool. "scorer" hands the same
+    # pool to a calibrated evidence scorer — one usefulness score per candidate on a fixed
+    # 0–1 scale — and the keep/drop decision becomes `recall_select_score_floor` in code.
+    # Everything after the selection is identical either way: the same validation, the same
+    # ranked safety anchors, the same per-face caps, the same provenance following. Read
+    # only under `recall_evidence_strategy=select`.
+    recall_evidence_selector: Literal["model", "scorer"] = "model"
+    # The scorer, as `<provider>:<model>` — e.g. "typesafe:jev-1.13-20260917". Required when
+    # the selector is `scorer`; a dated version, never a moving `-latest`, because the floor
+    # below is fitted against ONE model's calibration.
+    recall_evidence_scorer: str = ""
+    # Keep a candidate the scorer places at or above this, on the port's documented 0–1
+    # scale (0.0 = a different subject, 1.0 = states the asked-for fact). Re-fit it per
+    # deployment: it is a number about your material, not a constant of the framework.
+    recall_select_score_floor: float = 0.5
+    # The `select` stage's wall-clock ceiling, model selector or scorer. Past it the lane
+    # answers out of its exact ranked heads and says it degraded.
+    recall_selection_timeout_s: float = 30.0
+
     # Fast-recall retrieval planning (PNEUMA_KNOWLEDGE_RECALL_PLAN_QUERIES). 0 = off
     # (byte-for-byte the single-query lane). N > 0: one small call on the recall model
     # derives up to N extra retrieval queries before retrieval, and the claim face pools

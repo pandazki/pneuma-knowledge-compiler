@@ -139,6 +139,8 @@ def _request(row: dict | None) -> SimpleNamespace:
             recall_all_context_chars=120_000,
             recall_answer_format="text",
             recall_selection_reasoning_effort="",
+            recall_select_score_floor=0.5,
+            recall_selection_timeout_s=30.0,
             answer_reasoning_effort="high",
             # The route refuses keyless deployments up front; the stub declares a model
             # so the lanes under test actually run.
@@ -148,6 +150,7 @@ def _request(row: dict | None) -> SimpleNamespace:
             llm_model_deep="",
         ),
         get_reranker=lambda: None,
+        get_evidence_scorer=lambda: None,
     )
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(ctx=ctx)))
 

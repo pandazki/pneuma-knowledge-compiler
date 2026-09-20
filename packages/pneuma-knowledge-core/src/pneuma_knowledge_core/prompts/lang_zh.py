@@ -2066,6 +2066,15 @@ _ZH: dict[str, str] = {
     "recall.fast.evidence_select.components_header": "# 组件查询候选",
     "recall.fast.evidence_select.component_group": "## {label}",
     "recall.fast.evidence_select.component_item": "K{index}: [{kind}; {locator}] {text}",
+    # ─────────────────────── recall: 打分选择器的候选卡片
+    "recall.fast.evidence_score.claim": "[笔记 · 文档={path}; 章节={section}] {text}",
+    "recall.fast.evidence_score.episode": (
+        "[episode 摘要 · 发生时间={occurred_on}; 区间={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_score.window": (
+        "[逐字源文片段 · 来源={source_id}; 区间={start}-{end}] {text}"
+    ),
+    "recall.fast.evidence_score.component": "[{kind}; {locator}] {text}",
     # ──────────────────────────── recall: LLM claim reranker (service adapter's wording)
     # A cheap non-reasoning chat call that plays the cross-encoder's role. Output is consumed
     # mechanically, so the pass can only reorder retrieved evidence.

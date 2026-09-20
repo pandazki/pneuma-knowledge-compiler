@@ -568,6 +568,16 @@ def test_cli_ask_exposes_fast_context_composition_without_new_lane_names():
     assert 'choices=["text", "structured"]' in app_text
 
 
+def test_cli_ask_hands_the_lane_whichever_selector_the_project_configured():
+    """A generated project is the other place `fast_recall` is called from, and a knob the
+    API reads while the driver does not is a project that quietly answers differently."""
+    app_text = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
+    ask = app_text[app_text.index("async def _ask(") : app_text.index("async def _status()")]
+    assert "evidence_scorer=ctx.get_evidence_scorer()" in ask
+    assert "select_score_floor=settings.recall_select_score_floor" in ask
+    assert "evidence_selection_timeout=settings.recall_selection_timeout_s" in ask
+
+
 def test_cli_ask_accepts_an_explicit_historical_as_of():
     app_text = (ROOT / "scaffold" / "templates" / "app.py").read_text(encoding="utf-8")
     ask = app_text[app_text.index("async def _ask(") : app_text.index("async def _status()")]
@@ -1001,6 +1011,9 @@ class _StubContext:
     def get_reranker(self):
         return None
 
+    def get_evidence_scorer(self):
+        return None
+
     async def flush_traces(self):
         return None
 
@@ -1051,6 +1064,8 @@ def _stub_ask_environment(monkeypatch, *, documents=()):
         recall_answer_format = "text"
         recall_plan_queries = 0
         recall_rerank_candidates = 120
+        recall_select_score_floor = 0.5
+        recall_selection_timeout_s = 30.0
         answer_reasoning_effort = ""
 
     class _Skill:
@@ -1118,6 +1133,33 @@ async def test_the_fast_lane_sees_the_library_too(monkeypatch, capsys):
     assert [d.path for d in kwargs["documents"]] == ["work/doc-1.md", "work/doc-2.md"]
     assert kwargs["skill"] is calls["skill"]
     assert calls["ctx"].canonical.reads == 1, "one canonical listing serves whichever lane runs"
+
+
+async def test_the_fast_stats_line_prices_an_evidence_scorer_apart(monkeypatch, capsys):
+    """A scorer's tokens are a different currency from the answering call's, so they are
+    printed BESIDE the ledger and never inside it — and with no scorer the line is the one
+    every existing project already prints."""
+    calls = _stub_ask_environment(monkeypatch)
+    await app._ask("when did that land?")
+    plain = capsys.readouterr().out
+    assert "tokens {'input': 300, 'output': 20})" in plain
+    assert "scorer tokens" not in plain
+
+    from pneuma_knowledge_core.recall import fast as fast_module
+
+    class _ScoredAnswer(_StubFastAnswer):
+        scorer_input_tokens = 4321
+
+    async def scored_fast_recall(user_id, question, **kwargs):
+        calls["fast"] = (user_id, question, kwargs)
+        return _ScoredAnswer()
+
+    monkeypatch.setattr(fast_module, "fast_recall", scored_fast_recall)
+    await app._ask("when did that land?")
+    scored = capsys.readouterr().out
+    assert "tokens {'input': 300, 'output': 20} scorer tokens 4321)" in scored
+    # The scorer is telemetry, not a second ledger: the returned usage is untouched.
+    assert calls["report"]["token_usage"] == {"input": 300, "output": 20}
 
 
 async def test_ask_answers_out_of_the_live_library_only(monkeypatch):

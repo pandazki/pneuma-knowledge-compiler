@@ -1686,6 +1686,11 @@ async def _ask(
                 evidence_strategy=evidence_strategy or settings.recall_evidence_strategy,
                 all_context_chars=settings.recall_all_context_chars,
                 selection_reasoning_effort=settings.recall_selection_reasoning_effort or None,
+                # None unless this project composes `select` with an evidence scorer; the
+                # lane reads None as "the recall model selects".
+                evidence_scorer=ctx.get_evidence_scorer(),
+                select_score_floor=settings.recall_select_score_floor,
+                evidence_selection_timeout=settings.recall_selection_timeout_s,
                 answer_format=answer_format or settings.recall_answer_format,
                 answer_style=style or settings.recall_answer_style,
                 plan_queries_cap=settings.recall_plan_queries,
@@ -1709,11 +1714,17 @@ async def _ask(
                 f"tokens {answer.token_usage})"
             )
         else:
+            # An evidence scorer's tokens are a DIFFERENT currency from the answering call's
+            # and are never summed into `token_usage`, so they are printed beside it rather
+            # than inside it. No scorer ran → the line is byte-for-byte the one above.
+            scorer_tokens = getattr(answer, "scorer_input_tokens", 0)
             print(
                 f"  ({elapsed:.1f}s, {answer.claim_candidates}→{len(answer.used_claims)} claims / "
                 f"{len(answer.used_episode_summaries)} episode summaries / "
                 f"{answer.window_candidates}→{len(answer.used_windows)} source windows, "
-                f"tokens {answer.token_usage})"
+                f"tokens {answer.token_usage}"
+                + (f" scorer tokens {scorer_tokens}" if scorer_tokens else "")
+                + ")"
             )
         if answer.stages:
             print(f"  stages: {stage_timing_line(answer.stages)}")

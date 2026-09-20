@@ -66,6 +66,7 @@ from ..domain.pricing import USAGE_FIELDS
 from ..domain.source import BlockImage, NormalizedBlock, NormalizedSource
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
+from ..ports.evidence_scorer import EvidenceScorer
 from ..ports.lexical_index import LexicalIndex
 from ..ports.media_store import MediaStore
 from ..ports.reranker import Reranker
@@ -159,6 +160,24 @@ DEFAULT_SELECTION_EPISODE_ANCHORS = 4
 DEFAULT_SELECTION_WINDOW_ANCHORS = 4
 DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS = 30.0
 DEFAULT_STRUCTURED_ANSWER_TIMEOUT_SECONDS = 60.0
+
+#: Where the scored selector cuts. An `EvidenceScorer` places every candidate on ONE fixed
+#: scale (0.0 = a different subject, 1.0 = states the asked-for fact), so this number means
+#: the same thing across faces and across asks — which is the whole reason the keep/drop
+#: decision can live in code instead of in a model's list. 0.5 is "part of the asked-for
+#: fact" on the shipped adapter's 0–3 rubric, divided by 3; a deployment re-fits it against
+#: its own material rather than inheriting it as doctrine.
+DEFAULT_SELECT_SCORE_FLOOR = 0.5
+
+#: How much of one candidate the scorer is asked to read. A decision model's per-request
+#: budget is bounded and a shard carries dozens of candidates, so an unbounded card would
+#: make the shard size depend on whichever window happened to be retrieved. The ANSWER still
+#: reads the full text: this bound is on the judgement, never on the evidence.
+SCORER_CANDIDATE_MAX_CHARS = 1_500
+#: Head + tail, never head-only: answers hide at both ends of a long passage and the middle
+#: is the cheapest part to lose. The marker is explicit so a clipped card never pretends to
+#: be whole (the same splice the service's rerank adapters make, `clip_document`).
+SCORER_CLIP_MARKER = " … [middle truncated] … "
 
 #: The `all` strategy's ONE bound. It hands the whole candidate pool to the answer with no
 #: selection call and no score truncation, so the thing that would otherwise be unbounded is
@@ -571,6 +590,11 @@ class FastAnswer:
     # answer with no selection call. Degradation is explicit and fail-soft.
     evidence_strategy: str = "ranked"
     evidence_selection_degraded: str | None = None
+    #: What the `select` stage's evidence scorer consumed, when one composed this context.
+    #: 0 on every other path — including the model selector's, whose cost is in
+    #: `token_usage` where it belongs. A decision model's tokens are a DIFFERENT currency
+    #: and are never summed into the LLM ledger, so the two can be read apart afterwards.
+    scorer_input_tokens: int = 0
     # The answer wire shape. Structured answers still return the same public `answer`
     # string; kind/degradation are additive telemetry. Invalid citation removal is
     # reported as "invalid_citations" without making a second model call.
@@ -646,6 +670,9 @@ class FastEvidence:
     # These never change the bytes or ordering of `content` sent to an answering model.
     sections: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     token_usage: dict[str, int] = field(default_factory=dict)
+    #: The evidence scorer's input tokens, on the same footing as on `FastAnswer`: its own
+    #: field rather than a line in `token_usage`, because it is a different currency.
+    scorer_input_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -703,6 +730,10 @@ class SelectedEvidence:
     model_episode_count: int = 0
     model_window_count: int = 0
     model_component_count: int = 0
+    #: Scored selector only: candidates the scorer returned no score for (a failed shard).
+    #: They were neither kept nor dropped, so the number is the honest size of what this
+    #: selection did not judge. Zero on the model path, which either parses or fails whole.
+    unscored: int = 0
 
 
 class StructuredRecallAnswer(BaseModel):
@@ -2146,6 +2177,219 @@ async def select_evidence(
     )
 
 
+def clip_candidate(text: str, max_chars: int = SCORER_CANDIDATE_MAX_CHARS) -> str:
+    """Head+tail splice for an over-long candidate; identity for anything within budget."""
+
+    if len(text) <= max_chars:
+        return text
+    keep = max_chars - len(SCORER_CLIP_MARKER)
+    head = (keep * 2) // 3
+    tail = keep - head
+    return text[:head] + SCORER_CLIP_MARKER + text[-tail:]
+
+
+def selection_candidate_texts(
+    *,
+    claims: Sequence[RetrievedClaim],
+    episode_summaries: Sequence[EpisodeSummary],
+    windows: Sequence[RecallHit],
+    components: Sequence[ComponentCandidate] = (),
+) -> list[str]:
+    """What the scorer reads, face by face, in POOL ORDER — claims, episode summaries,
+    windows, component items.
+
+    The same facts the model selector's lines carry (`recall.fast.evidence_select.*`), minus
+    the `C{index}:` label: the scorer's own request addresses each candidate by key, and a
+    second addressing scheme in the text is one more thing to miscount. The pool order is
+    the contract: the returned list is index-aligned with the faces as concatenated here,
+    and `select_evidence_scored` slices the scores back apart by the same lengths.
+    """
+
+    out: list[str] = [
+        prompt(
+            "recall.fast.evidence_score.claim",
+            path=claim.document_path,
+            section=" / ".join(claim.section_path) or "-",
+            text=clip_candidate(claim.text),
+        )
+        for claim in claims
+    ]
+    out.extend(
+        prompt(
+            "recall.fast.evidence_score.episode",
+            occurred_on=summary.source_occurred_on or "-",
+            start=summary.block_start,
+            end=summary.block_end,
+            text=clip_candidate(summary.text),
+        )
+        for summary in episode_summaries
+    )
+    out.extend(
+        prompt(
+            "recall.fast.evidence_score.window",
+            source_id=window.source_id,
+            start=window.block_start,
+            end=window.block_end,
+            text=clip_candidate(window.text),
+        )
+        for window in windows
+    )
+    out.extend(
+        prompt(
+            "recall.fast.evidence_score.component",
+            kind=candidate.kind,
+            locator=candidate.locator,
+            text=clip_candidate(candidate.text),
+        )
+        for candidate in components
+    )
+    return out
+
+
+def _kept_indexes(
+    scores: Sequence[float | None], *, offset: int, count: int, floor: float
+) -> list[int]:
+    """One face's keepers: at or above the floor, best first, ties in pool order.
+
+    An unscored candidate (None) is neither kept nor dropped here — it simply was not
+    judged, and the ranked safety anchors go on protecting the head exactly as they do
+    when the whole pass fails."""
+
+    scored = [
+        (index, scores[offset + index])
+        for index in range(count)
+        if offset + index < len(scores) and scores[offset + index] is not None
+    ]
+    keepers = [(index, score) for index, score in scored if score >= floor]
+    keepers.sort(key=lambda row: (-row[1], row[0]))
+    return [index for index, _score in keepers]
+
+
+async def select_evidence_scored(
+    scorer: EvidenceScorer,
+    question: str,
+    *,
+    claims: Sequence[RetrievedClaim],
+    episode_summaries: Sequence[EpisodeSummary],
+    windows: Sequence[RecallHit],
+    components: Sequence[ComponentCandidate] = (),
+    keep_floor: float = DEFAULT_SELECT_SCORE_FLOOR,
+    claim_cap: int = DEFAULT_CLAIM_CAP,
+    episode_summary_cap: int = DEFAULT_EPISODE_SUMMARY_CAP,
+    window_cap: int = DEFAULT_WINDOW_CAP,
+    component_cap: int = DEFAULT_COMPONENT_SELECT_CAP,
+    timeout: float | None = DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS,
+) -> tuple[SelectedEvidence | None, int, str | None]:
+    """`select_evidence`'s other selector: one scoring pass, and a floor in code.
+
+    Every face's candidates are scored in ONE pass on a fixed scale; what survives the floor
+    then goes through EXACTLY the model path's mechanics — `_selected_indexes`, the same
+    ranked safety anchors, the same final caps — so the two selectors differ in who judges
+    and in nothing else.
+
+    It picks no whole documents (`document_paths=()`): reading a page whole is a judgement
+    about the page, and this scorer is asked about candidates.
+
+    Returns (selection, the scorer's input tokens, degradation). A partially scored pass
+    keeps what it scored; unscored candidates are neither kept nor dropped, and the anchors
+    protect the head as always. `model_*_count` carries the number kept before anchors.
+    """
+
+    if not claims and not episode_summaries and not windows and not components:
+        return SelectedEvidence((), (), (), (), ()), 0, None
+    candidates = selection_candidate_texts(
+        claims=claims,
+        episode_summaries=episode_summaries,
+        windows=windows,
+        components=components,
+    )
+    try:
+        call = scorer.score(question, candidates)
+        result = await (asyncio.wait_for(call, timeout) if timeout else call)
+    except (asyncio.TimeoutError, TimeoutError):
+        return None, 0, "timeout"
+    except Exception:  # noqa: BLE001 — additive selector degrades to ranked evidence
+        return None, 0, "error"
+
+    scores = tuple(result.scores)
+    tokens = int(result.input_tokens or 0)
+    if all(score is None for score in scores) or not scores:
+        # Nothing was judged, so there is no selection to make — the same fail-soft answer
+        # the model path gives when its output does not parse.
+        return None, tokens, "error"
+
+    claim_start = 0
+    episode_start = claim_start + len(claims)
+    window_start = episode_start + len(episode_summaries)
+    component_start = window_start + len(windows)
+    kept_claims = _kept_indexes(
+        scores, offset=claim_start, count=len(claims), floor=keep_floor
+    )
+    kept_episodes = _kept_indexes(
+        scores, offset=episode_start, count=len(episode_summaries), floor=keep_floor
+    )
+    kept_windows = _kept_indexes(
+        scores, offset=window_start, count=len(windows), floor=keep_floor
+    )
+    kept_components = _kept_indexes(
+        scores, offset=component_start, count=len(components), floor=keep_floor
+    )
+    return (
+        SelectedEvidence(
+            claim_indexes=_selected_indexes(
+                kept_claims,
+                available=len(claims),
+                cap=claim_cap,
+                anchors=DEFAULT_SELECTION_CLAIM_ANCHORS,
+            ),
+            episode_indexes=_selected_indexes(
+                kept_episodes,
+                available=len(episode_summaries),
+                cap=episode_summary_cap,
+                anchors=DEFAULT_SELECTION_EPISODE_ANCHORS,
+            ),
+            window_indexes=_selected_indexes(
+                kept_windows,
+                available=len(windows),
+                cap=window_cap,
+                anchors=DEFAULT_SELECTION_WINDOW_ANCHORS,
+            ),
+            component_indexes=_selected_indexes(
+                kept_components,
+                available=len(components),
+                cap=component_cap,
+                anchors=0,
+            ),
+            document_paths=(),
+            model_claim_count=len(
+                _model_selected_indexes(
+                    kept_claims, available=len(claims), cap=claim_cap
+                )
+            ),
+            model_episode_count=len(
+                _model_selected_indexes(
+                    kept_episodes,
+                    available=len(episode_summaries),
+                    cap=episode_summary_cap,
+                )
+            ),
+            model_window_count=len(
+                _model_selected_indexes(
+                    kept_windows, available=len(windows), cap=window_cap
+                )
+            ),
+            model_component_count=len(
+                _model_selected_indexes(
+                    kept_components, available=len(components), cap=component_cap
+                )
+            ),
+            unscored=sum(1 for score in scores if score is None),
+        ),
+        tokens,
+        None,
+    )
+
+
 def selector_messages(
     question: str,
     claims: list[RetrievedClaim],
@@ -3140,6 +3384,14 @@ async def fast_recall(
     evidence_strategy: Literal["ranked", "select", "all"] = "ranked",
     selection_reasoning_effort: str | None = None,
     evidence_selection_timeout: float | None = DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS,
+    # WHO composes `select`'s context. None = the recall model, byte-for-byte the lane as it
+    # has always been. An `EvidenceScorer` makes the same judgement as one score per
+    # candidate on a fixed scale, and the keep/drop decision becomes `select_score_floor` in
+    # code — everything after the selection (range validation, ranked anchors, per-face caps,
+    # provenance following) is the same mechanism either way. The scored path needs no chat
+    # model, so a scorer with `model=None` still selects. Read only under `select`.
+    evidence_scorer: EvidenceScorer | None = None,
+    select_score_floor: float = DEFAULT_SELECT_SCORE_FLOOR,
     # `all` only, and its ONLY ceiling: how many characters the assembled evidence faces may
     # occupy. Over it the lane drops windows, then episode summaries, then the lowest-ranked
     # claims, and states the counts (`apply_context_ceiling`). 0 = no ceiling.
@@ -3627,6 +3879,10 @@ async def fast_recall(
 
     rerank_degraded: str | None = None
     evidence_selection_usage = zero_usage()
+    # The scorer's own consumption, kept OUT of `token_usage`: a decision model bills in a
+    # different currency from the answering call, and a sum of the two prices an ask in a
+    # unit nobody quoted. It rides the result as its own field instead.
+    scorer_input_tokens = 0
     evidence_selection_degraded: str | None = None
     episode_summary_candidates = 0
     model_selected_claims = 0
@@ -3673,7 +3929,69 @@ async def fast_recall(
         # candidate pool, and carries its own `selection_reasoning_effort`. It is the
         # answering register's judgement, not the glance pick's, and handing it the weak
         # reasoning-off model routed for the pick would quietly downgrade this strategy.
-        if model is None:
+        if evidence_scorer is not None:
+            # The other selector, and the ONLY thing that differs is who judges: one scoring
+            # pass over the same pool, the floor applied in code, then the same validation,
+            # the same anchors and the same caps. It reads no chat model, so it runs whether
+            # or not one was routed — and it never picks a whole document, so the glance's
+            # own pick stays the only thing that can.
+            with timer.measure("select"):
+                (
+                    evidence_choice,
+                    scorer_input_tokens,
+                    evidence_selection_degraded,
+                ) = await select_evidence_scored(
+                    evidence_scorer,
+                    question,
+                    claims=claims_raw,
+                    episode_summaries=episode_candidates,
+                    windows=raw_windows,
+                    components=component_pool,
+                    keep_floor=select_score_floor,
+                    claim_cap=cap,
+                    episode_summary_cap=episode_summary_cap,
+                    window_cap=window_cap,
+                    timeout=evidence_selection_timeout,
+                )
+                timer.preview(
+                    "select",
+                    {
+                        **_selection_preview(
+                            evidence_choice,
+                            claims=claims_raw,
+                            episodes=episode_candidates,
+                            windows=raw_windows,
+                            components=component_pool,
+                            titles=titles,
+                        ),
+                        # Named apart from the token ledger on purpose: a decision model's
+                        # tokens are a different currency, and summing them into the LLM
+                        # usage would price an ask in a unit nobody billed.
+                        "selector": "scorer",
+                        "scorer_input_tokens": scorer_input_tokens,
+                        **(
+                            {
+                                "kept": {
+                                    "claims": evidence_choice.model_claim_count,
+                                    "episodes": evidence_choice.model_episode_count,
+                                    "windows": evidence_choice.model_window_count,
+                                    "components": evidence_choice.model_component_count,
+                                },
+                                "unscored": evidence_choice.unscored,
+                            }
+                            if evidence_choice is not None
+                            else {}
+                        ),
+                    },
+                )
+            timer.degrade("select", evidence_selection_degraded)
+            # Not a failure — a property of this selector. Said on the same channel the lane
+            # states every other omission on, so a reader comparing the two selectors is not
+            # left wondering why no page was ever read whole.
+            timer.degrade(
+                child_name("glance"), "scored selector; no pages read in full"
+            )
+        elif model is None:
             evidence_choice = None
             timer.degrade("select", "no model; using ranked evidence")
             timer.degrade(child_name("glance"), "no model; glance pick skipped, no pages selected")
@@ -4136,6 +4454,7 @@ async def fast_recall(
             sections=aliased_sections,
             token_usage=add_usage(add_usage(select_usage, plan_usage),
                                   add_usage(evidence_selection_usage, route_usage)),
+            scorer_input_tokens=scorer_input_tokens,
         )
     if answer_format == "structured":
         with timer.measure("answer"):
@@ -4258,6 +4577,7 @@ async def fast_recall(
         used_episode_summaries=tuple(episode_summaries),
         evidence_strategy=evidence_strategy,
         evidence_selection_degraded=evidence_selection_degraded,
+        scorer_input_tokens=scorer_input_tokens,
         answer_format=answer_format,
         answer_kind=answer_kind,
         answer_format_degraded=answer_format_degraded,

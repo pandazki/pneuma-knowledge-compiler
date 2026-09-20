@@ -124,6 +124,9 @@ class _RoleRecordingContext(SimpleNamespace):
     def get_reranker(self):
         return None
 
+    def get_evidence_scorer(self):
+        return None
+
     def langfuse_handler(self):
         return None
 

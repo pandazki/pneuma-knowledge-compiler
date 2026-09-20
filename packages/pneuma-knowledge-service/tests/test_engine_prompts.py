@@ -201,7 +201,10 @@ async def test_an_assembled_surface_still_carries_the_bytes_the_model_receives(t
     # the lines handed to the voice when there is no answer to hand over. Nothing assembles
     # them into one message, so a family. The answer itself is the fast lane's assembly,
     # wearing its fourth style variant (`recall.style.spoken`).
-    assert len(fragments) == 39
+    # +1: the scored selector's candidate cards. The scorer reads one card at a time and
+    # the instruction lives in the adapter's questions, so there is no assembled message
+    # here at all — only the four faces, each rendered alone.
+    assert len(fragments) == 40
 
 
 async def test_a_template_preview_carries_the_banner_that_stops_it_reading_as_the_message(
