@@ -7,6 +7,8 @@ candidates, and structured answers can only cite exact spans shown to the model.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from datetime import datetime
 
 import pytest
@@ -70,6 +72,10 @@ class StructuredModel(BaseChatModel):
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):  # noqa: ANN001
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content="unused"))])
+
+
+def _without_context(rows):
+    return [replace(row, retrieval_origins=(), source_times=()) for row in rows]
 
 
 def _claims(count: int) -> list[RetrievedClaim]:
@@ -403,9 +409,9 @@ async def test_fast_select_and_structured_answer_are_one_observable_quality_path
     assert len(seen["selector_claims"]) == 3
     assert len(seen["selector_summaries"]) == 3
     assert len(seen["selector_windows"]) == 3
-    assert seen["answer_claims"] == [claims[2]]
+    assert _without_context(seen["answer_claims"]) == [claims[2]]
     assert seen["answer_summaries"] == [summaries[2]]
-    assert seen["answer_windows"] == [windows[2]]
+    assert _without_context(seen["answer_windows"]) == [windows[2]]
     assert result.answer_text == "the answer"
     assert result.answer == "the answer [cite: s01 ¶0-0]"
     assert result.answer_kind == "fact"
@@ -481,7 +487,7 @@ async def test_fast_select_failure_falls_back_to_ranked_heads_and_reports_it(mon
         window_candidate_cap=3,
     )
 
-    assert seen == {
+    assert {key: _without_context(rows) for key, rows in seen.items()} == {
         "claims": claims[:2],
         "summaries": summaries[:2],
         "windows": windows[:2],

@@ -34,6 +34,7 @@ from pneuma_knowledge_core.recall.fast import (
     RetrievedClaim,
     StructuredRecallAnswer,
     apply_context_ceiling,
+    evidence_context_chars,
     fast_recall,
     structured_answer_contract,
 )
@@ -336,9 +337,11 @@ async def test_the_context_ceiling_drops_windows_then_episodes_then_claims(monke
             all_context_chars=ceiling,
         )
 
-    # 40 chars: every window goes first, then episode summaries until it fits. The claim
-    # face — the precise, citable one — is not touched at all.
-    tight = await run(40)
+    # Scope envelopes and dates spend budget as well as body text. Reserve exactly the
+    # claim face plus one episode; every window and the episode tail must give way first.
+    roomy = await run(10_000)
+    tight_limit = evidence_context_chars(roomy.used_claims, roomy.used_episode_summaries[:1], ())
+    tight = await run(tight_limit)
     assert len(tight.used_windows) == 0
     assert len(tight.used_episode_summaries) == 1
     assert len(tight.used_claims) == 3
@@ -347,10 +350,10 @@ async def test_the_context_ceiling_drops_windows_then_episodes_then_claims(monke
     assert preview["dropped_windows"] == 3
     assert preview["dropped_episode_summaries"] == 2
     assert preview["dropped_claims"] == 0
-    assert preview["context_ceiling"] == 40
+    assert preview["context_ceiling"] == tight_limit
 
-    # 15 chars: only now does the claim face give ground, from its lowest-ranked end.
-    brutal = await run(15)
+    # Only now does the claim face give ground, from its lowest-ranked end.
+    brutal = await run(evidence_context_chars(roomy.used_claims[:2], (), ()))
     assert len(brutal.used_windows) == 0
     assert len(brutal.used_episode_summaries) == 0
     assert [c.text for c in brutal.used_claims] == ["claim 0", "claim 1"]

@@ -202,6 +202,22 @@ rather than cutting silently; under `structured` its schema opens with one bound
 returned on the wire and never in the SystemMessage (I5). The default `ranked + text` path
 remains unchanged.
 
+Fast evidence also retains **how each item was found**. Query-local lookup origins
+(method and actual arguments) travel through selection, exact-address deduplication and
+assembly; consecutive items with the same origins render inside one explicit retrieval
+boundary. A person alias, project/status lookup or time interval therefore stays attached
+to its own results, including when `select` or `all` moves them into another evidence face.
+Lookup receipts remain visible for empty, failed or unselected component results. Structured
+lookup windows never expand beyond their returned span, and windows from different scopes
+never merge. Shared tenant, archive and snapshot policies still apply; component arguments
+are local queries, not declarations of global filters. The generic indexes currently have
+no equivalent block-calendar filter, so their ranked results explicitly state no time filter
+rather than pretending to inherit a component's range. Cited source occurrence dates and
+aligned block clocks are attached mechanically, including on claims, full-page reads and
+subject expansions; missing clocks stay unknown, and source time is not a claim's event
+time. These annotations are ephemeral, use a tenant-scoped read cache, and spend the evidence
+character budgets. The SystemMessage, canonical and kept records are unchanged.
+
 Canonical provenance is resolved over one supplied snapshot, including ledger-to-ledger
 references across pages. Snapshot projection derives the resulting source locators before
 incremental sync compares signatures, so an ancestor's changed citation also updates its

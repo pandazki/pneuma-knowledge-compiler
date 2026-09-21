@@ -150,6 +150,10 @@ class ComponentEvidence:
     #: still carries what it spent before giving up; a run rejected at argument validation
     #: never happened and carries 0.
     elapsed_ms: int = 0
+    method: str = ""
+    # In select/all the chosen items live in other sections; this row retains the lookup
+    # receipt, including failed/empty/unselected lookups, without repeating their evidence.
+    shown_elsewhere: int | None = None
 
     def key(self) -> str:
         return f"{self.path}({json.dumps(self.args, ensure_ascii=False, sort_keys=True)})"
@@ -609,57 +613,65 @@ def _row_chars(row: ComponentEvidence) -> int:
 
 
 def _fit_row(row: ComponentEvidence, share: int) -> ComponentEvidence:
-    """One path's block, cut to `share` characters: long windows first, then the tail."""
-    windows = list(row.windows)
-    claims = list(row.claims)
-    # The header and its notes are part of the block and are not negotiable, so the items
-    # get what is left of the share, not the share itself.
-    overhead = _row_chars(replace(row, claims=(), windows=()))
-    usable = max(share - overhead, 1)
-    if windows:
-        window_share = usable if not claims else max(usable * 2 // 3, 1)
-        per_window = max(window_share // len(windows), 0)
-        if per_window >= MIN_WINDOW_CHARS:
-            cut: list["RecallHit"] = []
-            for window in windows:
-                trimmed, omitted = truncate_window(window, per_window)
-                if omitted is not None:
-                    note = prompt(
-                        "recall.fast.component.window_truncated",
-                        start=omitted[0],
-                        end=omitted[1],
-                    )
-                    trimmed = replace(trimmed, text=f"{trimmed.text}\n{note}")
-                cut.append(trimmed)
-            windows = cut
-    row = replace(row, claims=tuple(claims), windows=tuple(windows))
-    dropped_claims: list["RetrievedClaim"] = []
-    dropped_windows: list["RecallHit"] = []
-    while _row_chars(row) > share and (row.claims or row.windows):
-        claims, windows = list(row.claims), list(row.windows)
-        # Lowest-ranked first, whichever kind it is; a lone window is kept while any claim
-        # remains, so the §B.1 window floor survives the budget too.
-        if windows and (not claims or (len(windows) > 1 and windows[-1].score <= claims[-1].score)):
-            dropped_windows.append(windows.pop())
-        elif claims:
-            dropped_claims.append(claims.pop())
-        else:
-            dropped_windows.append(windows.pop())
-        row = replace(row, claims=tuple(claims), windows=tuple(windows))
-    if not dropped_claims and not dropped_windows:
-        return row
+    """Fit text AND metadata, reallocating space whenever a low-ranked item is dropped.
+
+    A wide lookup may have too little room per window for a useful excerpt. Recompute
+    after each removal: skipping truncation once and then dropping every full window
+    would erase the whole lookup even though several smaller excerpts fit.
+    """
     from .component_rank import claim_group, window_group
 
-    summary: dict[str, int] = {}
-    for claim in dropped_claims:
-        summary[claim_group(claim)] = summary.get(claim_group(claim), 0) + 1
-    for window in dropped_windows:
-        summary[window_group(window)] = summary.get(window_group(window), 0) + 1
-    return replace(
-        row,
-        dropped=row.dropped + len(dropped_claims) + len(dropped_windows),
-        dropped_summary=_merge_summaries(row.dropped_summary, tuple(summary.items())),
-    )
+    claims, windows = list(row.claims), list(row.windows)
+    omitted: dict[str, int] = {}
+    dropped = 0
+
+    def current() -> ComponentEvidence:
+        return replace(
+            row, claims=tuple(claims), windows=tuple(windows),
+            dropped=row.dropped + dropped,
+            dropped_summary=_merge_summaries(row.dropped_summary, tuple(omitted.items())),
+        )
+
+    while claims or windows:
+        candidate = current()
+        if _row_chars(candidate) <= share:
+            return candidate
+        # Reserve identity, clocks, scope envelopes and omission notices before allocating
+        # body text. A dropped item also releases its metadata, so this is per iteration.
+        overhead = _row_chars(replace(
+            candidate,
+            claims=tuple(replace(c, text="") for c in claims),
+            windows=tuple(replace(w, text="") for w in windows),
+        ))
+        overhead += sum(len(prompt(
+            "recall.fast.component.window_truncated", start=w.block_start, end=w.block_end,
+        )) + 1 for w in windows)
+        usable = max(share - overhead, 0)
+        if windows:
+            window_share = usable if not claims else usable * 2 // 3
+            per_window = window_share // len(windows)
+            if per_window >= MIN_WINDOW_CHARS:
+                cut = []
+                for window in windows:
+                    trimmed, missing = truncate_window(window, per_window)
+                    if missing is not None:
+                        note = prompt("recall.fast.component.window_truncated",
+                                      start=missing[0], end=missing[1])
+                        trimmed = replace(trimmed, text=f"{trimmed.text}\n{note}")
+                    cut.append(trimmed)
+                candidate = replace(candidate, windows=tuple(cut))
+                if _row_chars(candidate) <= share:
+                    return candidate
+        # Lowest-ranked first, retaining the final window while a claim can give way.
+        if windows and (not claims or (len(windows) > 1 and windows[-1].score <= claims[-1].score)):
+            group = window_group(windows.pop())
+        elif claims:
+            group = claim_group(claims.pop())
+        else:
+            group = window_group(windows.pop())
+        omitted[group] = omitted.get(group, 0) + 1
+        dropped += 1
+    return current()
 
 
 def merge_component_evidence(
@@ -703,10 +715,14 @@ def render_component_evidence(evidence: Sequence[ComponentEvidence]) -> str:
     for e in evidence:
         args = ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in e.args.items())
         head = prompt("recall.fast.component.path_header", path=e.path, args=args)
+        if e.method:
+            head += "\n" + prompt("recall.retrieval.method", method=e.method)
         if e.degraded:
             blocks.append(head + "\n" + prompt("recall.fast.component.path_degraded", reason=e.degraded))
             continue
         parts = [head]
+        if e.shown_elsewhere is not None:
+            parts.append(prompt("recall.retrieval.transferred", count=e.shown_elsewhere))
         if e.already_shown:
             parts.append(
                 prompt("recall.fast.component.path_already_shown", count=e.already_shown)
@@ -719,7 +735,8 @@ def render_component_evidence(evidence: Sequence[ComponentEvidence]) -> str:
             parts.append(render_claims(list(e.claims)))
         if e.windows:
             parts.append(render_windows(list(e.windows)))
-        if not e.claims and not e.windows and not e.already_shown and not e.covered_by_windows:
+        if (not e.claims and not e.windows and not e.already_shown
+                and not e.covered_by_windows and e.shown_elsewhere is None):
             parts.append(prompt("recall.fast.component.path_empty"))
         if e.dropped_summary:
             parts.append(
