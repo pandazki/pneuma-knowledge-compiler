@@ -1,8 +1,7 @@
-"""A bounded verbatim first finding followed by an evidence-based refinement.
+"""A partial lookup followed by a grounded subtask result for the conversational agent.
 
-The first model selects a short record or summarizes one complete longer record. The second sees exactly what
-was offered first, classifies its relationship, and writes one factual answer shared
-by the card and voice. Citation admission checks addresses, not semantic entailment or Live playback.
+The lookup owns evidence, scope and unresolved aspects. It does not see dialogue history or
+decide what the voice has already said. Citation admission checks addresses, not entailment.
 """
 from __future__ import annotations
 
@@ -10,7 +9,7 @@ import re
 import unicodedata
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Annotated, Literal
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, create_model
@@ -19,33 +18,30 @@ from ..prompts import prompt
 from ..domain.consultation import parse_span_ref
 from .call import speakable
 from .citation_alias import iter_answer_citations, parse_citation_markers
+from .evidence_context import render_candidate_context
 from .fast import RetrievedClaim, FastEvidence, evidence_manifest, extract_usage, invoke_config, zero_usage
 
 
-class FirstChoice(BaseModel):
-    index: int = Field(description="Index of one relevant self-contained record, or -1 when none is safe")
+class FirstDecision(BaseModel):
+    disposition: Literal["ready", "needs_review", "no_answer"]
+    index: int = Field(default=-1, description="Index of the record supporting an early answer")
+    subject: Literal["unambiguous", "ambiguous", "unknown"]
+    support: Literal["direct", "indirect", "none"]
+    record_kind: Literal["subject_fact", "test_or_usage_instruction", "question_or_hypothesis", "other"]
+    quote: str = Field(default="", max_length=300,
+        description="Exact complete sentence(s) from the selected record, including necessary qualifications; no rewriting")
 
 
-class FirstSummary(BaseModel):
-    index: int = Field(description="One relevant record index, or -1 if none answers the question")
-    summary: str = Field(default="", max_length=200, description="One brief supported partial answer; no totals or claims of completeness")
-
-
-class RefinementDecision(BaseModel):
-    relation: Literal["answer", "extend", "correct", "confirm", "unresolved"]
-    answer: str = Field(description="Complete standalone answer for the screen, without citation markers")
-    citations: list[str] = Field(default_factory=list, description="Exact evidence citation markers supporting the answer")
-
-
-class RefinementUnit(BaseModel):
-    text: str = Field(description="One self-contained factual sentence for the full answer")
-    change: Literal["retained", "new", "correction"]
+class KnowledgeFact(BaseModel):
+    text: str = Field(max_length=600, description="A self-contained factual result of the lookup, preserving its qualifiers")
     citations: list[str]
 
 
-class IncrementalDecision(BaseModel):
-    relation: Literal["answer", "extend", "correct", "confirm", "unresolved"]
-    units: list[RefinementUnit] = Field(description="Ordered full-answer sentences; classify each against the earlier result")
+class KnowledgeDecision(BaseModel):
+    status: Literal["answered", "partial", "unresolved"]
+    facts: list[KnowledgeFact] = Field(max_length=6, description="Supported answers to the standalone subtask, not a script for the user")
+    scope: str = Field(max_length=300, description="What the supplied evidence establishes about subject, time and coverage; no unverified library-wide completeness")
+    limitations: list[Annotated[str, Field(max_length=200)]] = Field(max_length=4, description="Requested aspects still unestablished; no dialogue instructions or suggested utterances")
 
 
 @dataclass(frozen=True)
@@ -53,13 +49,18 @@ class FirstFinding:
     text: str = ""
     usage: dict[str, int] = field(default_factory=zero_usage)
     locator: str = ""
+    disposition: Literal["ready", "needs_review", "no_answer"] = "no_answer"
+    reason: str = "no_candidates"
 
 
 @dataclass(frozen=True)
 class RefinedAnswer:
     answer: str
-    speech: str
-    relation: str
+    result_text: str
+    status: Literal["answered", "partial", "unresolved"]
+    scope: str
+    limitations: tuple[str, ...]
+    facts: tuple[KnowledgeFact, ...]
     usage: dict[str, int]
 
 
@@ -133,39 +134,65 @@ def first_candidates(evidence: FastEvidence, *, max_bytes: int = 300) -> list[tu
     return out[:8]
 
 
-async def first_finding(model, question: str, evidence: FastEvidence, *, callbacks=None, trace_metadata=None) -> FirstFinding:
-    candidates = first_candidates(evidence)
-    complete = first_candidates(evidence, max_bytes=6000)
-    summarize = any(len(text.encode("utf-8")) > 300 for text, _ in complete)
-    if summarize:
-        # Keep whole records, bounded in aggregate. Long records need a brief answer,
-        # not silent rejection or a substring that can drop a qualification.
-        candidates = complete
-        bounded = []
-        size = 0
-        for item in candidates:
-            if size + len(item[0]) > 4000:
-                continue
-            bounded.append(item)
-            size += len(item[0])
-        candidates = bounded
+async def first_finding(model, question: str, evidence: FastEvidence, *, zone: str = "UTC", callbacks=None, trace_metadata=None) -> FirstFinding:
+    # Keep context whole for the admission decision; only an exact, bounded passage
+    # can leave this phase. A paraphrase cannot turn a test question into a definition.
+    candidates = first_candidates(evidence, max_bytes=6000)
+    contexts = {
+        f"{claim.document_path}#{claim.anchor}": render_candidate_context(claim, citations=False)
+        for claim in evidence.used_claims
+    }
+    contexts.update({
+        f"{window.source_id} ¶{window.block_start}-{window.block_end}":
+            render_candidate_context(window, citations=False)
+        for window in evidence.used_windows
+    })
+    # The early answer needs the same lookup scope and source clocks as the broad
+    # selector. A historical record without its date must not become "this week".
+    # Bound the entire card, retaining records and their qualifications whole.
+    bounded, rendered = [], []
+    size = 0
+    for text, locator in candidates:
+        card = f"{len(bounded)}: [{locator}]\n{contexts[locator]}\n{text}"
+        if size + len(card) + 1 > 4000:
+            continue
+        bounded.append((text, locator))
+        rendered.append(card)
+        size += len(card) + 1
+    candidates = bounded
     if not candidates:
         return FirstFinding()
-    result = await model.with_structured_output(FirstSummary if summarize else FirstChoice, include_raw=True).ainvoke(
-        [SystemMessage(content=prompt("call.progressive.summarize" if summarize else "call.progressive.pick")),
-         HumanMessage(content=prompt("call.progressive.pick_input", question=question,
-             candidates="\n".join(f"{i}: [{locator}] {text}" for i, (text, locator) in enumerate(candidates))))],
+    result = await model.with_structured_output(FirstDecision, include_raw=True).ainvoke(
+        [SystemMessage(content=prompt("call.progressive.pick")),
+         HumanMessage(content=prompt("call.progressive.pick_input",
+             question=prompt("recall.retrieval.question_context", question=question,
+                             as_of=evidence.as_of.isoformat(), zone=zone),
+             candidates="\n".join(rendered)))],
         config=invoke_config("call.first", callbacks, trace_metadata),
     )
     parsed, usage = unpack(result)
-    if not isinstance(parsed, FirstSummary if summarize else FirstChoice) or not 0 <= parsed.index < len(candidates):
-        return FirstFinding(usage=usage)
+    if not isinstance(parsed, FirstDecision):
+        return FirstFinding(usage=usage, disposition="needs_review", reason="invalid_decision")
+    if parsed.disposition != "ready":
+        return FirstFinding(usage=usage, disposition=parsed.disposition, reason="not_ready")
+    if (parsed.subject != "unambiguous" or parsed.support != "direct"
+            or parsed.record_kind != "subject_fact"):
+        return FirstFinding(usage=usage, disposition="needs_review", reason="admission_failed")
+    if not 0 <= parsed.index < len(candidates):
+        return FirstFinding(usage=usage, disposition="needs_review", reason="invalid_index")
     text, locator = candidates[parsed.index]
-    if summarize:
-        text = speakable(parsed.summary).strip()
-        if not text:
-            return FirstFinding(usage=usage)
-    return FirstFinding(text=prompt("call.progressive.first", fact=text), usage=usage, locator=locator)
+    quote = parsed.quote.strip()
+    # Verbatim admission prevents novel subject/predicate constructions. Complete
+    # sentence boundaries prevent clipping a clause off its negation or condition.
+    starts = [match.start() for match in re.finditer(re.escape(quote), text)] if quote else []
+    def bounded(start: int) -> bool:
+        before, after = text[:start].rstrip(), text[start + len(quote):].lstrip()
+        return ((not before or before[-1] in ".!?。！？\n")
+                and (not after or quote[-1] in ".!?。！？"))
+    if not starts or not any(bounded(start) for start in starts):
+        return FirstFinding(usage=usage, disposition="needs_review", reason="invalid_quote")
+    return FirstFinding(text=quote, usage=usage, locator=locator,
+                        disposition="ready", reason="direct_record")
 
 
 def unpack(result) -> tuple[object, dict[str, int]]:
@@ -175,12 +202,9 @@ def unpack(result) -> tuple[object, dict[str, int]]:
     return result.get("parsed"), extract_usage(raw) if isinstance(raw, BaseMessage) else zero_usage()
 
 
-async def refine(model, evidence: FastEvidence, preliminary: str, *, callbacks=None, trace_metadata=None) -> RefinedAnswer:
-    # The earlier result is context, not evidence. Only the new retrieval's addresses can
-    # support the final answer; a narrow finding cannot validate itself through repetition.
+async def refine(model, evidence: FastEvidence, *, callbacks=None, trace_metadata=None) -> RefinedAnswer:
+    """Resolve the standalone lookup from its evidence, without conversation or playback state."""
     content = evidence.content
-    previous = prompt("call.progressive.previous", text=preliminary or prompt("call.ask.none"))
-    human = content + "\n\n" + previous if isinstance(content, str) else [*content, {"type": "text", "text": previous}]
     allowed_text = content if isinstance(content, str) else "\n".join(str(p.get("text", "")) for p in content)
     manifest = evidence.manifest or evidence_manifest(
         claims=evidence.used_claims, windows=evidence.used_windows,
@@ -188,75 +212,54 @@ async def refine(model, evidence: FastEvidence, preliminary: str, *, callbacks=N
         component_evidence=evidence.used_component_evidence,
     )
     addresses = {parse_span_ref(item.ref) for item in manifest}
-    # A marker copied into the question or conversation context is not retrieved evidence.
     allowed = {ref for ref in iter_answer_citations(allowed_text)
                if (evidence.handles.get(ref[0]), ref[1], ref[2]) in addresses}
     choices = sorted({f"[cite: {sid}]" for sid, _, _ in allowed})
     choices.extend(f"[cite: {sid} ¶{start}-{end}]" for sid, start, end in sorted(allowed))
     if not choices:
-        text = prompt("call.progressive.unresolved" if preliminary else "call.progressive.empty")
-        return RefinedAnswer(text, text, "unresolved", zero_usage())
-    # Provider-side structured output offers only addresses admitted by this retrieval.
-    # The post-check still rejects malformed output from providers ignoring the schema.
-    unit_schema = create_model("GroundedRefinementUnit", __base__=RefinementUnit,
+        text = prompt("call.progressive.empty")
+        return RefinedAnswer(text, text, "unresolved", "", (text,), (), zero_usage())
+    fact_schema = create_model("GroundedKnowledgeFact", __base__=KnowledgeFact,
         citations=(list[Literal[tuple(choices)]], ...))
-    schema = create_model("GroundedIncrementalDecision", __base__=IncrementalDecision,
-        units=(list[unit_schema], ...))
+    schema = create_model("GroundedKnowledgeDecision", __base__=KnowledgeDecision,
+        facts=(list[fact_schema], Field(max_length=6)))
     result = await model.with_structured_output(schema, include_raw=True).ainvoke(
         [SystemMessage(content=evidence.system + "\n\n" + prompt("call.progressive.refine")),
-         HumanMessage(content=human)],
+         HumanMessage(content=content)],
         config=invoke_config("call.refine", callbacks, trace_metadata),
     )
     parsed, usage = unpack(result)
-    if isinstance(parsed, IncrementalDecision):
-        if parsed.relation == "unresolved":
-            text = prompt("call.progressive.unresolved" if preliminary else "call.progressive.empty")
-            return RefinedAnswer(text, text, "unresolved", usage)
-        if not parsed.units:
-            raise ValueError("unsupported_refinement")
-        full, updates = [], []
-        for unit in parsed.units:
-            if not unit.text.strip() or not unit.citations or any(c not in choices for c in unit.citations):
-                raise ValueError("invalid_refinement_citations")
-            # One authored sentence feeds both displays; voice selects units, never rewrites them.
-            text = speakable(unit.text).strip()
-            full.append(text + " " + " ".join(unit.citations))
-            if not preliminary or unit.change != "retained":
-                updates.append((unit.change, text))
-        speech = " ".join(text for _, text in updates)
-        if speech and preliminary:
-            relation = "correct" if any(change == "correction" for change, _ in updates) else "extend"
-            speech = prompt(f"call.progressive.{relation}", text=speech)
-        return RefinedAnswer(" ".join(full), speech, parsed.relation, usage)
-    if not isinstance(parsed, RefinementDecision):
-        raise ValueError("invalid_refinement")
-    # Spoken recall also asks for source-only handles. Bind those to the exact spans
-    # actually shown for that source; never invent a range or trust a handle in the question.
-    citations: list[str] = []
-    for marker in parsed.citations:
-        source_only = re.fullmatch(r"\[cite:\s*(s\d+)\s*\]", marker.strip())
-        spans = sorted(ref for ref in allowed if source_only and ref[0] == source_only[1])
-        if source_only and spans:
-            citations.extend(f"[cite: {sid} ¶{start}-{end}]" for sid, start, end in spans)
-        else:
-            citations.append(marker)
-    citations = list(dict.fromkeys(citations))
-    refs = [parse_citation_markers(marker) for marker in citations]
-    if any(not ref or any(r not in allowed or r[0] not in evidence.handles for r in ref) for ref in refs):
-        raise ValueError("invalid_refinement_citations")
-    if parsed.relation == "unresolved":
-        text = prompt("call.progressive.unresolved" if preliminary else "call.progressive.empty")
-        return RefinedAnswer(text, text, "unresolved", usage)
-    if not refs or not parsed.answer.strip():
+    if not isinstance(parsed, KnowledgeDecision):
+        raise ValueError("invalid_lookup_result")
+    if parsed.status == "unresolved":
+        # An unresolved result cannot smuggle speculative facts through the empty-result path.
+        text = prompt("call.progressive.empty")
+        return RefinedAnswer(text, text, "unresolved", parsed.scope,
+                             tuple(parsed.limitations) or (text,), (), usage)
+    if not parsed.facts:
         raise ValueError("unsupported_refinement")
-    answer = speakable(parsed.answer) + " " + " ".join(citations)
-    if not preliminary:
-        speech = speakable(parsed.answer)
-    elif parsed.relation == "confirm":
-        speech = prompt("call.progressive.confirm")
-    else:
-        # Reuse the one admitted factual answer instead of generating a second paraphrase
-        # that can contradict the card or misquote the earlier subset as a total.
-        prefix = "correct" if parsed.relation in {"correct", "answer"} else "extend"
-        speech = prompt(f"call.progressive.{prefix}", text=speakable(parsed.answer))
-    return RefinedAnswer(answer, speech, parsed.relation, usage)
+    facts, full = [], []
+    for fact in parsed.facts:
+        if not fact.text.strip() or not fact.citations:
+            raise ValueError("invalid_refinement_citations")
+        citations = []
+        for marker in fact.citations:
+            if marker not in choices:
+                raise ValueError("invalid_refinement_citations")
+            source_only = re.fullmatch(r"\[cite:\s*(s\d+)\]", marker.strip())
+            spans = sorted(ref for ref in allowed if source_only and ref[0] == source_only[1])
+            if spans:
+                citations.extend(f"[cite: {sid} ¶{start}-{end}]" for sid, start, end in spans)
+            else:
+                citations.append(marker)
+        citations = list(dict.fromkeys(citations))
+        refs = [parse_citation_markers(marker) for marker in citations]
+        if any(not ref or any(r not in allowed or r[0] not in evidence.handles for r in ref) for ref in refs):
+            raise ValueError("invalid_refinement_citations")
+        text = speakable(fact.text).strip()
+        if not text:
+            raise ValueError("unsupported_refinement")
+        facts.append(KnowledgeFact(text=text, citations=citations))
+        full.append(text + " " + " ".join(citations))
+    return RefinedAnswer(" ".join(full), " ".join(fact.text for fact in facts),
+                         parsed.status, parsed.scope, tuple(parsed.limitations), tuple(facts), usage)

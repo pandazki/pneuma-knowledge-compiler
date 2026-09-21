@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import AnchorId, SourceId, UserId
 from pneuma_knowledge_core.recall.fast import FastEvidence, RetrievedClaim
-from pneuma_knowledge_core.recall.progressive import FirstChoice, RefinementDecision
+from pneuma_knowledge_core.recall.progressive import FirstDecision, KnowledgeDecision, KnowledgeFact
 from pneuma_knowledge_service.call import librarian as module
 from pneuma_knowledge_service.call.librarian import LibraryLibrarian
 
@@ -25,8 +25,11 @@ class Model:
     def with_structured_output(self, schema, **kwargs):
         class Bound:
             async def ainvoke(self, messages, config=None):
-                parsed = FirstChoice(index=0) if schema is FirstChoice else RefinementDecision(
-                    relation="extend", answer="The flood inspection is tomorrow.",  citations=["[cite: s01 ¶0-0]"])
+                parsed = FirstDecision(disposition="ready", index=0, subject="unambiguous",
+                    support="direct", record_kind="subject_fact", quote=(
+                        "Lyrra Framework builds applications." if "Lyrra" in str(messages)
+                        else "The ramp needs a flood inspection.")) if schema is FirstDecision else KnowledgeDecision(
+                    status="answered", facts=[KnowledgeFact(text="The flood inspection is tomorrow.", citations=["[cite: s01 ¶0-0]"])], scope="Ramp record.", limitations=[])
                 return {"parsed": parsed, "raw": AIMessage(content="", usage_metadata={
                     "input_tokens": 9, "output_tokens": 2, "total_tokens": 11})}
         return Bound()
@@ -81,7 +84,7 @@ async def test_first_result_reaches_the_caller_while_broader_retrieval_is_still_
     assert first and not speech and not task.done()
     release_broad.set()
     answer = await task
-    assert speech and answer.payload["progressive"]["relation"] == "extend"
+    assert speech and answer.payload["lookup_result"]["status"] == "answered"
     assert answer.payload["token_usage"]["total_tokens"] == 25  # first pick + refinement + broad selection
     quick, broad = [kw for _, kw in seen]
     assert all(user == UserId("scoped-owner") for user, _ in seen)
@@ -96,6 +99,7 @@ async def test_first_result_reaches_the_caller_while_broader_retrieval_is_still_
 async def test_a_first_lookup_timeout_never_cancels_the_broader_answer(librarian, monkeypatch):
     monkeypatch.setattr(module, "FIRST_LOOK_SECONDS", 0.01)
     cancelled = []
+    quick_cancelled = asyncio.Event()
 
     async def retrieve(user, question, **kw):
         if kw["model"] is None:
@@ -103,6 +107,8 @@ async def test_a_first_lookup_timeout_never_cancels_the_broader_answer(librarian
                 await asyncio.Event().wait()
             finally:
                 cancelled.append("quick")
+                quick_cancelled.set()
+        await quick_cancelled.wait()
         return evidence()
 
     monkeypatch.setattr(module, "fast_recall", retrieve)
@@ -146,13 +152,127 @@ async def test_exact_subject_overview_bypasses_lexical_first_look(librarian, mon
              'Lyrra Framework builds applications. [cite: synthetic-source ¶0] <!-- c:aa11 -->\n\n<!-- /overview -->')
     async def kwargs(*args, **kw):
         return {'as_of': kw['as_of'], 'documents': [doc]}
+    first_ready = asyncio.Event()
     async def retrieve(user, question, **kw):
         assert kw['model'] is not None, 'exact canonical identity must not use lexical first look'
+        await first_ready.wait()
         return evidence()
     monkeypatch.setattr(v1, '_fast_recall_kwargs', kwargs)
     monkeypatch.setattr(module, 'fast_recall', retrieve)
     first = []
-    answer = await librarian.answer('介绍 Lyrra Framework', on_preliminary=first.append,
+    def preliminary(text):
+        first.append(text)
+        first_ready.set()
+    answer = await librarian.answer('介绍 Lyrra Framework', on_preliminary=preliminary,
         on_token=lambda text: None, on_retrieved=lambda: None)
     assert first and 'builds applications' in first[0]
     assert answer.payload['progressive']['locator'] == 'projects/lyrra/overview.md#aa11'
+
+
+async def test_broad_evidence_does_not_wait_for_a_slow_first_finding(librarian, monkeypatch):
+    quick_started, quick_cancelled = asyncio.Event(), asyncio.Event()
+    first, speech = [], []
+
+    async def retrieve(user, question, **kw):
+        if kw["model"] is None:
+            quick_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                quick_cancelled.set()
+        await quick_started.wait()
+        return evidence()
+
+    monkeypatch.setattr(module, "fast_recall", retrieve)
+    answer = await asyncio.wait_for(librarian.answer(
+        "question", on_preliminary=first.append, on_token=speech.append,
+        on_retrieved=lambda: None), 1)
+    assert quick_cancelled.is_set()
+    assert first == [] and speech == ["The flood inspection is tomorrow."]
+    assert answer.payload["progressive"]["first_skipped"] == "broader_ready"
+    assert answer.payload["progressive"]["first_degraded"] is None
+
+
+async def test_a_failed_broad_lookup_cancels_and_joins_the_first(librarian, monkeypatch):
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def retrieve(user, question, **kw):
+        if kw["model"] is None:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+        await started.wait()
+        raise RuntimeError("synthetic retrieval failure")
+
+    monkeypatch.setattr(module, "fast_recall", retrieve)
+    with pytest.raises(RuntimeError, match="synthetic retrieval failure"):
+        await asyncio.wait_for(librarian.answer("question", on_preliminary=lambda _: None,
+            on_token=lambda _: None, on_retrieved=lambda: None), 1)
+    assert cancelled.is_set()
+
+
+async def test_only_broad_retrieval_inherits_the_configured_scorer(librarian, monkeypatch):
+    from pneuma_knowledge_service.api.routes import v1
+    from pneuma_knowledge_core.ports.evidence_scorer import EvidenceScores
+
+    calls, seen = [], []
+
+    class Scorer:
+        async def score(self, question, candidates):
+            calls.append(question)
+            return EvidenceScores(scores=(1.0,))
+
+    scorer = Scorer()
+    original = v1._fast_recall_kwargs
+
+    async def kwargs(*args, **kw):
+        return {**await original(*args, **kw), "evidence_scorer": scorer,
+                "select_score_floor": 0.65, "claim_candidate_cap": 80}
+
+    async def retrieve(user, question, **kw):
+        seen.append(kw)
+        if kw["evidence_scorer"] is not None:
+            await kw["evidence_scorer"].score(question, ["synthetic evidence"])
+        return evidence()
+
+    monkeypatch.setattr(v1, "_fast_recall_kwargs", kwargs)
+    monkeypatch.setattr(module, "fast_recall", retrieve)
+    await librarian.answer("question", on_preliminary=lambda _: None,
+        on_token=lambda _: None, on_retrieved=lambda: None)
+    quick, broad = seen
+    assert calls == ["question"]
+    assert quick["evidence_scorer"] is None and broad["evidence_scorer"] is scorer
+    assert broad["claim_candidate_cap"] == 80 and broad["select_score_floor"] == 0.65
+    assert broad["evidence_selection_timeout"] == 5.0
+
+
+async def test_uncertain_first_result_emits_only_task_state_while_broad_lookup_continues(librarian, monkeypatch):
+    from pneuma_knowledge_core.recall.progressive import FirstFinding
+    broad_gate, progress_ready = asyncio.Event(), asyncio.Event()
+    first, progress, final = [], [], []
+
+    async def retrieve(user, question, **kw):
+        if kw["model"] is not None:
+            await broad_gate.wait()
+        return evidence()
+
+    async def uncertain(*args, **kwargs):
+        return FirstFinding(disposition="needs_review", reason="admission_failed")
+
+    def report(text):
+        progress.append(text)
+        progress_ready.set()
+
+    monkeypatch.setattr(module, "fast_recall", retrieve)
+    monkeypatch.setattr(module, "first_finding", uncertain)
+    task = asyncio.create_task(librarian.answer("Which subject?", on_preliminary=first.append,
+        on_progress=report, on_token=final.append, on_retrieved=lambda: None))
+    await asyncio.wait_for(progress_ready.wait(), 1)
+    assert not first and not final and not task.done()
+    assert progress == [module.prompt("call.progressive.checking")]
+    assert "flood" not in progress[0]
+    broad_gate.set()
+    result = await task
+    assert final and result.payload["progressive"]["first_disposition"] == "needs_review"

@@ -1,8 +1,8 @@
 """Two overlapping lookups inside one Live delegation.
 
 A bounded canonical-or-lexical first look selects a complete short record and hands it to Live with an
-explicit partial-scope wrapper. Broader fast recall runs concurrently; its answer compares
-against that exact first finding, returning an addition, correction or no new speech.
+explicit partial scope. Broader fast recall runs concurrently and returns supported facts,
+evidence scope and unresolved aspects of the standalone subtask. Live owns conversation.
 Both phases share tenant, time and archive scope. Neither writes the library.
 """
 
@@ -15,11 +15,13 @@ from dataclasses import dataclass, fields, replace
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.canonical_glance import display_identity
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.recall.call import Ask, Exchange, Ledger, form_ask, vocabulary_of
 from pneuma_knowledge_core.recall.fast import FastAnswer, add_usage, fast_recall
 from pneuma_knowledge_core.recall.call import speakable
+from pneuma_knowledge_core.recall.evidence_context import enrich_evidence
 from pneuma_knowledge_core.recall.progressive import FirstFinding, canonical_first_claims, first_finding, refine
 from pneuma_knowledge_core.recall.stage_timing import StageTiming
 
@@ -40,9 +42,9 @@ SELECTION_TIMEOUT_SECONDS = 5.0
 # A slow or empty first look must not prevent the broader answer from completing.
 FIRST_LOOK_SECONDS = 6.0
 
-#: The fast lane's spoken posture — see the module docstring for why each line is here.
+#: The fast lane's lookup posture — see the module docstring for why each line is here.
 POSTURE: dict[str, Any] = {
-    "answer_style": "spoken",
+    "answer_style": "concise",
     "render_glance": False,
     # Preserve model relevance selection for wide pools; do not hide a brittle subject-name
     # containment filter inside a component. Small pools can be judged during answering.
@@ -101,6 +103,7 @@ class Librarian(Protocol):
         on_token: Callable[[str], None],
         on_retrieved: Callable[[], None],
         on_preliminary: Callable[[str], None],
+        on_progress: Callable[[str], None] | None = None,
     ) -> LibraryAnswer: ...
 
 
@@ -162,13 +165,14 @@ class LibraryLibrarian:
         on_token: Callable[[str], None],
         on_retrieved: Callable[[], None],
         on_preliminary: Callable[[str], None],
+        on_progress: Callable[[str], None] | None = None,
     ) -> LibraryAnswer:
         from ..api.routes import v1
 
         ctx = self._ctx
         as_of = datetime.now(timezone.utc)
         plane = await v1._resolve_plane(ctx, self._user, None)
-        body = v1.RecallIn(query=question, mode="fast", answer_style="spoken")
+        body = v1.RecallIn(query=question, mode="fast", answer_style="concise")
         kwargs = await v1._fast_recall_kwargs(
             ctx,
             body,
@@ -186,6 +190,9 @@ class LibraryLibrarian:
         quick_kwargs = dict(kwargs)
         quick_kwargs.update(
             model=None, answer_model=None, route_model=None, embeddings=None,
+            # A scorer runs independently of `model`. The first look must not inherit
+            # the deployment's JEV pass as well as the broader lookup's selection.
+            evidence_scorer=None,
             claim_vectors=None, vectors=None, fast_paths=(),
             cap=6, claim_candidate_cap=8, window_cap=2, window_candidate_cap=3,
             episode_summary_cap=0, evidence_strategy="select",
@@ -195,6 +202,7 @@ class LibraryLibrarian:
         started = time.perf_counter()
         first = FirstFinding()
         first_reason = ""
+        first_skipped = ""
 
         async def quick() -> FirstFinding:
             claims = canonical_first_claims(question, kwargs.get("documents") or ())
@@ -207,33 +215,50 @@ class LibraryLibrarian:
                                           documents_archived=kwargs.get("archive_active", False))
                 claims, _ = filter_claims(claims, view,
                                          live_paths={d.path for d in kwargs.get("documents") or ()})
+                claims = await enrich_evidence(
+                    claims, user_id=plane.retrieval_user, content=kwargs.get("content"))
                 evidence = FastEvidence(question=question, as_of=as_of, system="", content="",
                                         handles={}, used_claims=tuple(claims))
             return await first_finding(model, question, evidence,
+                zone=kwargs.get("zone", "UTC"),
                 callbacks=kwargs.get("callbacks"), trace_metadata=kwargs.get("trace_metadata"))
 
         quick_task = asyncio.create_task(quick())
         broad_task = asyncio.create_task(fast_recall(
             plane.retrieval_user, question, evidence_only=True, **kwargs))
         try:
-            try:
-                first = await asyncio.wait_for(quick_task, FIRST_LOOK_SECONDS)
-            except asyncio.TimeoutError:
+            done, _ = await asyncio.wait(
+                (quick_task, broad_task), timeout=FIRST_LOOK_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if quick_task in done:
+                try:
+                    first = quick_task.result()
+                except Exception as exc:
+                    first_reason = type(exc).__name__
+            elif broad_task in done:
+                # Once full evidence is available, an unfinished preliminary cannot
+                # hold up the answer. Never inject a late first finding after refinement.
+                first_skipped = "broader_ready"
+                quick_task.cancel()
+            else:
                 first_reason = "timeout"
-            except Exception as exc:
-                first_reason = type(exc).__name__
+                quick_task.cancel()
             first_ms = (time.perf_counter() - started) * 1000
             if first.text:
                 on_preliminary(first.text)
-            elif not first_reason:
+            elif not first_reason and not first_skipped:
                 first_reason = "no_supported_finding"
+            if not first.text and not broad_task.done() and on_progress is not None:
+                # Task state only: unverified candidates never become Live context.
+                on_progress(prompt("call.progressive.checking"))
             evidence = await broad_task
             on_retrieved()
             answer_started = time.perf_counter()
-            refined = await refine(model, evidence, first.text,
+            refined = await refine(model, evidence,
                 callbacks=kwargs.get("callbacks"), trace_metadata=kwargs.get("trace_metadata"))
-            if refined.speech:
-                on_token(refined.speech)
+            if refined.result_text:
+                on_token(refined.result_text)
             answer_ms = (time.perf_counter() - answer_started) * 1000
             total_ms = (time.perf_counter() - started) * 1000
             stages = tuple(
@@ -251,13 +276,20 @@ class LibraryLibrarian:
                 token_usage=add_usage(add_usage(evidence.token_usage, first.usage), refined.usage),
                 stages=(*(s for s in stages if s.name != "total"),
                     StageTiming(name="first_lookup", ms=round(first_ms),
-                        status="degraded" if first_reason else "ran", detail=first_reason or None),
+                        status="skipped" if first_skipped else "degraded" if first_reason else "ran",
+                        detail=first_reason or first_skipped or None),
                     *(s for s in stages if s.name == "total")),
             )
             out = v1._fast_answer_out(answer, as_of=as_of, plane=plane, settings=ctx.settings)
             payload = out.model_dump(mode="json")
             payload["progressive"] = {"preliminary": first.text, "locator": first.locator,
-                                      "relation": refined.relation, "spoken_update": refined.speech, "first_degraded": first_reason or None}
+                                      "first_disposition": first.disposition, "first_reason": first.reason,
+                                      "first_degraded": first_reason or None, "first_skipped": first_skipped or None}
+            payload["lookup_result"] = {
+                "status": refined.status, "scope": refined.scope,
+                "limitations": list(refined.limitations),
+                "facts": [fact.model_dump() for fact in refined.facts],
+            }
             return LibraryAnswer(payload=payload, answer_text=answer.answer_text)
         finally:
             # Cancellation, errors and superseded session shutdown must leave no hidden work.
