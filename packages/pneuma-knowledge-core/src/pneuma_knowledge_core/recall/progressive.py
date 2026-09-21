@@ -19,6 +19,7 @@ from ..prompts import prompt
 from ..domain.consultation import parse_span_ref
 from .call import speakable
 from .citation_alias import iter_answer_citations, parse_citation_markers
+from .evidence_context import render_candidate_context
 from .fast import RetrievedClaim, FastEvidence, evidence_manifest, extract_usage, invoke_config, zero_usage
 
 
@@ -133,7 +134,7 @@ def first_candidates(evidence: FastEvidence, *, max_bytes: int = 300) -> list[tu
     return out[:8]
 
 
-async def first_finding(model, question: str, evidence: FastEvidence, *, callbacks=None, trace_metadata=None) -> FirstFinding:
+async def first_finding(model, question: str, evidence: FastEvidence, *, zone: str = "UTC", callbacks=None, trace_metadata=None) -> FirstFinding:
     candidates = first_candidates(evidence)
     complete = first_candidates(evidence, max_bytes=6000)
     summarize = any(len(text.encode("utf-8")) > 300 for text, _ in complete)
@@ -141,20 +142,36 @@ async def first_finding(model, question: str, evidence: FastEvidence, *, callbac
         # Keep whole records, bounded in aggregate. Long records need a brief answer,
         # not silent rejection or a substring that can drop a qualification.
         candidates = complete
-        bounded = []
-        size = 0
-        for item in candidates:
-            if size + len(item[0]) > 4000:
-                continue
-            bounded.append(item)
-            size += len(item[0])
-        candidates = bounded
+    contexts = {
+        f"{claim.document_path}#{claim.anchor}": render_candidate_context(claim, citations=False)
+        for claim in evidence.used_claims
+    }
+    contexts.update({
+        f"{window.source_id} ¶{window.block_start}-{window.block_end}":
+            render_candidate_context(window, citations=False)
+        for window in evidence.used_windows
+    })
+    # The early answer needs the same lookup scope and source clocks as the broad
+    # selector. A historical record without its date must not become "this week".
+    # Bound the entire card, retaining records and their qualifications whole.
+    bounded, rendered = [], []
+    size = 0
+    for text, locator in candidates:
+        card = f"{len(bounded)}: [{locator}]\n{contexts[locator]}\n{text}"
+        if size + len(card) + 1 > 4000:
+            continue
+        bounded.append((text, locator))
+        rendered.append(card)
+        size += len(card) + 1
+    candidates = bounded
     if not candidates:
         return FirstFinding()
     result = await model.with_structured_output(FirstSummary if summarize else FirstChoice, include_raw=True).ainvoke(
         [SystemMessage(content=prompt("call.progressive.summarize" if summarize else "call.progressive.pick")),
-         HumanMessage(content=prompt("call.progressive.pick_input", question=question,
-             candidates="\n".join(f"{i}: [{locator}] {text}" for i, (text, locator) in enumerate(candidates))))],
+         HumanMessage(content=prompt("call.progressive.pick_input",
+             question=prompt("recall.retrieval.question_context", question=question,
+                             as_of=evidence.as_of.isoformat(), zone=zone),
+             candidates="\n".join(rendered)))],
         config=invoke_config("call.first", callbacks, trace_metadata),
     )
     parsed, usage = unpack(result)

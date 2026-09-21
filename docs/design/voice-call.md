@@ -182,22 +182,36 @@ formed question ──┬─ bounded lexical lookup → pick one complete short 
 ```
 
 **First look.** The ordinary fast lane runs in evidence-only mode with no embedding, routing,
-selection or answer model call: 8 claim candidates / 6 retained claims, 3 raw-window candidates
+selection or answer model call (including no inherited evidence scorer): 8 claim candidates / 6 retained claims, 3 raw-window candidates
 / 2 retained windows, no semantic summaries, and bounded source expansion. It uses the same
 archive filtering and source-span checks as selected recall. A small structured model call
 then chooses one short record index, or abstains. When candidates include records beyond the 300-byte quote
-budget, it sees complete records (at most 6,000 bytes each and 4,000 characters
-combined) and returns one selected index plus a partial answer of at most 200 characters.
+budget, it sees complete records (at most 6,000 bytes each) and returns one selected index
+plus a partial answer of at most 200 characters. Each candidate retains its lookup scope
+and cited source clocks; the request carries the same `as_of` and owner timezone as broader
+retrieval. Exact-title overview claims obtain those clocks through tenant-scoped L0 reads.
+Missing dates stay unknown. Candidate cards, including that metadata, fit within 4,000
+characters; oversized cards are omitted whole, never stripped of their qualifiers to fit.
 The index must address a supplied record; summarization is model interpretation, not a
 mechanical guarantee of semantic entailment. Superseded and archived claims remain excluded.
 
 The result is wrapped as a partial finding. The first-result deadline is six seconds;
 empty or uncertain results are labelled `no_supported_finding`, and timeouts are recorded
-separately. Neither cancels the broader lookup. Complete records are never cut mid-qualification.
+separately. Neither cancels the broader lookup. If broader retrieval finishes before the
+first finding, the pending first task is canceled and refinement starts immediately with
+no preliminary. The trace marks this as `first_skipped: broader_ready`, not a failure.
+An already-completed first finding still goes out before refinement. All canceled tasks
+are joined before returning. This avoids waiting out the six-second first-look deadline
+when full evidence is already available; it can trade an imminent partial finding for an
+earlier complete answer. Complete records are never cut mid-qualification.
 Source traceability does not prove that a record is current or that a paraphrase is faithful.
 
 **Broader lookup.** This starts concurrently, using the deployment's ordinary lexical,
-semantic and enabled component faces. Cross-face selection retains its five-second timeout
+semantic and enabled component faces. It inherits the deployment's evidence selector:
+when configured for TypeSafe/JEV, that scorer judges the complete cross-face candidate pool
+once, with the configured score floor and ordinary per-face caps. JEV selects evidence;
+the `call` chat-model role still forms questions and synthesizes the spoken answer.
+Cross-face selection retains its five-second timeout
 and explicit ranked fallback. There is no name-containment filter inside a time component.
 Once both the broader evidence and the first finding are available, a structured refinement
 call receives the first finding as conversation context, never as new evidence. It returns:

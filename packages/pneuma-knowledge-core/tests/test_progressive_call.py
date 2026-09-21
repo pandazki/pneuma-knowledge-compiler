@@ -9,6 +9,7 @@ from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import AnchorId, SourceId
 from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.fast import FastEvidence, RetrievedClaim
+from pneuma_knowledge_core.recall.evidence_context import EvidenceTime, retrieval_origin
 from pneuma_knowledge_core.recall.progressive import (
     FirstChoice, FirstSummary, RefinementDecision, first_candidates, first_finding, refine,
 )
@@ -43,6 +44,44 @@ async def test_first_model_can_only_choose_a_whole_record_never_invent_a_count()
     assert first.text == prompt("call.progressive.first", fact=pool.used_claims[0].text)
     assert first.usage["total_tokens"] == 11
     assert first.locator == "projects/ferry.md#c:1234"
+
+
+async def test_first_finding_keeps_source_clock_and_lookup_scope_with_each_record():
+    pool = evidence()
+    claim = replace(pool.used_claims[0],
+        source_times=(EvidenceTime(SourceId("ferry-source"), 0, 0, "2026-07-01"),),
+        retrieval_origins=(retrieval_origin("claim_search", "Relevance search", time_filter=None),))
+    pool = replace(pool, used_claims=(claim,))
+    model = Model(FirstChoice(index=0))
+    first = await first_finding(model, "What happened this week?", pool, zone="Asia/Shanghai")
+    human = model.messages[1].content
+    assert "2026-07-01" in human and pool.as_of.isoformat() in human
+    assert "Asia/Shanghai" in human and "claim_search" in human
+    assert '"time_filter": null' in human
+    assert first.text == prompt("call.progressive.first", fact=claim.text)
+    system = model.messages[0].content
+    await first_finding(model, "Another week?", replace(pool,
+        as_of=datetime(2026, 10, 1, tzinfo=timezone.utc)), zone="UTC")
+    assert model.messages[0].content == system
+
+
+async def test_first_finding_keeps_unknown_dates_explicit():
+    model = Model(FirstChoice(index=0))
+    await first_finding(model, "Recent work?", evidence())
+    assert prompt("recall.retrieval.time_unknown") in model.messages[1].content
+
+
+async def test_first_finding_omits_whole_records_when_metadata_exceeds_budget():
+    pool = evidence()
+    too_wide = replace(pool.used_claims[0], retrieval_origins=(
+        retrieval_origin("synthetic", "X" * 4500),))
+    next_claim = replace(pool.used_claims[0], anchor=AnchorId("c:5678"),
+                         text="A complete second record with its limitation.")
+    model = Model(FirstChoice(index=0))
+    first = await first_finding(model, "question", replace(pool, used_claims=(too_wide, next_claim)))
+    assert first.locator == "projects/ferry.md#c:5678"
+    assert "X" * 4500 not in model.messages[1].content
+    assert next_claim.text in model.messages[1].content
 
 
 @pytest.mark.parametrize("index", [-1, 8, 999])

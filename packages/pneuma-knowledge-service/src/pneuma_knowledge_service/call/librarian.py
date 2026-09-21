@@ -20,6 +20,7 @@ from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.recall.call import Ask, Exchange, Ledger, form_ask, vocabulary_of
 from pneuma_knowledge_core.recall.fast import FastAnswer, add_usage, fast_recall
 from pneuma_knowledge_core.recall.call import speakable
+from pneuma_knowledge_core.recall.evidence_context import enrich_evidence
 from pneuma_knowledge_core.recall.progressive import FirstFinding, canonical_first_claims, first_finding, refine
 from pneuma_knowledge_core.recall.stage_timing import StageTiming
 
@@ -186,6 +187,9 @@ class LibraryLibrarian:
         quick_kwargs = dict(kwargs)
         quick_kwargs.update(
             model=None, answer_model=None, route_model=None, embeddings=None,
+            # A scorer runs independently of `model`. The first look must not inherit
+            # the deployment's JEV pass as well as the broader lookup's selection.
+            evidence_scorer=None,
             claim_vectors=None, vectors=None, fast_paths=(),
             cap=6, claim_candidate_cap=8, window_cap=2, window_candidate_cap=3,
             episode_summary_cap=0, evidence_strategy="select",
@@ -195,6 +199,7 @@ class LibraryLibrarian:
         started = time.perf_counter()
         first = FirstFinding()
         first_reason = ""
+        first_skipped = ""
 
         async def quick() -> FirstFinding:
             claims = canonical_first_claims(question, kwargs.get("documents") or ())
@@ -207,25 +212,39 @@ class LibraryLibrarian:
                                           documents_archived=kwargs.get("archive_active", False))
                 claims, _ = filter_claims(claims, view,
                                          live_paths={d.path for d in kwargs.get("documents") or ()})
+                claims = await enrich_evidence(
+                    claims, user_id=plane.retrieval_user, content=kwargs.get("content"))
                 evidence = FastEvidence(question=question, as_of=as_of, system="", content="",
                                         handles={}, used_claims=tuple(claims))
             return await first_finding(model, question, evidence,
+                zone=kwargs.get("zone", "UTC"),
                 callbacks=kwargs.get("callbacks"), trace_metadata=kwargs.get("trace_metadata"))
 
         quick_task = asyncio.create_task(quick())
         broad_task = asyncio.create_task(fast_recall(
             plane.retrieval_user, question, evidence_only=True, **kwargs))
         try:
-            try:
-                first = await asyncio.wait_for(quick_task, FIRST_LOOK_SECONDS)
-            except asyncio.TimeoutError:
+            done, _ = await asyncio.wait(
+                (quick_task, broad_task), timeout=FIRST_LOOK_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if quick_task in done:
+                try:
+                    first = quick_task.result()
+                except Exception as exc:
+                    first_reason = type(exc).__name__
+            elif broad_task in done:
+                # Once full evidence is available, an unfinished preliminary cannot
+                # hold up the answer. Never inject a late first finding after refinement.
+                first_skipped = "broader_ready"
+                quick_task.cancel()
+            else:
                 first_reason = "timeout"
-            except Exception as exc:
-                first_reason = type(exc).__name__
+                quick_task.cancel()
             first_ms = (time.perf_counter() - started) * 1000
             if first.text:
                 on_preliminary(first.text)
-            elif not first_reason:
+            elif not first_reason and not first_skipped:
                 first_reason = "no_supported_finding"
             evidence = await broad_task
             on_retrieved()
@@ -251,13 +270,15 @@ class LibraryLibrarian:
                 token_usage=add_usage(add_usage(evidence.token_usage, first.usage), refined.usage),
                 stages=(*(s for s in stages if s.name != "total"),
                     StageTiming(name="first_lookup", ms=round(first_ms),
-                        status="degraded" if first_reason else "ran", detail=first_reason or None),
+                        status="skipped" if first_skipped else "degraded" if first_reason else "ran",
+                        detail=first_reason or first_skipped or None),
                     *(s for s in stages if s.name == "total")),
             )
             out = v1._fast_answer_out(answer, as_of=as_of, plane=plane, settings=ctx.settings)
             payload = out.model_dump(mode="json")
             payload["progressive"] = {"preliminary": first.text, "locator": first.locator,
-                                      "relation": refined.relation, "spoken_update": refined.speech, "first_degraded": first_reason or None}
+                                      "relation": refined.relation, "spoken_update": refined.speech,
+                                      "first_degraded": first_reason or None, "first_skipped": first_skipped or None}
             return LibraryAnswer(payload=payload, answer_text=answer.answer_text)
         finally:
             # Cancellation, errors and superseded session shutdown must leave no hidden work.
