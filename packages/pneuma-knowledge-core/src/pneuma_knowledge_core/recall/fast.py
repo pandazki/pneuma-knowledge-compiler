@@ -34,7 +34,7 @@ import json
 import hashlib
 import re
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Literal
@@ -64,9 +64,10 @@ from ..domain.consultation import (
 from ..domain.ids import AnchorId, UserId, SourceId
 from ..domain.pricing import USAGE_FIELDS
 from ..domain.source import BlockImage, NormalizedBlock, NormalizedSource
+from ..domain.time_context import TimezoneChange
 from ..ports.claim_index import ClaimLexicalIndex, ClaimVectorIndex
 from ..ports.content_store import ContentStore
-from ..ports.evidence_scorer import EvidenceScorer
+from ..ports.evidence_scorer import EvidenceScorer, EvidenceScores, SourceClockDecision, SourceClockPolicy
 from ..ports.lexical_index import LexicalIndex
 from ..ports.media_store import MediaStore
 from ..ports.reranker import Reranker
@@ -113,8 +114,12 @@ from .spine import (
 )
 from .evidence_context import (
     CachedSources, EvidenceTime, RetrievalOrigin, enrich_evidence, evidence_time, retrieval_origin,
-    render_candidate_context, render_groups, render_times,
+    render_candidate_context, render_groups, render_times, render_scorer_context,
     share_retrieval_origins,
+)
+from .temporal import (
+    SourceTimeScope, prepare_source_clock, resolve_source_time_scope, temporal_items,
+    temporal_windows, temporal_notice as source_time_notice,
 )
 from .assembly import (
     Passage,
@@ -617,6 +622,8 @@ class FastAnswer:
     #: `token_usage` where it belongs. A decision model's tokens are a DIFFERENT currency
     #: and are never summed into the LLM ledger, so the two can be read apart afterwards.
     scorer_input_tokens: int = 0
+    source_time_scope: SourceTimeScope | None = None
+    temporal_notice: str | None = None
     # The answer wire shape. Structured answers still return the same public `answer`
     # string; kind/degradation are additive telemetry. Invalid citation removal is
     # reported as "invalid_citations" without making a second model call.
@@ -695,6 +702,8 @@ class FastEvidence:
     #: The evidence scorer's input tokens, on the same footing as on `FastAnswer`: its own
     #: field rather than a line in `token_usage`, because it is a different currency.
     scorer_input_tokens: int = 0
+    source_time_scope: SourceTimeScope | None = None
+    temporal_notice: str | None = None
 
 
 @dataclass(frozen=True)
@@ -758,6 +767,8 @@ class SelectedEvidence:
     #: They were neither kept nor dropped, so the number is the honest size of what this
     #: selection did not judge. Zero on the model path, which either parses or fails whole.
     unscored: int = 0
+    #: Optional per-candidate uncertainty for diagnostics, never a second keep threshold.
+    score_report: EvidenceScores | None = None
 
 
 class StructuredRecallAnswer(BaseModel):
@@ -2269,6 +2280,8 @@ def selection_candidate_texts(
     episode_summaries: Sequence[EpisodeSummary],
     windows: Sequence[RecallHit],
     components: Sequence[ComponentCandidate] = (),
+    as_of: datetime | None = None,
+    zone: str = "UTC",
 ) -> list[str]:
     """What the scorer reads, face by face, in POOL ORDER — claims, episode summaries,
     windows, component items.
@@ -2285,7 +2298,7 @@ def selection_candidate_texts(
             "recall.fast.evidence_score.claim",
             path=claim.document_path,
             section=" / ".join(claim.section_path) or "-",
-            text=render_candidate_context(claim) + "\n" + clip_candidate(claim.text),
+            text=render_scorer_context(claim, as_of=as_of, zone=zone) + "\n" + clip_candidate(claim.text),
         )
         for claim in claims
     ]
@@ -2295,7 +2308,7 @@ def selection_candidate_texts(
             occurred_on=summary.source_occurred_on or "-",
             start=summary.block_start,
             end=summary.block_end,
-            text=render_candidate_context(summary) + "\n" + clip_candidate(summary.text),
+            text=render_scorer_context(summary, as_of=as_of, zone=zone) + "\n" + clip_candidate(summary.text),
         )
         for summary in episode_summaries
     )
@@ -2305,7 +2318,7 @@ def selection_candidate_texts(
             source_id=window.source_id,
             start=window.block_start,
             end=window.block_end,
-            text=render_candidate_context(window) + "\n" + clip_candidate(window.text),
+            text=render_scorer_context(window, as_of=as_of, zone=zone) + "\n" + clip_candidate(window.text),
         )
         for window in windows
     )
@@ -2314,7 +2327,8 @@ def selection_candidate_texts(
             "recall.fast.evidence_score.component",
             kind=candidate.kind,
             locator=candidate.locator,
-            text=render_candidate_context(candidate.claim or candidate.window) + "\n" + clip_candidate(candidate.text),
+            text=render_scorer_context(candidate.claim or candidate.window, as_of=as_of, zone=zone)
+            + "\n" + clip_candidate(candidate.text),
         )
         for candidate in components
     )
@@ -2340,6 +2354,41 @@ def _kept_indexes(
     return [index for index, _score in keepers]
 
 
+def _clock_preview(decision: SourceClockDecision) -> dict:
+    return {
+        "enabled": decision.use_source_clocks,
+        "probability": decision.probability,
+        "input_tokens": decision.input_tokens,
+        "policy_id": decision.policy_id,
+        "period": decision.period,
+        "period_confidence": decision.period_confidence,
+    }
+
+
+def _score_preview(report: EvidenceScores | None) -> dict:
+    """Bounded, text-free diagnostics; confidence never changes evidence selection."""
+    if report is None or (not report.details and report.source_clock_policy is None):
+        return {}
+    confidences = [d.confidence for d in report.details if d is not None and d.confidence is not None]
+    rows = [{"candidate": f"c{i + 1}", "score": score,
+             "confidence": detail.confidence, "probabilities": list(detail.probabilities)}
+            for i, (score, detail) in enumerate(zip(report.scores, report.details))
+            if detail is not None]
+    return {"scoring": {
+        "requested_model": report.requested_model,
+        "reported_models": sorted({d.model for d in report.details if d is not None and d.model}),
+        "rubric_id": report.rubric_id,
+        "candidates": len(report.scores),
+        "with_confidence": len(confidences),
+        "mean_confidence": sum(confidences) / len(confidences) if confidences else None,
+        "min_confidence": min(confidences) if confidences else None,
+        "sample": rows[:8],
+        "sample_omitted": max(0, len(rows) - 8),
+        **({"source_clock_policy": _clock_preview(report.source_clock_policy)}
+           if report.source_clock_policy is not None else {}),
+    }}
+
+
 async def select_evidence_scored(
     scorer: EvidenceScorer,
     question: str,
@@ -2354,6 +2403,10 @@ async def select_evidence_scored(
     window_cap: int = DEFAULT_WINDOW_CAP,
     component_cap: int = DEFAULT_COMPONENT_SELECT_CAP,
     timeout: float | None = DEFAULT_EVIDENCE_SELECTION_TIMEOUT_SECONDS,
+    as_of: datetime | None = None,
+    zone: str = "UTC",
+    source_clock_question: str | None = None,
+    source_clock_decision: SourceClockDecision | None = None,
 ) -> tuple[SelectedEvidence | None, int, str | None]:
     """`select_evidence`'s other selector: one scoring pass, and a floor in code.
 
@@ -2371,20 +2424,30 @@ async def select_evidence_scored(
     """
 
     if not claims and not episode_summaries and not windows and not components:
-        return SelectedEvidence((), (), (), (), ()), 0, None
-    candidates = selection_candidate_texts(
-        claims=claims,
-        episode_summaries=episode_summaries,
-        windows=windows,
-        components=components,
-    )
+        return SelectedEvidence((), (), (), (), ()), source_clock_decision.input_tokens if source_clock_decision else 0, None
+    clock_policy = source_clock_decision
+
+    async def score_with_context() -> EvidenceScores:
+        nonlocal clock_policy
+        if clock_policy is None and as_of is not None and isinstance(scorer, SourceClockPolicy):
+            clock_policy = await prepare_source_clock(scorer, source_clock_question or question)
+        candidates = selection_candidate_texts(
+            claims=claims, episode_summaries=episode_summaries, windows=windows, components=components,
+            as_of=as_of if clock_policy and clock_policy.use_source_clocks else None, zone=zone,
+        )
+        result = await scorer.score(question, candidates)
+        return replace(
+            result, input_tokens=result.input_tokens + (clock_policy.input_tokens if clock_policy else 0),
+            source_clock_policy=clock_policy,
+        )
+
     try:
-        call = scorer.score(question, candidates)
+        call = score_with_context()
         result = await (asyncio.wait_for(call, timeout) if timeout else call)
     except (asyncio.TimeoutError, TimeoutError):
-        return None, 0, "timeout"
+        return None, clock_policy.input_tokens if clock_policy else 0, "timeout"
     except Exception:  # noqa: BLE001 — additive selector degrades to ranked evidence
-        return None, 0, "error"
+        return None, clock_policy.input_tokens if clock_policy else 0, "error"
 
     scores = tuple(result.scores)
     tokens = int(result.input_tokens or 0)
@@ -2459,6 +2522,7 @@ async def select_evidence_scored(
                 )
             ),
             unscored=sum(1 for score in scores if score is None),
+            score_report=result,
         ),
         tokens,
         None,
@@ -3476,6 +3540,10 @@ async def fast_recall(
     # provenance following) is the same mechanism either way. The scored path needs no chat
     # model, so a scorer with `model=None` still selects. Read only under `select`.
     evidence_scorer: EvidenceScorer | None = None,
+    # A caller may share one owned task between early and broad lookups. Awaiting that
+    # task is shielded; the caller, not a cancelled individual lookup, owns its lifetime.
+    source_clock_decision: SourceClockDecision | Awaitable[SourceClockDecision] | None = None,
+    source_time_history: Sequence[TimezoneChange] = (),
     select_score_floor: float = DEFAULT_SELECT_SCORE_FLOOR,
     # `all` only, and its ONLY ceiling: how many characters the assembled evidence faces may
     # occupy. Over it the lane drops windows, then episode summaries, then the lowest-ranked
@@ -3848,12 +3916,24 @@ async def fast_recall(
             )
         return [*ran, *rejected], usage, degraded
 
-    async def retrieval_branch() -> tuple[list[RetrievedClaim], list[RecallHit], tuple]:
-        return await asyncio.gather(  # type: ignore[return-value]
-            retrieve_claim_face(),
-            retrieve_window_face(),
-            component_branch(),
-        )
+    async def clock_branch():
+        if source_clock_decision is not None:
+            if isinstance(source_clock_decision, SourceClockDecision):
+                return source_clock_decision
+            return await asyncio.shield(source_clock_decision)
+        return await prepare_source_clock(evidence_scorer, question)
+
+    async def retrieval_branch():
+        tasks = [asyncio.create_task(call) for call in (
+            retrieve_claim_face(), retrieve_window_face(), component_branch(), clock_branch(),
+        )]
+        try:
+            return await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     selected: tuple[str, ...] = ()
     select_usage = zero_usage()
@@ -3893,13 +3973,18 @@ async def fast_recall(
     # `route` (a model call inside this same gather) can be longer than nothing else here.
     if evidence_strategy == "ranked" and glance and by_path:
         with timer.measure("retrieve"):
-            (claims_raw, raw_windows, component_arm), (selected, select_usage, degraded) = (
+            (claims_raw, raw_windows, component_arm, clock_decision), (selected, select_usage, degraded) = (
                 await asyncio.gather(retrieval_branch(), glance_branch())
             )
         timer.degrade(child_name("glance"), degraded)
     else:
         with timer.measure("retrieve"):
-            claims_raw, raw_windows, component_arm = await retrieval_branch()
+            claims_raw, raw_windows, component_arm, clock_decision = await retrieval_branch()
+    source_scope = resolve_source_time_scope(
+        clock_decision, question=question, as_of=as_of, zone=zone, history=source_time_history,
+    )
+    if clock_decision.policy_id is not None or clock_decision.probability is not None:
+        timer.preview("retrieve", {"source_clock_policy": _clock_preview(clock_decision)})
     component_evidence, route_usage, route_degraded = component_arm
     component_evidence = list(component_evidence)
     # ── THE ARCHIVE, at assembly. Every face this lane retrieved passes through the one
@@ -3971,6 +4056,24 @@ async def fast_recall(
             windows=tuple(next(enriched) for _ in row.windows),
         ) for row in component_evidence]
     archive_hidden = hidden_claims + hidden_windows + hidden_component
+    if source_scope is not None:
+        # This is the USER QUESTION's admitted scope, never a component lookup's args.
+        # Prune before selection so neither ranked anchors nor failed-selection fallback
+        # can spend their caps on records that cannot support this period.
+        claims_raw, claim_times = temporal_items(claims_raw, source_scope)
+        raw_windows, window_times = await temporal_windows(
+            raw_windows, source_scope, user_id=user_id, content=content,
+        )
+        scoped_components = []
+        for row in component_evidence:
+            scoped_claims, _ = temporal_items(row.claims, source_scope)
+            scoped_windows, _ = await temporal_windows(row.windows, source_scope, user_id=user_id, content=content)
+            scoped_components.append(replace(row, claims=tuple(scoped_claims), windows=tuple(scoped_windows)))
+        component_evidence = scoped_components
+        # Whole-page and timeline expansions are not block-clock admitted evidence.
+        selected, glance, annotate_windows, timeline_expand = (), None, False, 0
+        timer.preview("retrieve", {"source_time_scope": source_scope.preview(),
+                                   "claim_times": dict(claim_times), "window_times": dict(window_times)})
     if archive_hidden:
         # Never silent: the same channel the rest of this lane states an omission on. The
         # stage previews merge, so this rides beside what `retrieve` already reported, and
@@ -4004,7 +4107,7 @@ async def fast_recall(
     # The scorer's own consumption, kept OUT of `token_usage`: a decision model bills in a
     # different currency from the answering call, and a sum of the two prices an ask in a
     # unit nobody quoted. It rides the result as its own field instead.
-    scorer_input_tokens = 0
+    scorer_input_tokens = clock_decision.input_tokens
     evidence_selection_degraded: str | None = None
     episode_summary_candidates = 0
     model_selected_claims = 0
@@ -4040,6 +4143,8 @@ async def fast_recall(
                 },
             )
         episode_summary_candidates = len(episode_candidates)
+        if source_scope is not None:
+            episode_candidates, _ = temporal_items(episode_candidates, source_scope)
         # The component face joins the pool instead of bypassing it: one selection call
         # decides the whole context. Ordering, dedup against the pool and the caps have
         # already run, so what the selector reads is the same face the ranked path renders.
@@ -4081,10 +4186,15 @@ async def fast_recall(
                     episode_summary_cap=episode_summary_cap,
                     window_cap=window_cap,
                     timeout=evidence_selection_timeout,
+                    as_of=as_of,
+                    zone=zone,
+                    source_clock_question=question,
+                    source_clock_decision=clock_decision,
                 )
                 timer.preview(
                     "select",
                     {
+                        **_score_preview(evidence_choice.score_report if evidence_choice else None),
                         **_selection_preview(
                             evidence_choice,
                             claims=claims_raw,
@@ -4424,6 +4534,10 @@ async def fast_recall(
         if not annotate_windows:
             windows = order_lost_in_middle(windows)
     with timer.measure("assemble"):
+        if source_scope is not None:
+            image_windows, _ = await temporal_windows(
+                image_windows, source_scope, user_id=user_id, content=content,
+            )
         images = await collect_window_images(
             user_id,
             image_windows,
@@ -4519,6 +4633,31 @@ async def fast_recall(
                 for origin in item.retrieval_origins
             ) for item in shown_items),
         ) for row in component_evidence]
+    if source_scope is not None:
+        # Recheck after every assembly/provenance expansion. No later reader may widen a
+        # source-time-admitted window or smuggle in a whole page of historical material.
+        claims, _ = temporal_items(claims, source_scope)
+        episode_summaries, _ = temporal_items(episode_summaries, source_scope)
+        windows, _ = await temporal_windows(windows, source_scope, user_id=user_id, content=content)
+        expanded, selected, timelines, window_notes, glance = [], (), [], None, None
+        filtered_components = []
+        for row in shown_component_evidence:
+            cs, _ = temporal_items(row.claims, source_scope)
+            ws, _ = await temporal_windows(row.windows, source_scope, user_id=user_id, content=content)
+            filtered_components.append(replace(row, claims=tuple(cs), windows=tuple(ws)))
+        shown_component_evidence = filtered_components
+        timer.preview("assemble", {
+            "source_time_scope": source_scope.preview(),
+            "windows": len(windows), "window_chars": _chars(windows),
+            "sections": section_line(
+                (("claims", len(claims)), ("windows", len(windows)),
+                 ("episodes", len(episode_summaries)), ("images", len(images))),
+                _chars(claims) + _chars(windows) + _chars(episode_summaries),
+            ),
+        })
+    temporal_message = source_time_notice(source_scope, has_evidence=bool(
+        claims or windows or episode_summaries or any(e.claims or e.windows for e in shown_component_evidence)
+    ))
     # Built from the very arguments both answer branches below are handed, once, so the two
     # cannot disagree about what was shown. It observes the render; it never alters it.
     manifest = evidence_manifest(
@@ -4602,8 +4741,16 @@ async def fast_recall(
             token_usage=add_usage(add_usage(select_usage, plan_usage),
                                   add_usage(evidence_selection_usage, route_usage)),
             scorer_input_tokens=scorer_input_tokens,
+            source_time_scope=source_scope,
+            temporal_notice=temporal_message,
         )
-    if answer_format == "structured":
+    if temporal_message:
+        answer = answer_text = temporal_message
+        answer_kind, usage, citation_handles = "no_record", zero_usage(), {}
+        if on_token:
+            on_token(answer)
+        timer.preview("answer", {"temporal_admission": "no_supported_evidence", "turns": 0})
+    elif answer_format == "structured":
         with timer.measure("answer"):
             (
                 answer_text,
@@ -4725,6 +4872,8 @@ async def fast_recall(
         evidence_strategy=evidence_strategy,
         evidence_selection_degraded=evidence_selection_degraded,
         scorer_input_tokens=scorer_input_tokens,
+        source_time_scope=source_scope,
+        temporal_notice=temporal_message,
         answer_format=answer_format,
         answer_kind=answer_kind,
         answer_format_degraded=answer_format_degraded,

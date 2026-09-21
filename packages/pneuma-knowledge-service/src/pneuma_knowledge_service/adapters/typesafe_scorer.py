@@ -24,11 +24,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
+import math
+import re
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Sequence
 
 import httpx
 
-from pneuma_knowledge_core.ports.evidence_scorer import EvidenceScores
+from pneuma_knowledge_core.ports.evidence_scorer import EvidenceScoreDetail, EvidenceScores, SourceClockDecision
 
 _ENDPOINT = "https://openrouter.ai/api/alpha/decisions"
 _RETRY_SLEEP_SECONDS = 0.25
@@ -45,6 +50,81 @@ USEFULNESS_LEVELS: tuple[str, ...] = (
     "Directly answers the question",
 )
 _MAX_LEVEL = len(USEFULNESS_LEVELS) - 1
+_SCORE_INSTRUCTIONS = "How useful is `{candidate}` as evidence for answering `question`?"
+_RUBRIC_ID = hashlib.sha256(json.dumps(
+    [_SCORE_INSTRUCTIONS, USEFULNESS_LEVELS], ensure_ascii=False,
+).encode()).hexdigest()[:16]
+_SOURCE_CLOCK_INSTRUCTIONS = "Does answering `question` require selecting source records by their occurrence dates or recency?"
+_SOURCE_CLOCK_CRITERIA = {
+    "true": "The requested records must fall in a time period, or be the most recent updates: today's notes, last week's work, recent projects, or records within a stated date range.",
+    "false": "The question asks about a subject, a recorded fact, or an event's date without filtering source records by when they were recorded. General past experience, a project's release date, and a historical test result do not by themselves require source-date filtering.",
+}
+_SOURCE_CLOCK_FLOOR = 0.8
+_SOURCE_CLOCK_TIMEOUT_SECONDS = 2.0
+_SOURCE_PERIOD_INSTRUCTIONS = (
+    "Which exact calendar period does `question` request for source records? "
+    "Select unresolved for vague recency, event dates rather than record dates, sub-day "
+    "windows, comparisons of separate periods, exclusions, or a period not described by an option."
+)
+_SOURCE_PERIOD_CRITERIA = {
+    "today": "Records from the current calendar day only.",
+    "yesterday": "Records from the immediately preceding calendar day only.",
+    "day_before_yesterday": "Records from the calendar day before yesterday only.",
+    "last_two_days": "Records from these two calendar days, today and yesterday (这两天).",
+    "last_three_days": "Records from these three calendar days, including today.",
+    "last_seven_days": "Records from the last seven calendar days, including today, not the previous calendar week.",
+    "last_fourteen_days": "Records from the last fourteen calendar days, including today.",
+    "last_thirty_days": "Records from the last thirty calendar days, including today, not the previous calendar month.",
+    "this_week": "Records from the current calendar week, Monday through today.",
+    "last_week": "Records from the whole preceding calendar week, Monday through Sunday.",
+    "this_month": "Records from the first day of the current month through today.",
+    "last_month": "Records from the whole preceding calendar month.",
+    "this_year": "Records from the first day of the current year through today.",
+    "last_year": "Records from the whole preceding calendar year.",
+    "explicit_dates": "Records for one literal date or one inclusive range with both full dates written in the question. No exclusions or disjoint periods.",
+    "unresolved": "No exact supported source-record period: vague recently/latest, an event date, sub-day times, separate periods being compared, exclusions, or another unsupported period.",
+}
+_SOURCE_CLOCK_POLICY_ID = hashlib.sha256(json.dumps(
+    [_SOURCE_CLOCK_INSTRUCTIONS, _SOURCE_CLOCK_CRITERIA, _SOURCE_CLOCK_FLOOR,
+     _SOURCE_PERIOD_INSTRUCTIONS, _SOURCE_PERIOD_CRITERIA], sort_keys=True,
+).encode()).hexdigest()[:16]
+
+
+def _number(value: object, upper: float) -> float | None:
+    """Invalid model output is missing evidence, never a clamped confident answer."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and 0 <= number <= upper else None
+
+
+def _detail(row: dict, model: object) -> EvidenceScoreDetail:
+    raw = row.get("probabilities")
+    probabilities: tuple[float, ...] = ()
+    if isinstance(raw, dict) and set(raw) == {str(i) for i in range(len(USEFULNESS_LEVELS))}:
+        values = tuple(_number(raw[str(i)], 1) for i in range(len(USEFULNESS_LEVELS)))
+        if all(v is not None for v in values) and math.isclose(sum(values), 1, abs_tol=1e-5):
+            probabilities = values
+    reported = model if isinstance(model, str) and re.fullmatch(r"[\w./:+-]{1,200}", model) else None
+    return EvidenceScoreDetail(probabilities, _number(row.get("confidence"), 1), reported)
+
+
+def _retry_after(value: str | None) -> float | None:
+    if not value:
+        return None
+    seconds = _number(value, float("inf"))
+    if seconds is not None:
+        return seconds
+    try:
+        instant = parsedate_to_datetime(value)
+        if instant.tzinfo is None:
+            instant = instant.replace(tzinfo=timezone.utc)
+        return max(0, (instant - datetime.now(timezone.utc)).total_seconds())
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 class TypeSafeEvidenceScorer:
@@ -68,6 +148,8 @@ class TypeSafeEvidenceScorer:
         self._per_request = max(1, per_request)
         self._max_chars = max(1, max_chars)
         self._concurrency = max(1, concurrency)
+        # Wiring caches this adapter: concurrent recalls share the provider budget.
+        self._semaphore = asyncio.Semaphore(self._concurrency)
         self._call_timeout = call_timeout
         self._retries = max(0, retries)
         self._client: httpx.AsyncClient | None = None
@@ -76,6 +158,49 @@ class TypeSafeEvidenceScorer:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(timeout=self._call_timeout)
         return self._client
+
+    async def source_clock_policy(self, question: str) -> SourceClockDecision:
+        """Judge source-clock intent and a supported period in one question-only request.
+
+        Core resolves calendar boundaries and owns admission. Unavailable validation is
+        distinct from a negative intent decision. The request overlaps retrieval and is
+        shared by the voice lookup's early and broad phases.
+        """
+        async def request():
+            async with self._semaphore:
+                return await self._post({
+                    "model": self._model, "state": {"question": question},
+                    "questions": {
+                        "source_clock": {"type": "noul", "instructions": _SOURCE_CLOCK_INSTRUCTIONS,
+                                         "criteria": _SOURCE_CLOCK_CRITERIA},
+                        "source_period": {"type": "choice", "instructions": _SOURCE_PERIOD_INSTRUCTIONS,
+                                          "criteria": _SOURCE_PERIOD_CRITERIA},
+                    },
+                })
+
+        try:
+            payload = await asyncio.wait_for(request(), min(self._call_timeout, _SOURCE_CLOCK_TIMEOUT_SECONDS))
+        except TimeoutError:
+            return SourceClockDecision(policy_id=_SOURCE_CLOCK_POLICY_ID)
+        if payload is None:
+            return SourceClockDecision(policy_id=_SOURCE_CLOCK_POLICY_ID)
+        answers = payload.get("answers")
+        row = answers.get("source_clock") if isinstance(answers, dict) else None
+        probability = _number(row.get("noul"), 1) if isinstance(row, dict) else None
+        period_row = answers.get("source_period") if isinstance(answers, dict) else None
+        period = period_row.get("choice") if isinstance(period_row, dict) else None
+        period = period if isinstance(period, str) and period in _SOURCE_PERIOD_CRITERIA else None
+        period_confidence = _number(period_row.get("confidence"), 1) if isinstance(period_row, dict) else None
+        usage = payload.get("usage") or {}
+        try:
+            tokens = max(0, int(usage.get("input_tokens", usage.get("prompt_tokens", 0)))) if isinstance(usage, dict) else 0
+        except (ValueError, TypeError, OverflowError):
+            tokens = 0
+        return SourceClockDecision(
+            probability is not None and probability >= _SOURCE_CLOCK_FLOOR, probability, tokens,
+            _SOURCE_CLOCK_POLICY_ID,
+            period, period_confidence,
+        )
 
     def _shards(self, candidates: Sequence[str]) -> list[list[tuple[int, str]]]:
         """Greedy shards, bounded by COUNT and by the characters they carry.
@@ -110,10 +235,7 @@ class TypeSafeEvidenceScorer:
         questions = {
             f"c{index + 1}": {
                 "type": "score",
-                "instructions": (
-                    f"How useful is `candidates.c{index + 1}` as evidence for answering "
-                    "`question`?"
-                ),
+                "instructions": _SCORE_INSTRUCTIONS.format(candidate=f"candidates.c{index + 1}"),
                 "criteria": list(USEFULNESS_LEVELS),
             }
             for index, _text in shard
@@ -124,6 +246,7 @@ class TypeSafeEvidenceScorer:
         """One shard's payload, or None when it failed after its retry."""
         for attempt in range(self._retries + 1):
             retryable = False
+            retry_delay = _RETRY_SLEEP_SECONDS * (2 ** attempt)
             try:
                 response = await self._ensure_client().post(
                     _ENDPOINT,
@@ -132,6 +255,7 @@ class TypeSafeEvidenceScorer:
                 )
                 if response.status_code == 429 or response.status_code >= 500:
                     retryable = True
+                    retry_delay = max(retry_delay, _retry_after(response.headers.get("Retry-After")) or 0)
                     raise httpx.HTTPStatusError(
                         f"decisions route returned {response.status_code}",
                         request=response.request,
@@ -148,7 +272,11 @@ class TypeSafeEvidenceScorer:
                 pass  # a body that does not parse will not parse on a second try
             if not retryable or attempt >= self._retries:
                 return None
-            await asyncio.sleep(_RETRY_SLEEP_SECONDS)
+            # Do not retry before the provider allows it. A long cooldown is a fail-soft
+            # result; the recall deadline must not become a background retry queue.
+            if retry_delay >= self._call_timeout:
+                return None
+            await asyncio.sleep(retry_delay)
         return None
 
     async def score(self, question: str, candidates: Sequence[str]) -> EvidenceScores:
@@ -156,15 +284,15 @@ class TypeSafeEvidenceScorer:
         if not texts:
             return EvidenceScores(scores=(), input_tokens=0)
         shards = self._shards(texts)
-        semaphore = asyncio.Semaphore(self._concurrency)
 
         async def run(shard: list[tuple[int, str]]):
-            async with semaphore:
+            async with self._semaphore:
                 return shard, await self._post(self._body(question, shard))
 
         results = await asyncio.gather(*(run(shard) for shard in shards))
 
         scores: list[float | None] = [None] * len(texts)
+        details: list[EvidenceScoreDetail | None] = [None] * len(texts)
         input_tokens = 0
         answered = 0
         for shard, payload in results:
@@ -175,8 +303,8 @@ class TypeSafeEvidenceScorer:
             if isinstance(usage, dict):
                 raw_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0))
                 try:
-                    input_tokens += int(raw_tokens or 0)
-                except (TypeError, ValueError):
+                    input_tokens += max(0, int(raw_tokens or 0))
+                except (TypeError, ValueError, OverflowError):
                     pass
             answers = payload.get("answers") or {}
             if not isinstance(answers, dict):
@@ -185,16 +313,19 @@ class TypeSafeEvidenceScorer:
                 row = answers.get(f"c{index + 1}")
                 if not isinstance(row, dict):
                     continue
-                try:
-                    level = float(row["score"])
-                except (KeyError, TypeError, ValueError):
-                    continue  # a malformed row is unscored, never a fabricated 0
-                scores[index] = min(max(level, 0.0), _MAX_LEVEL) / _MAX_LEVEL
+                level = _number(row.get("score"), _MAX_LEVEL)
+                if level is None:
+                    continue
+                scores[index] = level / _MAX_LEVEL
+                details[index] = _detail(row, payload.get("model"))
         if shards and answered == 0:
             # Every shard failed: that is the provider being down, not a partial judgement,
             # and the caller's own fail-soft path is the honest place to land.
             raise RuntimeError("every evidence-scoring shard failed")
-        return EvidenceScores(scores=tuple(scores), input_tokens=input_tokens)
+        return EvidenceScores(
+            scores=tuple(scores), input_tokens=input_tokens, details=tuple(details),
+            requested_model=self._model, rubric_id=_RUBRIC_ID,
+        )
 
     async def aclose(self) -> None:
         if self._client is not None and not self._client.is_closed:

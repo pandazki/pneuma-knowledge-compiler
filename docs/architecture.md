@@ -218,6 +218,18 @@ subject expansions; missing clocks stay unknown, and source time is not a claim'
 time. These annotations are ephemeral, use a tenant-scoped read cache, and spend the evidence
 character budgets. The SystemMessage, canonical and kept records are unchanged.
 
+A scorer may also implement the optional **source-clock policy**. One question-only
+intent/period decision overlaps retrieval; core resolves supported calendar periods in
+the owner's timezone and filters complete cited block clocks before selection and after
+assembly. Mixed verbatim windows split into exact in-period runs, and ranked anchors
+cannot bring excluded records back. This is the question's scope, never a component's
+arguments promoted to global filters. Event time remains distinct from source time.
+Negative intent leaves the ordinary lane unchanged; an unresolved requested interval or
+unavailable configured policy withholds facts with a mechanical result. Voice's two
+lookups share the policy and the same admission. Decisions, uncertainty and their costs
+are separately observable. See [design/evidence-scoring.md](design/evidence-scoring.md)
+for thresholds, failure behavior and the limits of the paired measurements.
+
 Canonical provenance is resolved over one supplied snapshot, including ledger-to-ledger
 references across pages. Snapshot projection derives the resulting source locators before
 incremental sync compares signatures, so an ancestor's changed citation also updates its
@@ -316,7 +328,21 @@ The Git binary is a runtime requirement (the canonical adapter shells out). Asyn
 Model wiring is role-based — compile, recall, answer, deep, skill, evolve, challenge, live-context — each independently configurable, with a single one-hop fallback and a shared default. `recall` owns retrieval planning/glance while `answer` owns only the final fast-answer generation, so quality-first reasoning never taxes every retrieval helper. A `scripted:` model spec replays recorded responses for keyless, deterministic runs; embeddings accept a deterministic `fake:<dim>` for the same purpose. Tracing (Langfuse) is a no-op unless fully configured.
 
 
-A fifth way in is a **voice call**. GPT-Live conducts a full-duplex conversation; the backend forms a question from the transcript and answers through fast recall, preserving tenant isolation, archive scope and provenance handling. Each formed question starts a bounded lexical first look alongside broader recall. A coordinate-only selection delivers a short verbatim partial record; a later structured answer compares the broader evidence with that first finding and returns an extension, correction or confirmation. Both results use the same delegation ID, and progress is tracked separately from answers. Audio stays on browser-to-provider WebRTC; the engine exchanges SDP and owns the sideband, keeping the project key off the browser. Evidence cards are available for inspection, but neither text-answer citations nor temporal caption associations guarantee factual correctness of the spoken paraphrase. Design: [design/voice-call.md](design/voice-call.md).
+A fifth way in is a **voice call**. GPT-Live owns full-duplex conversation while the
+backend forms a standalone question from a frozen transcript and returns supported facts,
+evidence scope and unresolved aspects. Every formed question starts a bounded canonical-title
+or lexical first look alongside broader fast recall. Early facts require structured admission
+and an exact passage; uncertainty produces quiet task progress, not a speculative answer.
+The broader result is synthesized from evidence without prior playback assumptions. Both
+phases use the same delegation ID, with scope/progress separate from factual commentary;
+revision checks suppress late results after changed intent. Audio stays on browser-to-provider
+WebRTC; the engine exchanges SDP and owns the sideband, keeping the project key off the
+browser. A maintained spelling vocabulary helps name interpretation at session startup and
+ask formation. Citation admission checks source addresses, while neither it nor temporal
+caption association proves spoken factual correctness. Design decisions:
+[design/voice-call.md](design/voice-call.md). Complete architecture, sequence/activity diagrams,
+retrieval and vocabulary implementation:
+[design/voice-call-implementation.md](design/voice-call-implementation.md).
 
 The compile role accepts one further spec, `agent:<backend>` (`codex`, `claude-code`): a **coding agent** on the deployment's machine, under the Owner's own subscription, drives the round instead of an API model. Nothing about the library changes — the claim-level draft, the write tools and the gate are one door, and the langchain loop and the agent's `pkc` commands are two clients of it, held to the same refusals by the same code — so the executor is a Steward-internal choice (design/steward-owner-visitor.md) and never enters the attribution trailer, which names the contract, the wording and the components as before; the job record names the executor, and a commit an agent produced additionally carries the hash of the skill package it was taught from. The agent's whole vocabulary is the framework's CLI: `pkc` reads every layer and writes canonical through `pkc draft`, whose draft lives in Postgres between commands and whose every write is post-checked with the gate's own predicates. Two postures share it: the worker launches the harness headless for queued jobs, and an Owner sits with the agent in the project — in a terminal, or in the console's Steward view. The full design is [design/coding-agent-mode.md](design/coding-agent-mode.md).
 

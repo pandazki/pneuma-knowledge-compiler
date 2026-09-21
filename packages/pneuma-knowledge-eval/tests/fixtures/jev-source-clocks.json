@@ -1,0 +1,434 @@
+[
+  {
+    "id": "initial-zh-today",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\n今天的聊天里，阿澄说了哪些关于蓝鹭项目的事情？",
+    "expected": [
+      true,
+      false,
+      false,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 C。",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 D。",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 A。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 B。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-20\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-20\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 C。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-08-21\", \"first_relation\": \"1 month before as_of\", \"last_day\": \"2026-08-21\", \"last_relation\": \"1 month before as_of\"}]}",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 D。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-3\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-22\", \"first_relation\": \"tomorrow\", \"last_day\": \"2026-09-22\", \"last_relation\": \"tomorrow\"}]}",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-4\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "initial-zh-yesterday",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\n昨天的聊天里，阿澄说了哪些关于蓝鹭项目的事情？",
+    "expected": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 C。",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 D。",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 A。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 B。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-20\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-20\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 C。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-08-21\", \"first_relation\": \"1 month before as_of\", \"last_day\": \"2026-08-21\", \"last_relation\": \"1 month before as_of\"}]}",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 D。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-3\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-22\", \"first_relation\": \"tomorrow\", \"last_day\": \"2026-09-22\", \"last_relation\": \"tomorrow\"}]}",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-4\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-20\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-20\", \"last_relation\": \"yesterday\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "initial-zh-definition",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\n蓝鹭项目是什么？",
+    "expected": [
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭是将合成会议记录转成可检索笔记的演示项目。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nCedar is a room booking demo."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭是将合成会议记录转成可检索笔记的演示项目。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-08-21\", \"first_relation\": \"1 month before as_of\", \"last_day\": \"2026-08-21\", \"last_relation\": \"1 month before as_of\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nCedar is a room booking demo.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "initial-zh-event-not-source",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\n蓝鹭项目是哪天发布的？",
+    "expected": [
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭于 2026 年 8 月 3 日发布。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭是一种记录整理工具。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭于 2026 年 8 月 3 日发布。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭是一种记录整理工具。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "initial-en-today",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\nWhat did Ari say about Project Heron in today's chat?",
+    "expected": [
+      true,
+      false,
+      false,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan C.",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan D.",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan A.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan B.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-20\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-20\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan C.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-08-21\", \"first_relation\": \"1 month before as_of\", \"last_day\": \"2026-08-21\", \"last_relation\": \"1 month before as_of\"}]}",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan D.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-3\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-22\", \"first_relation\": \"tomorrow\", \"last_day\": \"2026-09-22\", \"last_relation\": \"tomorrow\"}]}",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-4\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "initial-en-yesterday",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\nWhat did Ari say about Project Heron in yesterday's chat?",
+    "expected": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan C.",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan D.",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan A.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan B.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-20\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-20\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan C.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-08-21\", \"first_relation\": \"1 month before as_of\", \"last_day\": \"2026-08-21\", \"last_relation\": \"1 month before as_of\"}]}",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan D.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-3\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-22\", \"first_relation\": \"tomorrow\", \"last_day\": \"2026-09-22\", \"last_relation\": \"tomorrow\"}]}",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-4\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-20\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-20\", \"last_relation\": \"yesterday\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "initial-en-definition",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\nWhat is Project Heron?",
+    "expected": [
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nHeron is a demo that turns synthetic meeting records into searchable notes.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nCedar is a room booking demo."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nHeron is a demo that turns synthetic meeting records into searchable notes.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-08-21\", \"first_relation\": \"1 month before as_of\", \"last_day\": \"2026-08-21\", \"last_relation\": \"1 month before as_of\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nCedar is a room booking demo.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "initial-en-event-not-source",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\nOn which date was Project Heron released?",
+    "expected": [
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nHeron was released on August 3, 2026.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nHeron is a note organization tool."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nHeron was released on August 3, 2026.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nHeron is a note organization tool.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-09-21\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-21\", \"first_relation\": \"today\", \"last_day\": \"2026-09-21\", \"last_relation\": \"today\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "month-zh-today",
+    "question": "as_of: 2026-10-01T00:30:00+00:00; zone: Asia/Shanghai\n只找今天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-01\", \"first_relation\": \"today\", \"last_day\": \"2026-10-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-30\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-30\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-29\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-09-29\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "month-zh-yesterday",
+    "question": "as_of: 2026-10-01T00:30:00+00:00; zone: Asia/Shanghai\n只找昨天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-01\", \"first_relation\": \"today\", \"last_day\": \"2026-10-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-30\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-30\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-29\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-09-29\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "month-en-today",
+    "question": "as_of: 2026-10-01T00:30:00+00:00; zone: Asia/Shanghai\nFind Violet project updates recorded today; what do the records say?",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-01\", \"first_relation\": \"today\", \"last_day\": \"2026-10-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-30\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-30\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-29\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-09-29\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "month-en-yesterday",
+    "question": "as_of: 2026-10-01T00:30:00+00:00; zone: Asia/Shanghai\nFind Violet project updates recorded yesterday; what do the records say?",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-01\", \"first_relation\": \"today\", \"last_day\": \"2026-10-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-30\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-09-30\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2026-10-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-09-29\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-09-29\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "year-zh-today",
+    "question": "as_of: 2027-01-01T01:00:00+00:00; zone: Asia/Shanghai\n只找今天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2027-01-01\", \"first_relation\": \"today\", \"last_day\": \"2027-01-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-12-31\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-12-31\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-12-30\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-12-30\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "year-zh-yesterday",
+    "question": "as_of: 2027-01-01T01:00:00+00:00; zone: Asia/Shanghai\n只找昨天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2027-01-01\", \"first_relation\": \"today\", \"last_day\": \"2027-01-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-12-31\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-12-31\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-12-30\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-12-30\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "year-en-today",
+    "question": "as_of: 2027-01-01T01:00:00+00:00; zone: Asia/Shanghai\nFind Violet project updates recorded today; what do the records say?",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2027-01-01\", \"first_relation\": \"today\", \"last_day\": \"2027-01-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-12-31\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-12-31\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-12-30\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-12-30\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "year-en-yesterday",
+    "question": "as_of: 2027-01-01T01:00:00+00:00; zone: Asia/Shanghai\nFind Violet project updates recorded yesterday; what do the records say?",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2027-01-01\", \"first_relation\": \"today\", \"last_day\": \"2027-01-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-12-31\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-12-31\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"Asia/Shanghai\", \"as_of_day\": \"2027-01-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-12-30\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-12-30\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "dst-zh-today",
+    "question": "as_of: 2026-11-01T14:00:00+00:00; zone: America/New_York\n只找今天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-11-01\", \"first_relation\": \"today\", \"last_day\": \"2026-11-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-31\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-10-31\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-30\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-10-30\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "dst-zh-yesterday",
+    "question": "as_of: 2026-11-01T14:00:00+00:00; zone: America/New_York\n只找昨天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-11-01\", \"first_relation\": \"today\", \"last_day\": \"2026-11-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-31\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-10-31\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-30\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-10-30\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "dst-en-today",
+    "question": "as_of: 2026-11-01T14:00:00+00:00; zone: America/New_York\nFind Violet project updates recorded today; what do the records say?",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-11-01\", \"first_relation\": \"today\", \"last_day\": \"2026-11-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-31\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-10-31\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-30\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-10-30\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  },
+  {
+    "id": "dst-en-yesterday",
+    "question": "as_of: 2026-11-01T14:00:00+00:00; zone: America/New_York\nFind Violet project updates recorded yesterday; what do the records say?",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-0\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-11-01\", \"first_relation\": \"today\", \"last_day\": \"2026-11-01\", \"last_relation\": \"today\"}]}",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-1\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-31\", \"first_relation\": \"yesterday\", \"last_day\": \"2026-10-31\", \"last_relation\": \"yesterday\"}]}",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C.\n{\"clock_scope\": \"source_occurrence_not_event_time\", \"zone\": \"America/New_York\", \"as_of_day\": \"2026-11-01\", \"source_clocks\": [{\"source_id\": \"synthetic-2\", \"span\": [0, 0], \"coverage\": \"complete\", \"first_day\": \"2026-10-30\", \"first_relation\": \"2 days before as_of\", \"last_day\": \"2026-10-30\", \"last_relation\": \"2 days before as_of\"}]}"
+      ]
+    }
+  }
+]

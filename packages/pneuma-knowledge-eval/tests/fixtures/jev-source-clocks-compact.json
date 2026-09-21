@@ -1,0 +1,434 @@
+[
+  {
+    "id": "initial-zh-today",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\n今天的聊天里，阿澄说了哪些关于蓝鹭项目的事情？",
+    "expected": [
+      true,
+      false,
+      false,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 C。",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 D。",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\n阿澄：蓝鹭项目的测试批次是方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-20 (yesterday), last_day=2026-09-20 (yesterday); coverage=complete\n阿澄：蓝鹭项目的测试批次是方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-08-21 (1 month before as_of), last_day=2026-08-21 (1 month before as_of); coverage=complete\n阿澄：蓝鹭项目的测试批次是方案 C。",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-22 (tomorrow), last_day=2026-09-22 (tomorrow); coverage=complete\n阿澄：蓝鹭项目的测试批次是方案 D。",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\nMira booked a room for the unrelated Cedar project."
+      ]
+    }
+  },
+  {
+    "id": "initial-zh-yesterday",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\n昨天的聊天里，阿澄说了哪些关于蓝鹭项目的事情？",
+    "expected": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 C。",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\n阿澄：蓝鹭项目的测试批次是方案 D。",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\n阿澄：蓝鹭项目的测试批次是方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-20 (yesterday), last_day=2026-09-20 (yesterday); coverage=complete\n阿澄：蓝鹭项目的测试批次是方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-08-21 (1 month before as_of), last_day=2026-08-21 (1 month before as_of); coverage=complete\n阿澄：蓝鹭项目的测试批次是方案 C。",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-22 (tomorrow), last_day=2026-09-22 (tomorrow); coverage=complete\n阿澄：蓝鹭项目的测试批次是方案 D。",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-20 (yesterday), last_day=2026-09-20 (yesterday); coverage=complete\nMira booked a room for the unrelated Cedar project."
+      ]
+    }
+  },
+  {
+    "id": "initial-zh-definition",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\n蓝鹭项目是什么？",
+    "expected": [
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭是将合成会议记录转成可检索笔记的演示项目。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nCedar is a room booking demo."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-08-21 (1 month before as_of), last_day=2026-08-21 (1 month before as_of); coverage=complete\n蓝鹭是将合成会议记录转成可检索笔记的演示项目。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\nCedar is a room booking demo."
+      ]
+    }
+  },
+  {
+    "id": "initial-zh-event-not-source",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\n蓝鹭项目是哪天发布的？",
+    "expected": [
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭于 2026 年 8 月 3 日发布。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\n蓝鹭是一种记录整理工具。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\n蓝鹭于 2026 年 8 月 3 日发布。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\n蓝鹭是一种记录整理工具。"
+      ]
+    }
+  },
+  {
+    "id": "initial-en-today",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\nWhat did Ari say about Project Heron in today's chat?",
+    "expected": [
+      true,
+      false,
+      false,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan C.",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan D.",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\nAri: Project Heron's test batch follows plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-20 (yesterday), last_day=2026-09-20 (yesterday); coverage=complete\nAri: Project Heron's test batch follows plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-08-21 (1 month before as_of), last_day=2026-08-21 (1 month before as_of); coverage=complete\nAri: Project Heron's test batch follows plan C.",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-22 (tomorrow), last_day=2026-09-22 (tomorrow); coverage=complete\nAri: Project Heron's test batch follows plan D.",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\nMira booked a room for the unrelated Cedar project."
+      ]
+    }
+  },
+  {
+    "id": "initial-en-yesterday",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\nWhat did Ari say about Project Heron in yesterday's chat?",
+    "expected": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan C.",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated)\nAri: Project Heron's test batch follows plan D.",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated)\nMira booked a room for the unrelated Cedar project."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\nAri: Project Heron's test batch follows plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-20 (yesterday), last_day=2026-09-20 (yesterday); coverage=complete\nAri: Project Heron's test batch follows plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-08-21 (1 month before as_of), last_day=2026-08-21 (1 month before as_of); coverage=complete\nAri: Project Heron's test batch follows plan C.",
+        "[verbatim source passage · source=synthetic-3; span=0-0] [cite: synthetic-3 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-21T17:00:00+00:00..2026-09-21T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-22 (tomorrow), last_day=2026-09-22 (tomorrow); coverage=complete\nAri: Project Heron's test batch follows plan D.",
+        "[verbatim source passage · source=synthetic-4; span=0-0] [cite: synthetic-4 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-19T17:00:00+00:00..2026-09-19T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-20 (yesterday), last_day=2026-09-20 (yesterday); coverage=complete\nMira booked a room for the unrelated Cedar project."
+      ]
+    }
+  },
+  {
+    "id": "initial-en-definition",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\nWhat is Project Heron?",
+    "expected": [
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated)\nHeron is a demo that turns synthetic meeting records into searchable notes.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nCedar is a room booking demo."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-08-20T17:00:00+00:00..2026-08-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-08-21 (1 month before as_of), last_day=2026-08-21 (1 month before as_of); coverage=complete\nHeron is a demo that turns synthetic meeting records into searchable notes.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\nCedar is a room booking demo."
+      ]
+    }
+  },
+  {
+    "id": "initial-en-event-not-source",
+    "question": "as_of: 2026-09-21T01:00:00+00:00; zone: Asia/Shanghai\nOn which date was Project Heron released?",
+    "expected": [
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nHeron was released on August 3, 2026.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated)\nHeron is a note organization tool."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\nHeron was released on August 3, 2026.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-20T17:00:00+00:00..2026-09-20T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-21 (today), last_day=2026-09-21 (today); coverage=complete\nHeron is a note organization tool."
+      ]
+    }
+  },
+  {
+    "id": "month-zh-today",
+    "question": "as_of: 2026-10-01T00:30:00+00:00; zone: Asia/Shanghai\n只找今天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-01 (today), last_day=2026-10-01 (today); coverage=complete\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-30 (yesterday), last_day=2026-09-30 (yesterday); coverage=complete\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-29 (2 days before as_of), last_day=2026-09-29 (2 days before as_of); coverage=complete\n紫鸢项目使用方案 C。"
+      ]
+    }
+  },
+  {
+    "id": "month-zh-yesterday",
+    "question": "as_of: 2026-10-01T00:30:00+00:00; zone: Asia/Shanghai\n只找昨天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-01 (today), last_day=2026-10-01 (today); coverage=complete\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-30 (yesterday), last_day=2026-09-30 (yesterday); coverage=complete\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-29 (2 days before as_of), last_day=2026-09-29 (2 days before as_of); coverage=complete\n紫鸢项目使用方案 C。"
+      ]
+    }
+  },
+  {
+    "id": "month-en-today",
+    "question": "as_of: 2026-10-01T00:30:00+00:00; zone: Asia/Shanghai\nFind Violet project updates recorded today; what do the records say?",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-01 (today), last_day=2026-10-01 (today); coverage=complete\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-30 (yesterday), last_day=2026-09-30 (yesterday); coverage=complete\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-29 (2 days before as_of), last_day=2026-09-29 (2 days before as_of); coverage=complete\nProject Violet uses plan C."
+      ]
+    }
+  },
+  {
+    "id": "month-en-yesterday",
+    "question": "as_of: 2026-10-01T00:30:00+00:00; zone: Asia/Shanghai\nFind Violet project updates recorded yesterday; what do the records say?",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T18:00:00+00:00..2026-09-30T18:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-01 (today), last_day=2026-10-01 (today); coverage=complete\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-30T12:00:00+00:00..2026-09-30T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-30 (yesterday), last_day=2026-09-30 (yesterday); coverage=complete\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-09-29T12:00:00+00:00..2026-09-29T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-09-29 (2 days before as_of), last_day=2026-09-29 (2 days before as_of); coverage=complete\nProject Violet uses plan C."
+      ]
+    }
+  },
+  {
+    "id": "year-zh-today",
+    "question": "as_of: 2027-01-01T01:00:00+00:00; zone: Asia/Shanghai\n只找今天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2027-01-01 (today), last_day=2027-01-01 (today); coverage=complete\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-12-31 (yesterday), last_day=2026-12-31 (yesterday); coverage=complete\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-12-30 (2 days before as_of), last_day=2026-12-30 (2 days before as_of); coverage=complete\n紫鸢项目使用方案 C。"
+      ]
+    }
+  },
+  {
+    "id": "year-zh-yesterday",
+    "question": "as_of: 2027-01-01T01:00:00+00:00; zone: Asia/Shanghai\n只找昨天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2027-01-01 (today), last_day=2027-01-01 (today); coverage=complete\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-12-31 (yesterday), last_day=2026-12-31 (yesterday); coverage=complete\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-12-30 (2 days before as_of), last_day=2026-12-30 (2 days before as_of); coverage=complete\n紫鸢项目使用方案 C。"
+      ]
+    }
+  },
+  {
+    "id": "year-en-today",
+    "question": "as_of: 2027-01-01T01:00:00+00:00; zone: Asia/Shanghai\nFind Violet project updates recorded today; what do the records say?",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2027-01-01 (today), last_day=2027-01-01 (today); coverage=complete\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-12-31 (yesterday), last_day=2026-12-31 (yesterday); coverage=complete\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-12-30 (2 days before as_of), last_day=2026-12-30 (2 days before as_of); coverage=complete\nProject Violet uses plan C."
+      ]
+    }
+  },
+  {
+    "id": "year-en-yesterday",
+    "question": "as_of: 2027-01-01T01:00:00+00:00; zone: Asia/Shanghai\nFind Violet project updates recorded yesterday; what do the records say?",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T17:00:00+00:00..2026-12-31T17:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2027-01-01 (today), last_day=2027-01-01 (today); coverage=complete\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-31T12:00:00+00:00..2026-12-31T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-12-31 (yesterday), last_day=2026-12-31 (yesterday); coverage=complete\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-12-30T12:00:00+00:00..2026-12-30T12:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-12-30 (2 days before as_of), last_day=2026-12-30 (2 days before as_of); coverage=complete\nProject Violet uses plan C."
+      ]
+    }
+  },
+  {
+    "id": "dst-zh-today",
+    "question": "as_of: 2026-11-01T14:00:00+00:00; zone: America/New_York\n只找今天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-11-01 (today), last_day=2026-11-01 (today); coverage=complete\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-31 (yesterday), last_day=2026-10-31 (yesterday); coverage=complete\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-30 (2 days before as_of), last_day=2026-10-30 (2 days before as_of); coverage=complete\n紫鸢项目使用方案 C。"
+      ]
+    }
+  },
+  {
+    "id": "dst-zh-yesterday",
+    "question": "as_of: 2026-11-01T14:00:00+00:00; zone: America/New_York\n只找昨天记录的紫鸢项目进展，记录里说了什么？",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\n紫鸢项目使用方案 C。"
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-11-01 (today), last_day=2026-11-01 (today); coverage=complete\n紫鸢项目使用方案 A。",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-31 (yesterday), last_day=2026-10-31 (yesterday); coverage=complete\n紫鸢项目使用方案 B。",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-30 (2 days before as_of), last_day=2026-10-30 (2 days before as_of); coverage=complete\n紫鸢项目使用方案 C。"
+      ]
+    }
+  },
+  {
+    "id": "dst-en-today",
+    "question": "as_of: 2026-11-01T14:00:00+00:00; zone: America/New_York\nFind Violet project updates recorded today; what do the records say?",
+    "expected": [
+      true,
+      false,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-11-01 (today), last_day=2026-11-01 (today); coverage=complete\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-31 (yesterday), last_day=2026-10-31 (yesterday); coverage=complete\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-30 (2 days before as_of), last_day=2026-10-30 (2 days before as_of); coverage=complete\nProject Violet uses plan C."
+      ]
+    }
+  },
+  {
+    "id": "dst-en-yesterday",
+    "question": "as_of: 2026-11-01T14:00:00+00:00; zone: America/New_York\nFind Violet project updates recorded yesterday; what do the records say?",
+    "expected": [
+      false,
+      true,
+      false
+    ],
+    "modes": {
+      "before": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated)\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated)\nProject Violet uses plan C."
+      ],
+      "after": [
+        "[verbatim source passage · source=synthetic-0; span=0-0] [cite: synthetic-0 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T05:30:00+00:00..2026-11-01T05:30:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-11-01 (today), last_day=2026-11-01 (today); coverage=complete\nProject Violet uses plan A.",
+        "[verbatim source passage · source=synthetic-1; span=0-0] [cite: synthetic-1 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-11-01T03:00:00+00:00..2026-11-01T03:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-31 (yesterday), last_day=2026-10-31 (yesterday); coverage=complete\nProject Violet uses plan B.",
+        "[verbatim source passage · source=synthetic-2; span=0-0] [cite: synthetic-2 ¶0-0] source occurred_on=unknown; cited block clocks (UTC)=2026-10-31T03:00:00+00:00..2026-10-31T03:00:00+00:00 (1/1 blocks dated); computed source clock, not event time: first_day=2026-10-30 (2 days before as_of), last_day=2026-10-30 (2 days before as_of); coverage=complete\nProject Violet uses plan C."
+      ]
+    }
+  }
+]

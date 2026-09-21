@@ -17,7 +17,44 @@ state; there is none here).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol, Sequence, runtime_checkable
+
+
+@dataclass(frozen=True)
+class SourceClockDecision:
+    """Question-only source-clock intent and optional supported calendar period.
+
+    A missing probability with a policy_id reports unavailable validation. No policy_id
+    and the defaults mean the optional capability was not configured.
+    """
+
+    use_source_clocks: bool = False
+    probability: float | None = None
+    input_tokens: int = 0
+    policy_id: str | None = None
+    period: str | None = None
+    period_confidence: float | None = None
+
+
+@runtime_checkable
+class SourceClockPolicy(Protocol):
+    """Optional question interpretation; core computes and enforces admitted periods."""
+
+    async def source_clock_policy(self, question: str) -> SourceClockDecision: ...
+
+
+@dataclass(frozen=True)
+class EvidenceScoreDetail:
+    """Optional uncertainty telemetry, never an automatic admission threshold.
+
+    Probabilities follow the provider's ordered rubric levels; confidence describes their
+    concentration, not factual correctness. The model is the reported response version,
+    not a guess based on the requested alias. No source text belongs in these fields.
+    """
+
+    probabilities: tuple[float, ...] = ()
+    confidence: float | None = None
+    model: str | None = None
 
 
 @dataclass(frozen=True)
@@ -30,6 +67,11 @@ class EvidenceScores:
     #: model's tokens are a different currency from the answering call's and are never
     #: summed into `token_usage`.
     input_tokens: int = 0
+    #: Optional, index-aligned diagnostics. Empty for scorers that do not supply them.
+    details: tuple[EvidenceScoreDetail | None, ...] = ()
+    requested_model: str | None = None
+    rubric_id: str | None = None
+    source_clock_policy: SourceClockDecision | None = None
 
 
 class EvidenceScorer(Protocol):

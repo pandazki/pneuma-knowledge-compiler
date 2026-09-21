@@ -184,6 +184,11 @@ class LibraryLibrarian:
         )
         model = ctx.get_chat_model("call")
         kwargs.update(POSTURE, model=model, answer_model=model, route_model=model, glance_model=None)
+        from pneuma_knowledge_core.recall.temporal import (
+            prepare_source_clock, resolve_source_time_scope, temporal_items, temporal_notice,
+        )
+        clock_task = asyncio.create_task(prepare_source_clock(kwargs.get("evidence_scorer"), question))
+        kwargs["source_clock_decision"] = clock_task
 
         # Both phases share the resolved owner, archive scope, canonical view and as_of.
         # The first lookup needs no embedding, routing, selection or answer model call.
@@ -217,8 +222,16 @@ class LibraryLibrarian:
                                          live_paths={d.path for d in kwargs.get("documents") or ()})
                 claims = await enrich_evidence(
                     claims, user_id=plane.retrieval_user, content=kwargs.get("content"))
+                clock = await asyncio.shield(clock_task)
+                source_scope = resolve_source_time_scope(
+                    clock, question=question, as_of=as_of, zone=kwargs.get("zone", "UTC"),
+                    history=kwargs.get("source_time_history", ()),
+                )
+                if source_scope is not None:
+                    claims, _ = temporal_items(claims, source_scope)
                 evidence = FastEvidence(question=question, as_of=as_of, system="", content="",
-                                        handles={}, used_claims=tuple(claims))
+                                        handles={}, used_claims=tuple(claims), source_time_scope=source_scope,
+                                        temporal_notice=temporal_notice(source_scope, has_evidence=bool(claims)))
             return await first_finding(model, question, evidence,
                 zone=kwargs.get("zone", "UTC"),
                 callbacks=kwargs.get("callbacks"), trace_metadata=kwargs.get("trace_metadata"))
@@ -293,7 +306,7 @@ class LibraryLibrarian:
             return LibraryAnswer(payload=payload, answer_text=answer.answer_text)
         finally:
             # Cancellation, errors and superseded session shutdown must leave no hidden work.
-            for task in (quick_task, broad_task):
+            for task in (quick_task, broad_task, clock_task):
                 if not task.done():
                     task.cancel()
-            await asyncio.gather(quick_task, broad_task, return_exceptions=True)
+            await asyncio.gather(quick_task, broad_task, clock_task, return_exceptions=True)

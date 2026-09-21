@@ -24,7 +24,7 @@ from datetime import datetime
 
 from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import AnchorId, SourceId, UserId
-from pneuma_knowledge_core.ports.evidence_scorer import EvidenceScores
+from pneuma_knowledge_core.ports.evidence_scorer import EvidenceScoreDetail, EvidenceScores, SourceClockDecision
 from pneuma_knowledge_core.recall.fast import (
     DEFAULT_SELECTION_CLAIM_ANCHORS,
     DEFAULT_SELECTION_EPISODE_ANCHORS,
@@ -528,3 +528,94 @@ async def test_with_no_scorer_the_select_strategy_is_the_model_call_it_has_alway
     assert result.token_usage["total_tokens"] == 11
     stage = {s.name: s for s in result.stages}["select"]
     assert "selector" not in stage.preview and "scorer_input_tokens" not in stage.preview
+
+
+async def test_uncertainty_reaches_stage_telemetry_without_becoming_a_second_filter(monkeypatch):
+    from pneuma_knowledge_core.recall.evidence_context import EvidenceTime
+
+    class UncertainScorer(DictScorer):
+        async def score(self, question, candidates):
+            result = await super().score(question, candidates)
+            return replace(result, requested_model="synthetic/scorer-v1", rubric_id="synthetic-rubric",
+                           details=tuple(EvidenceScoreDetail((0, 0.4, 0.6, 0), 0.1, "synthetic/v1")
+                                         for _ in result.scores))
+
+    claims = _claims(3)
+    windows = _windows(3)
+    windows[0] = replace(windows[0], source_times=(EvidenceTime(
+        windows[0].source_id, 0, 0, occurred_on="2026-08-14",
+    ),))
+    scorer = UncertainScorer({"claim 2": 0.9}, default=0.0)
+    seen = {}
+    result = await _lane(scorer, claims=claims, summaries=_summaries(3), windows=windows,
+                         seen=seen, monkeypatch=monkeypatch)
+    assert result.model_selected_claims == 1
+    assert _without_context(seen["claims"])[0] == claims[2]
+    stage = {s.name: s for s in result.stages}["select"]
+    assert stage.preview["scoring"]["min_confidence"] == 0.1
+    assert stage.preview["scoring"]["with_confidence"] == 9
+    assert stage.preview["scoring"]["rubric_id"] == "synthetic-rubric"
+    assert stage.preview["scoring"]["reported_models"] == ["synthetic/v1"]
+    # No source clock was resolved for this claim; do not append redundant unknown facts.
+    assert '"source_clocks"' not in scorer.seen[0][1][0]
+
+
+async def test_scorer_receives_computed_dates_without_modifying_the_source_text():
+    from pneuma_knowledge_core.recall.evidence_context import EvidenceTime
+
+    window = _windows(1)[0]
+    window = replace(window, source_times=(EvidenceTime(
+        window.source_id, 0, 0, first="2026-09-20T17:00:00+00:00",
+        last="2026-09-20T17:00:00+00:00", timed_blocks=1,
+    ),))
+    class TemporalScorer(DictScorer):
+        async def source_clock_policy(self, question):
+            return SourceClockDecision(True, 0.97, 13)
+
+    scorer = TemporalScorer({}, default=0.9)
+    selection, tokens, _ = await select_evidence_scored(
+        scorer, "What was discussed today?", claims=[], episode_summaries=[], windows=[window],
+        as_of=datetime.fromisoformat("2026-09-21T01:00:00+00:00"), zone="Asia/Shanghai",
+    )
+    assert "first_day=2026-09-21 (today)" in scorer.seen[0][1][0]
+    assert "not event time" in scorer.seen[0][1][0]
+    assert window.text == "verbatim window 0"
+    assert selection.window_indexes == (0,)
+    assert tokens == 13
+
+
+async def test_non_temporal_policy_preserves_exact_scoring_input_and_counts_policy_tokens():
+    from pneuma_knowledge_core.recall.evidence_context import EvidenceTime
+
+    class NonTemporalScorer(DictScorer):
+        async def source_clock_policy(self, question):
+            assert question == "What is Project Heron?"
+            return SourceClockDecision(False, 0.04, 17)
+
+    window = replace(_windows(1)[0], source_times=(EvidenceTime(
+        SourceId("window-0"), 0, 0, occurred_on="2026-09-21",
+    ),))
+    scorer = NonTemporalScorer({}, default=0.9, input_tokens=100)
+    choice, tokens, _ = await select_evidence_scored(
+        scorer, "as_of: 2026-09-21\nWhat is Project Heron?",
+        claims=[], episode_summaries=[], windows=[window], as_of=datetime(2026, 9, 21),
+        source_clock_question="What is Project Heron?",
+    )
+    assert scorer.seen[0][1] == selection_candidate_texts(claims=[], episode_summaries=[], windows=[window])
+    assert tokens == 117
+    assert choice.score_report.source_clock_policy.use_source_clocks is False
+
+
+async def test_context_policy_and_scoring_share_one_selection_deadline():
+    class SlowScorer(DictScorer):
+        async def source_clock_policy(self, question):
+            await asyncio.sleep(0.04)
+            return SourceClockDecision(True, 0.98, 11)
+
+    scorer = SlowScorer({}, default=0.9, delay=0.04)
+    choice, tokens, degraded = await select_evidence_scored(
+        scorer, "today's notes", claims=_claims(1), episode_summaries=[], windows=[],
+        as_of=datetime(2026, 9, 21), timeout=0.06,
+    )
+    assert choice is None and degraded == "timeout"
+    assert tokens == 11

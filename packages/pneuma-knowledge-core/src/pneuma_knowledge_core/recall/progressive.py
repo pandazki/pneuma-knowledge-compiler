@@ -135,6 +135,8 @@ def first_candidates(evidence: FastEvidence, *, max_bytes: int = 300) -> list[tu
 
 
 async def first_finding(model, question: str, evidence: FastEvidence, *, zone: str = "UTC", callbacks=None, trace_metadata=None) -> FirstFinding:
+    if evidence.temporal_notice:
+        return FirstFinding(disposition="needs_review", reason="temporal_scope_unestablished")
     # Keep context whole for the admission decision; only an exact, bounded passage
     # can leave this phase. A paraphrase cannot turn a test question into a definition.
     candidates = first_candidates(evidence, max_bytes=6000)
@@ -204,6 +206,9 @@ def unpack(result) -> tuple[object, dict[str, int]]:
 
 async def refine(model, evidence: FastEvidence, *, callbacks=None, trace_metadata=None) -> RefinedAnswer:
     """Resolve the standalone lookup from its evidence, without conversation or playback state."""
+    if evidence.temporal_notice:
+        text = evidence.temporal_notice
+        return RefinedAnswer(text, text, "unresolved", text, (text,), (), zero_usage())
     content = evidence.content
     allowed_text = content if isinstance(content, str) else "\n".join(str(p.get("text", "")) for p in content)
     manifest = evidence.manifest or evidence_manifest(

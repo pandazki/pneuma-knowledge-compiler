@@ -1,9 +1,9 @@
 """TypeSafe evidence scorer: request shape, sharding, the 0–3 → 0–1 mapping, failure.
 
 The request shape is not cosmetic here. Candidates are addressed by NAMED KEYS because
-index addressing measurably costs the model accuracy, and one score question per candidate
-is what makes the scores independent — so both are asserted on the wire, not trusted to a
-comment. The rest is the port's contract: a failed shard is unscored (not zero), a pass in
+index addressing measurably costs the model accuracy. Each candidate has its own question;
+this does not guarantee independence from other candidates sharing the state. Both are
+asserted on the wire. The rest is the port's contract: a failed shard is unscored (not zero), a pass in
 which every shard failed raises, and usage sums across shards.
 
 Keyless: every request is served by `httpx.MockTransport`.
@@ -12,6 +12,7 @@ Keyless: every request is served by `httpx.MockTransport`.
 from __future__ import annotations
 
 import json
+import asyncio
 
 import httpx
 import pytest
@@ -216,3 +217,214 @@ def test_the_adapter_refuses_to_exist_without_a_key_or_a_model():
         TypeSafeEvidenceScorer("typesafe/jev-1.13-20260917", "")
     with pytest.raises(ValueError):
         TypeSafeEvidenceScorer("", "test-key")
+
+
+async def test_invalid_numeric_answers_are_unscored_instead_of_confident_evidence():
+    values = ["NaN", "Infinity", "-Infinity", -1, 4, True, 1.5]
+
+    def handler(request):
+        body = json.loads(request.content)
+        return httpx.Response(200, json=_answers(body, dict(zip(body["questions"], values))))
+
+    scorer = _scorer(handler)
+    try:
+        result = await scorer.score("q", [f"synthetic {i}" for i in range(len(values))])
+        assert result.scores == (None, None, None, None, None, None, 0.5)
+    finally:
+        await scorer.aclose()
+
+
+async def test_equal_means_retain_different_uncertainty_without_changing_scores():
+    def handler(request):
+        return httpx.Response(200, json={
+            "model": "typesafe/jev-1.13-20260917",
+            "answers": {
+                "c1": {"score": 1, "confidence": 1,
+                       "probabilities": {"0": 0, "1": 1, "2": 0, "3": 0}},
+                "c2": {"score": 1, "confidence": 0.1,
+                       "probabilities": {"0": 0.5, "1": 0, "2": 0.5, "3": 0}},
+            },
+        })
+
+    scorer = _scorer(handler)
+    try:
+        result = await scorer.score("q", ["synthetic A", "synthetic B"])
+        assert result.scores == (1 / 3, 1 / 3)
+        assert result.details[0].confidence == 1
+        assert result.details[1].confidence == 0.1
+        assert result.details[0].probabilities == (0, 1, 0, 0)
+        assert result.details[1].probabilities == (0.5, 0, 0.5, 0)
+        assert result.details[0].model == "typesafe/jev-1.13-20260917"
+        assert result.rubric_id
+    finally:
+        await scorer.aclose()
+
+
+async def test_concurrent_questions_share_one_adapter_concurrency_budget():
+    active = peak = 0
+
+    async def handler(request):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0.01)
+            return httpx.Response(200, json=_answers(json.loads(request.content)))
+        finally:
+            active -= 1
+
+    scorer = _scorer(handler, concurrency=2, per_request=1)
+    try:
+        results = await asyncio.gather(*(scorer.score("q", ["a", "b"]) for _ in range(3)))
+        assert all(r.scores == (1.0, 1.0) for r in results)
+        assert peak <= 2
+    finally:
+        await scorer.aclose()
+
+
+async def test_long_retry_after_does_not_trigger_an_early_retry():
+    attempts = 0
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(429, headers={"Retry-After": "120"}, json={"error": "busy"})
+
+    scorer = _scorer(handler, call_timeout=1)
+    try:
+        with pytest.raises(RuntimeError):
+            await scorer.score("q", ["synthetic"])
+        assert attempts == 1
+    finally:
+        await scorer.aclose()
+
+
+async def test_retry_after_seconds_is_respected_without_sleeping_in_the_test(monkeypatch):
+    attempts = 0
+    sleeps = []
+
+    async def sleep(delay):
+        sleeps.append(delay)
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429, headers={"Retry-After": "2"})
+        return httpx.Response(200, json=_answers(json.loads(request.content)))
+
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    scorer = _scorer(handler)
+    try:
+        assert (await scorer.score("q", ["synthetic"])).scores == (1.0,)
+        assert sleeps == [2]
+    finally:
+        await scorer.aclose()
+
+
+async def test_missing_or_invalid_optional_diagnostics_do_not_discard_valid_scores():
+    def handler(request):
+        return httpx.Response(200, json={"answers": {
+            "c1": {"score": 2},
+            "c2": {"score": 2, "confidence": "NaN",
+                   "probabilities": {"0": 0.1, "1": 0.1, "2": 0.1, "3": 0.1}},
+        }})
+
+    scorer = _scorer(handler)
+    try:
+        result = await scorer.score("q", ["a", "b"])
+        assert result.scores == (2 / 3, 2 / 3)
+        assert all(d.confidence is None and d.probabilities == () for d in result.details)
+        assert all(d.model is None for d in result.details)
+        assert result.requested_model == "typesafe/jev-1.13-20260917"
+    finally:
+        await scorer.aclose()
+
+
+async def test_shard_diagnostics_stay_aligned_across_failure_and_provider_versions():
+    def handler(request):
+        body = json.loads(request.content)
+        if "c2" in body["questions"]:
+            return httpx.Response(503)
+        payload = _answers(body)
+        payload["model"] = "synthetic/version-a" if "c1" in body["questions"] else "synthetic/version-b"
+        return httpx.Response(200, json=payload)
+
+    scorer = _scorer(handler, per_request=1, retries=0)
+    try:
+        result = await scorer.score("q", ["a", "b", "c"])
+        assert result.details[0].model == "synthetic/version-a"
+        assert result.details[1] is None
+        assert result.details[2].model == "synthetic/version-b"
+    finally:
+        await scorer.aclose()
+
+
+async def test_cancellation_releases_the_shared_concurrency_slot():
+    entered = asyncio.Event()
+    calls = 0
+
+    async def handler(request):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            await asyncio.Event().wait()
+        return httpx.Response(200, json=_answers(json.loads(request.content)))
+
+    scorer = _scorer(handler, concurrency=1)
+    try:
+        task = asyncio.create_task(scorer.score("q", ["a"]))
+        await asyncio.wait_for(entered.wait(), 1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        result = await asyncio.wait_for(scorer.score("q", ["b"]), 1)
+        assert result.scores == (1.0,)
+    finally:
+        await scorer.aclose()
+
+
+@pytest.mark.parametrize("value,enabled", [(0.97, True), (0.6, False), (0.1, False), ("NaN", False)])
+async def test_source_clock_policy_uses_only_the_question_and_parses_intent_with_period(value, enabled):
+    def handler(request):
+        body = json.loads(request.content)
+        assert body["state"] == {"question": "What changed in yesterday's notes?"}
+        assert body["questions"]["source_clock"]["type"] == "noul"
+        assert body["questions"]["source_period"]["type"] == "choice"
+        return httpx.Response(200, json={"answers": {"source_clock": {"noul": value},
+            "source_period": {"choice": "yesterday", "confidence": 0.94}},
+                                        "usage": {"input_tokens": 31}})
+
+    scorer = _scorer(handler)
+    try:
+        decision = await scorer.source_clock_policy("What changed in yesterday's notes?")
+        assert decision.use_source_clocks is enabled
+        assert decision.input_tokens == 31
+        assert decision.period == "yesterday" and decision.period_confidence == 0.94
+    finally:
+        await scorer.aclose()
+
+
+async def test_policy_outage_reports_unavailable_instead_of_a_negative_intent():
+    scorer = _scorer(lambda request: httpx.Response(503), retries=0)
+    try:
+        decision = await scorer.source_clock_policy("What happened today?")
+        assert decision.use_source_clocks is False and decision.probability is None
+        assert decision.policy_id
+    finally:
+        await scorer.aclose()
+
+
+async def test_policy_timeout_releases_budget_and_reports_unavailable():
+    async def handler(request):
+        await asyncio.sleep(1)
+        raise AssertionError("the policy should have been cancelled")
+
+    scorer = _scorer(handler, call_timeout=0.01, concurrency=1)
+    try:
+        decision = await asyncio.wait_for(scorer.source_clock_policy("today's notes?"), 0.2)
+        assert decision.probability is None
+        assert not scorer._semaphore.locked()
+    finally:
+        await scorer.aclose()

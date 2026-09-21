@@ -2,6 +2,8 @@
 
 **English** | [简体中文](voice-call.zh-CN.md)
 
+The self-contained [architecture and implementation companion](voice-call-implementation.md) expands the current code paths, sequence/activity diagrams, parameters and limitations. This page retains the design decisions and explicitly dated experiments.
+
 ## 1. Intended experience
 
 The Owner should be able to talk to a colleague who can consult the library: ask a question,
@@ -163,6 +165,12 @@ audio. A lexical occurrence check or a unit-test pass is not an ASR accuracy mea
 
 ## 5. One delegation, two overlapping lookups
 
+Both phases share one optional source-clock decision alongside retrieval. A supported
+source-date interval is enforced before the early fact gate and throughout broad evidence
+assembly; unresolved periods or unavailable validation return a bounded factual status.
+This policy is separate from JEV's relevance score and cannot be bypassed by ranked
+fallback. See [evidence scoring](evidence-scoring.md).
+
 For an explicitly named subject, the first look resolves a unique normalized canonical
 title before using the lexical index. Title identity takes precedence over a shared slug
 (such as an evolution page); duplicate identities defer to broader retrieval. Only the
@@ -226,7 +234,7 @@ when configured for TypeSafe/JEV, that scorer judges the complete cross-face can
 once, with the configured score floor and ordinary per-face caps. JEV selects evidence;
 the `call` chat-model role still forms questions and synthesizes the subtask result.
 Cross-face selection retains its five-second timeout
-and explicit ranked fallback. There is no name-containment filter inside a time component.
+and explicit ranked fallback. The time component supports an explicit `about` subject filter; other retrieval branches retain their own scopes.
 Once broader evidence is available, a structured synthesis reads only that evidence and the
 standalone question. Its result contains:
 
@@ -310,6 +318,8 @@ universal quality or latency improvement. Private transcripts stay under ignored
 
 ### September 18, 2026 backend experiment
 
+Historical experiment: the relation-based refinement schema and 2.5-second deadline below describe that earlier revision. Current code returns standalone factual reports and uses a six-second early-lookup deadline; these figures are not measurements of the current implementation.
+
 `pneuma_knowledge_eval.progressive_call.compare` exercises three synthetic scenarios twice:
 a partial regional count expanded by a wider list, a launch date superseded by a later record,
 and additional details. It uses the production evidence renderer, including `as_of`, and the
@@ -317,7 +327,7 @@ Chinese prompt overlay. The deployment model was `openrouter:openai/gpt-5.6-luna
 off. All six first findings copied the complete supplied record; all six refinements selected
 an expected relation and contained the checked new information. These checks are diagnostics,
 not a general semantic quality score. One first-selector call took 3.773 s: this uncapped
-backend diagnostic retains it for inspection, but the application would skip it at its
+backend diagnostic retains it for inspection, but that revision would skip it at its
 2.5-second first-look deadline. Five of the six first-selector calls alone met that deadline;
 real retrieval consumes part of it too.
 
