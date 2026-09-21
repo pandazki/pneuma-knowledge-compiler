@@ -32,6 +32,9 @@ from ..domain.ids import UserId, SourceId
 from ..ports.content_store import ContentStore
 from ..prompts import prompt
 from .rag import RecallHit
+from .evidence_context import (
+    EvidenceTime, RetrievalOrigin, evidence_time, render_groups, render_times,
+)
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,8 @@ class Passage:
     #: render hint and nothing else: it puts one marker on the provenance line below, so an
     #: excerpt admitted out of the archive can never be read as part of the present.
     archived: bool = False
+    retrieval_origins: tuple[RetrievalOrigin, ...] = ()
+    source_times: tuple[EvidenceTime, ...] = ()
 
 
 # ------------------------------------------------------------------- expand + merge
@@ -74,6 +79,7 @@ class _Interval:
     paths: list[str]
     seed_score: float
     section_path: tuple[str, ...]
+    retrieval_origins: tuple[RetrievalOrigin, ...]
 
 
 def _union_paths(into: list[str], extra: Sequence[str]) -> None:
@@ -127,6 +133,8 @@ def _expand_one(
         for representation in hit.representations
     ):
         forward_blocks = 0
+    if any(origin.bounded for origin in hit.retrieval_origins):
+        forward_blocks = 0
     fwd_chars = fwd_count = 0
     while fwd_count < forward_blocks and fwd_chars < forward_char_budget:
         nxt = end + 1
@@ -143,6 +151,7 @@ def _expand_one(
         paths=list(hit.paths),
         seed_score=hit.score,
         section_path=section_path,
+        retrieval_origins=hit.retrieval_origins,
     )
 
 
@@ -210,6 +219,8 @@ async def expand_and_merge(
                         text=h.text,
                         paths=tuple(h.paths),
                         score=h.score,
+                        retrieval_origins=h.retrieval_origins,
+                        source_times=h.source_times,
                         section_path=(),
                         source_title="",
                         source_occurred_on="",
@@ -240,7 +251,9 @@ async def expand_and_merge(
             if merged:
                 last = merged[-1]
                 gap = iv.start - last.end - 1  # blocks strictly between (negative = overlap)
-                if gap <= merge_gap_blocks:
+                bounded = any(origin.bounded for origin in iv.retrieval_origins)
+                if (gap <= merge_gap_blocks and last.retrieval_origins == iv.retrieval_origins
+                        and (gap <= 0 or not bounded)):
                     last.end = max(last.end, iv.end)
                     last.score = max(last.score, iv.score)
                     _union_paths(last.paths, iv.paths)
@@ -258,6 +271,8 @@ async def expand_and_merge(
                 text=_truncate(_rebuild_text(block_map, iv.start, iv.end), max_passage_chars),
                 paths=tuple(iv.paths),
                 score=iv.score,
+                retrieval_origins=iv.retrieval_origins,
+                source_times=(evidence_time(SourceId(sid), iv.start, iv.end, ns),),
                 section_path=iv.section_path,
                 source_title=title,
                 source_occurred_on=occurred_on,
@@ -348,7 +363,10 @@ def render_passages(passages: Sequence[Passage], *, header: str | None = None) -
     lines: list[str] = []
     if header:
         lines.append(f"# {header}")
-    for p in passages:
-        lines.append(_provenance(p))
-        lines.append(p.text)
+    def render_group(group):
+        return "\n".join(
+            "\n".join((_provenance(p), render_times(p), p.text)) for p in group
+        )
+
+    lines.append(render_groups(passages, render_group))
     return "\n".join(lines)

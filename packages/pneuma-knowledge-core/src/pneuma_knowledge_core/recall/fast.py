@@ -111,6 +111,11 @@ from .spine import (
     spine,
     style_clause,
 )
+from .evidence_context import (
+    CachedSources, EvidenceTime, RetrievalOrigin, enrich_evidence, evidence_time, retrieval_origin,
+    render_candidate_context, render_groups, render_times,
+    share_retrieval_origins,
+)
 from .assembly import (
     Passage,
     expand_and_merge,
@@ -384,6 +389,21 @@ def _chars(rows: Sequence[object]) -> int:
     return sum(len(getattr(r, "text", "") or "") for r in rows)
 
 
+def evidence_context_chars(claims: Sequence, episodes: Sequence, windows: Sequence) -> int:
+    """A render-sized upper bound, including lookup envelopes and occurrence metadata.
+
+    Charge each row independently so later ordering or annotation cannot multiply scope
+    headers beyond the ceiling. Grouped rendering may save space; it cannot cost more.
+    """
+    return sum(
+        len(render([row])) + 2
+        for rows, render in (
+            (claims, render_claims), (episodes, render_episode_summaries),
+            (windows, _render_window_section),
+        ) for row in rows
+    )
+
+
 def apply_context_ceiling(
     claims: Sequence[RetrievedClaim],
     episode_summaries: Sequence["EpisodeSummary"],
@@ -417,14 +437,14 @@ def apply_context_ceiling(
     dropped = {"windows": 0, "episode_summaries": 0, "claims": 0}
     if ceiling <= 0:
         return kept_claims, kept_episodes, kept_windows, {}
-    total = _chars(kept_claims) + _chars(kept_episodes) + _chars(kept_windows)
-    for key, rows in (
-        ("windows", kept_windows),
-        ("episode_summaries", kept_episodes),
-        ("claims", kept_claims),
+    total = evidence_context_chars(kept_claims, kept_episodes, kept_windows)
+    for key, rows, render in (
+        ("windows", kept_windows, _render_window_section),
+        ("episode_summaries", kept_episodes, render_episode_summaries),
+        ("claims", kept_claims, render_claims),
     ):
         while total > ceiling and rows:
-            total -= len(getattr(rows[-1], "text", "") or "")
+            total -= len(render([rows[-1]])) + 2
             rows.pop()
             dropped[key] += 1
     return (
@@ -524,6 +544,8 @@ class RetrievedClaim:
     # Mechanical labels a component path may attach (e.g. "current", "superseded"); empty
     # for the ranked faces, so their rendering is unchanged.
     labels: tuple[str, ...] = ()
+    retrieval_origins: tuple[RetrievalOrigin, ...] = ()
+    source_times: tuple[EvidenceTime, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -702,6 +724,8 @@ class EpisodeSummary:
     #: a claim carries `archived` in its labels. This face had neither until the flag reached
     #: it, so a model handed history read it as the present.
     archived: bool = False
+    retrieval_origins: tuple[RetrievalOrigin, ...] = ()
+    source_times: tuple[EvidenceTime, ...] = ()
 
 
 class EvidenceSelection(BaseModel):
@@ -1019,7 +1043,11 @@ def mark_superseded_claims(
     return [*live, *stale]
 
 
-def render_claims(claims: list[RetrievedClaim]) -> str:
+def render_claims(items: Sequence[RetrievedClaim]) -> str:
+    return render_groups(items, _render_claims)
+
+
+def _render_claims(claims: list[RetrievedClaim]) -> str:
     """Compact deterministic claim payload for the Human turn (input order preserved)."""
     lines: list[str] = []
     for c in claims:
@@ -1039,10 +1067,15 @@ def render_claims(claims: list[RetrievedClaim]) -> str:
         if cites:
             line += f"  {cites}"
         lines.append(line)
+        lines.append(render_times(c))
     return "\n".join(lines)
 
 
-def render_windows(windows: list[RecallHit]) -> str:
+def render_windows(items: Sequence[RecallHit]) -> str:
+    return render_groups(items, _render_windows)
+
+
+def _render_windows(windows: list[RecallHit]) -> str:
     """Compact deterministic body-window payload for the Human turn (full block text).
 
     Windows are the recall lever over uncompiled content, so each line carries the FULL
@@ -1059,6 +1092,7 @@ def render_windows(windows: list[RecallHit]) -> str:
         if getattr(w, "archived", False):
             head += f" {prompt('recall.passage_in_archive')}"
         lines.append(f"{head} {w.text}")
+        lines.append(render_times(w))
     return "\n".join(lines)
 
 
@@ -1139,6 +1173,8 @@ async def build_episode_summaries(
                 score=hit.score,
                 source_title=source_title,
                 source_occurred_on=source_occurred_on,
+                retrieval_origins=hit.retrieval_origins,
+                source_times=(evidence_time(signal.source_id, signal.block_start, signal.block_end, source),),
                 section_path=section_path,
                 # The archive state travels with the span it belongs to. The hit was already
                 # scoped by the assembly filter before this ran, so `archived` is only ever
@@ -1151,7 +1187,11 @@ async def build_episode_summaries(
     return summaries
 
 
-def render_episode_summaries(summaries: Sequence[EpisodeSummary]) -> str:
+def render_episode_summaries(items: Sequence[EpisodeSummary]) -> str:
+    return render_groups(items, _render_episode_summaries)
+
+
+def _render_episode_summaries(summaries: Sequence[EpisodeSummary]) -> str:
     """Render derived compression with an explicit identity and enough source metadata."""
 
     return "\n\n".join(
@@ -1171,7 +1211,7 @@ def render_episode_summaries(summaries: Sequence[EpisodeSummary]) -> str:
             archive=(
                 f" {prompt('recall.passage_in_archive')}" if summary.archived else ""
             ),
-        )
+        ) + "\n" + render_times(summary)
         for summary in summaries
     )
 
@@ -1369,6 +1409,7 @@ def render_window_notes(notes: Sequence[RetrievedClaim]) -> str:
         if label:
             fields["label"] = label
         lines.append(prompt(key, **fields))
+        lines.append(render_candidate_context(claim, citations=False))
     return "\n".join(lines)
 
 
@@ -1409,7 +1450,7 @@ class TimelineBlock:
     its closed volumes (oldest first) plus the open volume — one subject, one block."""
 
     document_path: str
-    claims: tuple[ProjectedClaim, ...]
+    claims: tuple[ProjectedClaim | RetrievedClaim, ...]
     total_claims: int  # the subject's full claim count (all pages), before the per-subject cap
 
 
@@ -1558,10 +1599,38 @@ def render_subject_timelines(blocks: Sequence[TimelineBlock]) -> str:
                 line += f" [cite: {cit.source_id} ¶{cit.block_start}-{cit.block_end}]"
             line += f" 〔c:{claim.anchor}〕"
             parts.append(line)
+            parts.append(render_times(claim, citations=False))
     return "\n".join(parts)
 
 
-def render_full_documents(documents: Sequence[CanonicalDocument]) -> str:
+@dataclass(frozen=True)
+class DatedDocument:
+    """Ephemeral recall annotations around an unchanged authoritative document."""
+
+    document: CanonicalDocument
+    source_times: tuple[EvidenceTime, ...] = ()
+
+    @property
+    def path(self) -> str:
+        return self.document.path
+
+    @property
+    def body(self) -> str:
+        return self.document.body
+
+    @property
+    def frontmatter(self) -> dict[str, Any]:
+        return self.document.frontmatter
+
+    @property
+    def citations(self) -> tuple[Citation, ...]:
+        return tuple({
+            (c.source_id, c.block_start, c.block_end): c
+            for c in iter_canonical_citations(self.body)
+        }.values())
+
+
+def render_full_documents(documents: Sequence[CanonicalDocument | DatedDocument]) -> str:
     """The whole of each selected document, in supplied order, headed by its path.
 
     Rendered with the compile side's `render_document`, so frontmatter, claim anchors and
@@ -1571,6 +1640,7 @@ def render_full_documents(documents: Sequence[CanonicalDocument]) -> str:
     parts: list[str] = []
     for doc in documents:
         parts.append(prompt("recall.fast.select.document_heading", path=doc.path))
+        parts.append(render_times(doc))
         parts.append(render_document(doc.frontmatter, doc.body).rstrip())
     return "\n".join(parts)
 
@@ -1606,7 +1676,7 @@ def evidence_manifest(
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence["TimelineBlock"] = (),
     component_evidence: Sequence["ComponentEvidence"] = (),
-    full_documents: Sequence[CanonicalDocument] = (),
+    full_documents: Sequence[CanonicalDocument | DatedDocument] = (),
     tool_evidence: Sequence[EvidenceRef] = (),
 ) -> tuple[EvidenceRef, ...]:
     """Every ADDRESS this call put in front of the model, as `EvidenceRef`s.
@@ -1701,7 +1771,7 @@ def recall_human(
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
-    full_documents: Sequence[CanonicalDocument] = (),
+    full_documents: Sequence[CanonicalDocument | DatedDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
     component_evidence: Sequence[ComponentEvidence] = (),
@@ -1762,7 +1832,7 @@ def _recall_human_sections(
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
-    full_documents: Sequence[CanonicalDocument] = (),
+    full_documents: Sequence[CanonicalDocument | DatedDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
     component_evidence: Sequence[ComponentEvidence] = (),
@@ -1776,7 +1846,7 @@ def _recall_human_sections(
     if snapshot:
         sections.append(("snapshot", snapshot))
     if glance:
-        sections.append(("map", glance))
+        sections.append(("map", prompt("recall.retrieval.map") + "\n" + glance))
     sections.append(("claims",
         prompt("recall.section.claims_header", count=len(claims))
         + "\n"
@@ -1784,7 +1854,11 @@ def _recall_human_sections(
     ))
     if component_evidence:
         sections.append(("components",
-            prompt("recall.section.component_header", count=evidence_counts(component_evidence))
+            (
+                prompt("recall.retrieval.receipts_header", count=len(component_evidence))
+                if all(row.shown_elsewhere is not None for row in component_evidence)
+                else prompt("recall.section.component_header", count=evidence_counts(component_evidence))
+            )
             + "\n"
             + render_component_evidence(component_evidence)
         ))
@@ -1798,7 +1872,7 @@ def _recall_human_sections(
             + render_episode_summaries(episode_summaries)
         ))
     if timelines:
-        sections.append(("timelines", render_subject_timelines(timelines)))
+        sections.append(("timelines", prompt("recall.retrieval.timelines") + "\n" + render_subject_timelines(timelines)))
     if windows:
         sections.append(("windows",
             prompt("recall.section.windows_header", count=len(windows))
@@ -1813,6 +1887,7 @@ def _recall_human_sections(
         sections.append(("documents",
             prompt("recall.fast.select.documents_header", count=len(full_documents))
             + "\n"
+            + prompt("recall.retrieval.documents") + "\n"
             + render_full_documents(full_documents)
         ))
     return sections
@@ -1946,7 +2021,7 @@ def evidence_selection_messages(
             index=index,
             path=claim.document_path,
             section=" / ".join(claim.section_path) or "-",
-            text=claim.text,
+            text=render_candidate_context(claim) + "\n" + claim.text,
         )
         for index, claim in enumerate(claims)
     )
@@ -1958,7 +2033,7 @@ def evidence_selection_messages(
             occurred_on=summary.source_occurred_on or "-",
             start=summary.block_start,
             end=summary.block_end,
-            text=summary.text,
+            text=render_candidate_context(summary) + "\n" + summary.text,
         )
         for index, summary in enumerate(episode_summaries)
     )
@@ -1970,7 +2045,7 @@ def evidence_selection_messages(
             source_id=window.source_id,
             start=window.block_start,
             end=window.block_end,
-            text=window.text,
+            text=render_candidate_context(window) + "\n" + window.text,
         )
         for index, window in enumerate(windows)
     )
@@ -1989,7 +2064,7 @@ def evidence_selection_messages(
                     index=index,
                     kind=candidate.kind,
                     locator=candidate.locator,
-                    text=candidate.text,
+                    text=render_candidate_context(candidate.claim or candidate.window) + "\n" + candidate.text,
                 )
             )
     return [
@@ -2210,7 +2285,7 @@ def selection_candidate_texts(
             "recall.fast.evidence_score.claim",
             path=claim.document_path,
             section=" / ".join(claim.section_path) or "-",
-            text=clip_candidate(claim.text),
+            text=render_candidate_context(claim) + "\n" + clip_candidate(claim.text),
         )
         for claim in claims
     ]
@@ -2220,7 +2295,7 @@ def selection_candidate_texts(
             occurred_on=summary.source_occurred_on or "-",
             start=summary.block_start,
             end=summary.block_end,
-            text=clip_candidate(summary.text),
+            text=render_candidate_context(summary) + "\n" + clip_candidate(summary.text),
         )
         for summary in episode_summaries
     )
@@ -2230,7 +2305,7 @@ def selection_candidate_texts(
             source_id=window.source_id,
             start=window.block_start,
             end=window.block_end,
-            text=clip_candidate(window.text),
+            text=render_candidate_context(window) + "\n" + clip_candidate(window.text),
         )
         for window in windows
     )
@@ -2239,7 +2314,7 @@ def selection_candidate_texts(
             "recall.fast.evidence_score.component",
             kind=candidate.kind,
             locator=candidate.locator,
-            text=clip_candidate(candidate.text),
+            text=render_candidate_context(candidate.claim or candidate.window) + "\n" + clip_candidate(candidate.text),
         )
         for candidate in components
     )
@@ -2400,7 +2475,7 @@ def selector_messages(
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
-    full_documents: Sequence[CanonicalDocument] = (),
+    full_documents: Sequence[CanonicalDocument | DatedDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
     component_evidence: Sequence[ComponentEvidence] = (),
@@ -2442,7 +2517,7 @@ def recall_human_content(
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
-    full_documents: Sequence[CanonicalDocument] = (),
+    full_documents: Sequence[CanonicalDocument | DatedDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
     component_evidence: Sequence[ComponentEvidence] = (),
@@ -2534,7 +2609,7 @@ async def answer_with_selector(
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
-    full_documents: Sequence[CanonicalDocument] = (),
+    full_documents: Sequence[CanonicalDocument | DatedDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
     component_evidence: Sequence[ComponentEvidence] = (),
@@ -2755,7 +2830,7 @@ async def answer_with_structured(
     profile: str | None = None,
     glance: str | None = None,
     snapshot: str | None = None,
-    full_documents: Sequence[CanonicalDocument] = (),
+    full_documents: Sequence[CanonicalDocument | DatedDocument] = (),
     window_notes: Sequence[tuple[object, tuple[RetrievedClaim, ...]]] | None = None,
     timelines: Sequence[TimelineBlock] = (),
     component_evidence: Sequence[ComponentEvidence] = (),
@@ -3285,6 +3360,11 @@ async def expand_claim_provenance(
                     block_end=citation.block_end,
                     text="\n".join(block.text for block in blocks),
                     paths=("claim-provenance",),
+                    retrieval_origins=(retrieval_origin(
+                        "claim-provenance", prompt("recall.retrieval.provenance"),
+                        bounded=True, anchor=str(claim.anchor), time_filter=None,
+                    ),),
+                    source_times=(evidence_time(citation.source_id, citation.block_start, citation.block_end, source),),
                     score=claim.score,
                     section_path=tuple(blocks[0].section_path),
                     source_title=source.raw.title,
@@ -3343,6 +3423,11 @@ async def expand_episode_provenance(
                 block_end=summary.block_end,
                 text="\n".join(block.text for block in blocks),
                 paths=("episode-provenance",),
+                retrieval_origins=(retrieval_origin(
+                    "episode-provenance", prompt("recall.retrieval.provenance"),
+                    bounded=True, time_filter=None,
+                ),),
+                source_times=(evidence_time(summary.source_id, summary.block_start, summary.block_end, source),),
                 score=summary.score,
                 section_path=tuple(blocks[0].section_path),
                 source_title=source.raw.title,
@@ -3561,6 +3646,8 @@ async def fast_recall(
         raise ValueError("evidence_strategy must be 'ranked', 'select' or 'all'")
     if answer_format not in {"text", "structured"}:
         raise ValueError("answer_format must be 'text' or 'structured'")
+    if content is not None:
+        content = CachedSources(content, user_id)
 
     # Every stage below is measured into this one recorder and emitted once, at the end, in
     # the fixed vocabulary — so "which stage came back and in what order" is a property of
@@ -3848,6 +3935,41 @@ async def fast_recall(
                 group.claims, provenance_documents
             )[0])) for group in component_evidence
         ]
+    with timer.measure("assemble"):
+        claim_origin = retrieval_origin(
+            "claim_search", prompt("recall.retrieval.claims"),
+            queries=[question, *planned], time_filter=None, include_archived=include_archived,
+        )
+        window_origin = retrieval_origin(
+            "source_search", prompt("recall.retrieval.windows"),
+            query=question, time_filter=None, include_archived=include_archived,
+        )
+        claims_raw = [replace(c, retrieval_origins=(claim_origin,)) for c in claims_raw]
+        raw_windows = [replace(w, retrieval_origins=(window_origin,)) for w in raw_windows]
+        descriptions = {p.name: p.description for p in offered_paths}
+        component_evidence = [replace(row,
+            method=descriptions.get(row.path, row.path),
+            claims=tuple(replace(c, retrieval_origins=(retrieval_origin(
+                row.path, prompt("recall.retrieval.component"), bounded=True, arguments=row.args,
+            ),)) for c in row.claims),
+            windows=tuple(replace(w, retrieval_origins=(retrieval_origin(
+                row.path, prompt("recall.retrieval.component"), bounded=True, arguments=row.args,
+            ),)) for w in row.windows),
+        ) for row in component_evidence]
+        # One source cache across ranked and component candidates; metadata is not a new
+        # ranked hit and never changes their scores, text, citations or selection caps.
+        enriched = iter(await enrich_evidence(share_retrieval_origins(
+            [*claims_raw, *raw_windows,
+             *(item for row in component_evidence for item in (*row.claims, *row.windows))],
+        ),
+            user_id=user_id, content=content,
+        ))
+        claims_raw = [next(enriched) for _ in claims_raw]
+        raw_windows = [next(enriched) for _ in raw_windows]
+        component_evidence = [replace(row,
+            claims=tuple(next(enriched) for _ in row.claims),
+            windows=tuple(next(enriched) for _ in row.windows),
+        ) for row in component_evidence]
     archive_hidden = hidden_claims + hidden_windows + hidden_component
     if archive_hidden:
         # Never silent: the same channel the rest of this lane states an omission on. The
@@ -3894,6 +4016,13 @@ async def fast_recall(
     component_merged = False
     render_component_face = True
     if evidence_strategy == "select":
+        # Once candidates carry dates, the selector needs the same question clock as
+        # routing and answering. Otherwise "these two days" has no reference instant in
+        # a scorer request, even when every candidate's source clock is exact.
+        selection_question = prompt(
+            "recall.retrieval.question_context", question=question,
+            as_of=as_of.isoformat(), zone=zone,
+        )
         # Episode summaries are a first-class evidence face. Build them over candidate
         # breadth before selection; only the selected bounded subset reaches the answer.
         with timer.measure("assemble"):
@@ -3942,7 +4071,7 @@ async def fast_recall(
                     evidence_selection_degraded,
                 ) = await select_evidence_scored(
                     evidence_scorer,
-                    question,
+                    selection_question,
                     claims=claims_raw,
                     episode_summaries=episode_candidates,
                     windows=raw_windows,
@@ -4000,7 +4129,7 @@ async def fast_recall(
                 evidence_choice, evidence_selection_usage, evidence_selection_degraded = (
                     await select_evidence(
                         model,
-                        question,
+                        selection_question,
                         claims=claims_raw,
                         episode_summaries=episode_candidates,
                         windows=raw_windows,
@@ -4062,8 +4191,8 @@ async def fast_recall(
                     )
                 elif picked.window is not None:
                     selected_raw_windows.append(picked.window)
-            # The face itself is not a section in this mode — it was candidates, and its
-            # chosen members are now inside the ordinary faces.
+            # Evidence moves into the ordinary faces with its lookup origin intact. A
+            # scope-only receipt remains so empty, failed and unselected lookups are visible.
             render_component_face = False
             selected = evidence_choice.document_paths
     elif evidence_strategy == "all":
@@ -4118,8 +4247,7 @@ async def fast_recall(
                     )
                 elif candidate.window is not None:
                     selected_raw_windows.append(candidate.window)
-            # As in `select`: its members are inside the ordinary faces now, so rendering the
-            # face again under its own header would be the same evidence twice.
+            # As in `select`, the evidence is shown once; a scope-only receipt remains.
             render_component_face = False
     elif reranking:
         with timer.measure("rerank"):
@@ -4182,6 +4310,13 @@ async def fast_recall(
     # accumulated into one `assemble` stage rather than left as an unexplained gap under
     # `total`.
     with timer.measure("assemble"):
+        if timelines:
+            dated_claims = iter(await enrich_evidence([
+                RetrievedClaim(c.anchor, c.document_path, c.section_path, c.text, c.citations)
+                for block in timelines for c in block.claims
+            ], user_id=user_id, content=content))
+            timelines = [replace(block, claims=tuple(next(dated_claims) for _ in block.claims))
+                         for block in timelines]
         windows = await assemble_windows(
             selected_raw_windows,
             content=content,
@@ -4196,7 +4331,7 @@ async def fast_recall(
             "assemble", {"windows": len(windows), "window_chars": _chars(windows)}
         )
         if evidence_strategy == "all":
-            offered_chars = _chars(claims) + _chars(episode_summaries) + _chars(windows)
+            offered_chars = evidence_context_chars(claims, episode_summaries, windows)
             claims, episode_summaries, windows, dropped = apply_context_ceiling(
                 claims, episode_summaries, windows, ceiling=all_context_chars
             )
@@ -4211,9 +4346,7 @@ async def fast_recall(
                         "dropped": section_line(
                             tuple(dropped.items()),
                             offered_chars
-                            - _chars(claims)
-                            - _chars(episode_summaries)
-                            - _chars(windows),
+                            - evidence_context_chars(claims, episode_summaries, windows),
                         ),
                         "dropped_windows": dropped["windows"],
                         "dropped_episode_summaries": dropped["episode_summaries"],
@@ -4366,12 +4499,26 @@ async def fast_recall(
             ]
     # Reading the selected documents is a local git read the caller already paid for (they
     # are in `documents`), so the expansion costs nothing on the wire.
-    expanded = [by_path[path] for path in selected]
+    with timer.measure("assemble"):
+        expanded = await enrich_evidence(
+            [DatedDocument(by_path[path]) for path in selected], user_id=user_id, content=content,
+        )
     # In `select` the face was candidates, and what the selector took now lives inside the
     # ordinary faces; rendering it a second time under its own header would be the same
     # evidence twice. It stays in `used_component_evidence` either way — the audit trail of
     # what was looked up does not depend on how the context was composed.
-    shown_component_evidence = component_evidence if render_component_face else ()
+    shown_component_evidence = component_evidence
+    if not render_component_face:
+        shown_items = [*claims, *windows,
+                       *(c for _, notes in (window_notes or ()) for c in notes)]
+        shown_component_evidence = [replace(
+            row, claims=(), windows=(), already_shown=0, covered_by_windows=0,
+            shown_elsewhere=sum(any(
+                origin.route == row.path
+                and json.loads(origin.arguments) == row.args
+                for origin in item.retrieval_origins
+            ) for item in shown_items),
+        ) for row in component_evidence]
     # Built from the very arguments both answer branches below are handed, once, so the two
     # cannot disagree about what was shown. It observes the render; it never alters it.
     manifest = evidence_manifest(

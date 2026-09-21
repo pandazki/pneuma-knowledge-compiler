@@ -252,6 +252,7 @@ _LABEL_FAMILIES: tuple[tuple[str, str, str], ...] = (
     ("recall.briefing.", "Briefing", "简报"),
     ("recall.suggestion.focus.", "Attention scope", "注意范围"),
     ("recall.suggestion.", "Live context", "实时上下文"),
+    ("recall.retrieval.", "Retrieval scope", "检索范围"),
     ("recall.section.", "Evidence section", "证据分节"),
     ("recall.glance.", "Library glance", "知识库一览"),
     ("recall.profile.", "Owner profile line", "所有者档案行"),
@@ -3432,6 +3433,87 @@ SURFACES: tuple[Surface, ...] = (
             "主题时间线，以及输入本身。"
         ),
         segments=(
+            f(
+                "recall.retrieval.receipts_header",
+                "Opens the lookup receipts when evidence was moved into other faces.",
+                "证据移入其他区段后，开出保留查询范围的记录区段。",
+            ),
+            f(
+                "recall.retrieval.component",
+                "Labels moved component evidence; its full method remains in the lookup receipt.",
+                "标记移入其他区段的组件证据；完整方法仍保留在查询记录里。",
+            ),
+            f(
+                "recall.retrieval.question_context",
+                "Gives both selectors the same question clock and timezone as routing.",
+                "给两种选择器提供与路由相同的提问时间和时区。",
+            ),
+            f(
+                "recall.retrieval.method",
+                "Describes a component lookup even when no items survive selection.",
+                "即使没有结果通过选择，也说明组件查询的方法。",
+            ),
+            f(
+                "recall.retrieval.transferred",
+                "Retains a lookup receipt after its selected items moved to other sections.",
+                "所选结果移到其他证据区段后，保留查询记录。",
+            ),
+            f(
+                "recall.retrieval.origin",
+                "Describes the actual lookup and its local arguments beside its results.",
+                "在结果旁说明实际执行的检索方法和本次局部参数。",
+            ),
+            f(
+                "recall.retrieval.group",
+                "Separates consecutive evidence sharing the same lookup origins.",
+                "分隔具有相同检索来源的连续证据组。",
+            ),
+            f(
+                "recall.retrieval.unknown",
+                "Fills a missing occurrence date or block clock without using ingestion time.",
+                "标记缺失的发生日期或块时间，不使用入库时间填补。",
+            ),
+            f(
+                "recall.retrieval.time_unknown",
+                "Marks evidence whose source occurrence metadata could not be resolved.",
+                "标记未能解析来源时间元数据的证据。",
+            ),
+            f(
+                "recall.retrieval.source_time",
+                "Attaches source occurrence and aligned block clocks to each cited span.",
+                "给每个被引区间附上来源发生日期及已对齐的块时间。",
+            ),
+            f(
+                "recall.retrieval.claims",
+                "Describes the unfiltered relevance search over canonical claims.",
+                "说明正本断言的无时间过滤相关性检索。",
+            ),
+            f(
+                "recall.retrieval.windows",
+                "Describes the unfiltered lexical and semantic source search.",
+                "说明原文的无时间过滤词法与语义检索。",
+            ),
+            f(
+                "recall.retrieval.provenance",
+                "Describes an exact source span followed from selected evidence.",
+                "说明沿已选证据引用读取的精确来源区间。",
+            ),
+            f(
+                "recall.retrieval.map",
+                "States that the library layout is not filtered for the current question.",
+                "说明知识库布局没有按当前问题过滤。",
+            ),
+            f(
+                "recall.retrieval.documents",
+                "States that selected whole pages have no within-page time filter.",
+                "说明所选整页没有页内时间过滤。",
+            ),
+            f(
+                "recall.retrieval.timelines",
+                "Describes same-subject expansion without a date filter.",
+                "说明没有日期过滤的同主题扩展。",
+            ),
+
             f(
                 "recall.section.profile_header",
                 "Opens the owner-profile block, when the deployment supplies a profile.",

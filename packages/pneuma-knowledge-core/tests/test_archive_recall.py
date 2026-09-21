@@ -382,7 +382,8 @@ async def test_with_nothing_archived_the_summary_face_renders_as_it_always_did()
     }
     assert all(s.archived is False for s in answer.used_episode_summaries)
     rendered = render_episode_summaries(list(answer.used_episode_summaries))
-    assert prompt("recall.passage_in_archive") not in rendered
+    # The declared include_archived filter is scope metadata, not an archived-item label.
+    assert f"] {prompt('recall.passage_in_archive')}" not in rendered
 
 
 async def test_the_system_message_is_byte_identical_with_the_flag_on_and_off():

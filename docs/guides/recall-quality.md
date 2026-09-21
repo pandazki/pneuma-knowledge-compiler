@@ -63,6 +63,33 @@ when retrieval and source dates are perfect.
   --style concise
 ```
 
+## Inspect lookup scope before combining results
+
+A route's arguments belong to that lookup. A `person(alias="Riley")` result, a project
+lookup restricted to active work, and a relevance search over the whole library do not
+establish the same scope. Inspect each retrieval boundary's method and arguments, including
+lookup receipts when selected component items move into ordinary claim/window sections.
+Exact duplicates retain every lookup that found them; overlapping spans do not inherit each
+other's filters. A bounded component span is not expanded into neighbouring material.
+
+Time illustrates the distinction: the `time` component uses subject-local days at block
+level, whereas generic lexical/vector ports provide no equivalent calendar predicate.
+Copying a local `since`/`until` query onto all routes, or filtering by the source's earliest
+occurrence date, would change the meaning of multi-period questions and multi-day sources.
+Unfiltered evidence therefore remains explicitly unfiltered. Each cited source carries its
+own occurrence date and available block clocks; multiple sources keep separate dates, and
+unknowns never fall back to ingestion time. These are source timestamps, not proof of when
+the claim's described event happened. Both selectors receive the question clock and timezone alongside the question, so dated
+candidates have the same temporal reference as routing and answering. This repair needs no
+recompile or reindex.
+
+For a before/after comparison, freeze the question, `as_of`, raw candidate pools, component
+calls, canonical documents and cited L0. Replay both versions with the same model settings;
+retain assembled contexts, selection counts, citations, stage costs and answers. A fixed
+candidate replay tests context composition; it does not measure retrieval recall. One
+improved answer is an observation, not a corpus-wide quality claim. Keep real-library
+captures under ignored `local/`; regression fixtures must remain synthetic.
+
 ## Measure changes without mixing axes
 
 Freeze a small set of real, permissioned acceptance questions that cover exact facts,

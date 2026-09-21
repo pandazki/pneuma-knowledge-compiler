@@ -295,7 +295,8 @@ async def test_flag_off_renders_the_two_section_lane_byte_for_byte():
         human.split("# raw excerpts", 1)[-1]
     )
     windows_section = windows_section.split("\n\nas_of:", 1)[0]
-    assert windows_section.strip().endswith("原文第三段的内容")
+    assert "原文第三段的内容" in windows_section
+    assert windows_section.strip().endswith("</retrieval>")
     assert "⌞" not in human
     assert "〔c:c1" not in human  # the note-line anchor form; the claim section's differs
     # claim section keeps BOTH claims, each stated once, above the excerpts

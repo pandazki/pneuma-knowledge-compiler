@@ -92,6 +92,7 @@ from pneuma_knowledge_core.compile.supersession import (
 from pneuma_knowledge_core.domain.ids import UserId, SourceId
 from pneuma_knowledge_core.domain.source import NormalizedBlock, NormalizedSource, RawSource
 from pneuma_knowledge_core.domain.time_context import UTC, TimeContext, time_context_for
+from pneuma_knowledge_core.domain.source_time import block_instants
 from pneuma_knowledge_core.recall.component_rank import tokenize
 from pneuma_knowledge_core.recall.fast import RetrievedClaim
 from pneuma_knowledge_core.recall.paths import PathResult
@@ -116,23 +117,6 @@ from .pagination import (
 
 _log = logging.getLogger(__name__)
 
-#: Which meta list carries a per-block instant, per official source contract. The block
-#: sequence and the meta list are built from the SAME sorted order in
-#: `ingest/canonical_sources.py`, so block index i is meta entry i — the alignment is
-#: verified by length before it is relied on, and a mismatch degrades to "no clock, the
-#: source's occurrence day only" rather than to a wrong timestamp.
-_INSTANT_META: dict[str, tuple[str, str]] = {
-    "meeting": ("segments", "started_at"),
-    "im": ("messages", "sent_at"),
-    "email": ("messages", "sent_at"),
-    # An owner dialogue is conversation-shaped like the three above: one block per turn,
-    # each carrying the instant it was said. Left out of this table its turns kept only the
-    # coarse occurrence day, so a timeline could not tell a morning correction from the
-    # afternoon one that walked it back — on the one material whose author is the subject.
-    "owner_dialogue": ("turns", "said_at"),
-    "agent_session": ("turns", "at"),
-}
-
 #: Output bounds. A digest that silently stops reads as "that was everything"; each of
 #: these is paired with an explicit "…and N more" line.
 TIMELINE_BUCKET_CAP = 40
@@ -142,47 +126,6 @@ RANGE_ROW_CAP = 5000
 
 
 # ------------------------------------------------------------------ derivation from L0
-
-
-def _instant(value: object) -> datetime | None:
-    """An ISO timestamp string from `RawSource.meta` → an aware UTC datetime, or None."""
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(UTC)
-
-
-def block_instants(raw: RawSource, block_count: int) -> tuple[list[datetime | None], str | None]:
-    """Per-block UTC instants (index-aligned) and the source's OWN zone when it declares one.
-
-    Only the conversation-shaped contracts carry per-block timestamps. Anything else — a
-    document library, a plain import — gets `None` for every block: it still has an
-    occurrence day, it simply has no clock, and inventing one would be the exact fabrication
-    this system exists to make impossible.
-    """
-    meta = raw.meta or {}
-    source_zone = str(meta.get("timezone") or "").strip() or None
-    spec = _INSTANT_META.get(raw.kind)
-    if spec is None:
-        return [None] * block_count, source_zone
-    list_key, field = spec
-    entries = meta.get(list_key) or []
-    if len(entries) != block_count:
-        # The one thing that must never happen silently: attaching entry i's timestamp to a
-        # block it does not belong to. Length is the whole alignment contract, so a mismatch
-        # drops the clock for this source rather than guessing.
-        _log.warning(
-            "source %s: %d %s meta entries for %d blocks; dropping per-block instants",
-            raw.source_id, len(entries), list_key, block_count,
-        )
-        return [None] * block_count, source_zone
-    return [_instant((e or {}).get(field)) for e in entries], source_zone
 
 
 def _block_day(block: NormalizedBlock, fallback: str) -> str:

@@ -17,6 +17,8 @@ Synthetic throughout (Mei LIN, 阿宝, example.com); the scorer is a dict.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import asyncio
 from datetime import datetime
 
@@ -74,6 +76,10 @@ class DictScorer:
             hit = next((key for key in self.scores if key in text), None)
             out.append(self.scores[hit] if hit is not None else self.default)
         return EvidenceScores(scores=tuple(out), input_tokens=self.input_tokens)
+
+
+def _without_context(rows):
+    return [replace(row, retrieval_origins=(), source_times=()) for row in rows]
 
 
 def _claims(count: int) -> list[RetrievedClaim]:
@@ -307,6 +313,7 @@ async def test_each_face_renders_the_facts_that_face_is_judged_on_in_pool_order(
 
     assert cards[0] == (
         "[note · document=people/mei-lin.md; section=背景 / 合作] "
+        "source occurrence / cited block clocks: unknown (no resolved metadata)\n"
         "Mei LIN and 阿宝 co-signed the example.com renewal."
     )
     assert cards[1].startswith("[episode summary · occurred_on=2026-08-14; span=0-1] ")
@@ -400,10 +407,12 @@ async def test_the_lane_composes_its_context_with_the_scorer_and_prices_it_apart
     )
 
     assert "model_selector_ran" not in seen
+    assert "as_of: 2026-08-14T00:00:00" in scorer.seen[0][0]
+    assert "subject_timezone: UTC" in scorer.seen[0][0]
     # Score first, then the ranked anchor behind it — the model path's mechanics exactly.
-    assert seen["claims"] == [claims[2], claims[0]]
+    assert _without_context(seen["claims"]) == [claims[2], claims[0]]
     assert seen["summaries"] == [summaries[1], summaries[0]]
-    assert seen["windows"] == [windows[2], windows[0]]
+    assert _without_context(seen["windows"]) == [windows[2], windows[0]]
     assert result.evidence_selection_degraded is None
     assert result.model_selected_claims == 1
     # The scorer's tokens are their own currency: on the result, and never in the ledger.
@@ -428,9 +437,9 @@ async def test_a_failed_scoring_pass_leaves_the_lane_on_its_exact_ranked_heads(m
         monkeypatch=monkeypatch,
     )
 
-    assert seen["claims"] == claims[:2]
+    assert _without_context(seen["claims"]) == claims[:2]
     assert seen["summaries"] == summaries[:2]
-    assert seen["windows"] == windows[:2]
+    assert _without_context(seen["windows"]) == windows[:2]
     assert result.evidence_selection_degraded == "error"
     assert result.scorer_input_tokens == 7
     stage = {s.name: s for s in result.stages}["select"]
@@ -460,7 +469,7 @@ async def test_the_floor_is_the_deployments_to_move(monkeypatch):
         scorer, claims=claims, summaries=summaries, windows=windows, seen=seen,
         monkeypatch=monkeypatch, select_score_floor=0.3,
     )
-    assert seen["claims"][0] == claims[1]
+    assert _without_context(seen["claims"])[0] == claims[1]
     assert result.model_selected_claims == 1
     assert DEFAULT_SELECT_SCORE_FLOOR > 0.3  # the default would have dropped it
 
@@ -514,7 +523,7 @@ async def test_with_no_scorer_the_select_strategy_is_the_model_call_it_has_alway
     )
 
     assert seen["model_selector_ran"] is True
-    assert seen["claims"] == [claims[2]]
+    assert _without_context(seen["claims"]) == [claims[2]]
     assert result.scorer_input_tokens == 0
     assert result.token_usage["total_tokens"] == 11
     stage = {s.name: s for s in result.stages}["select"]

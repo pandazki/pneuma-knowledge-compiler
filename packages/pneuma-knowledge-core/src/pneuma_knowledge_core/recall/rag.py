@@ -24,6 +24,7 @@ from typing import Any
 from ..domain.ids import UserId, SourceId
 from ..ports.lexical_index import LexicalIndex
 from ..ports.vector_index import VectorIndex
+from .evidence_context import EvidenceTime, RetrievalOrigin
 from .archive_filter import archive_view, index_scope, scope_windows
 from .stage_timing import RETRIEVE, StageRecorder, child_name, window_entries
 
@@ -118,6 +119,8 @@ class RecallHit:
     # marker on the rendered provenance header. Never inferred here: a hit knows its source,
     # not the archive.
     archived: bool = False
+    retrieval_origins: tuple[RetrievalOrigin, ...] = ()
+    source_times: tuple[EvidenceTime, ...] = ()
 
 
 async def rag_recall(

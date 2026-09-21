@@ -488,8 +488,7 @@ class _SelectLane(BaseChatModel):
 
 
 async def test_in_select_mode_chosen_component_items_join_the_ordinary_faces():
-    """No separate section: the selector composed the whole context, and what it took is
-    rendered as what it is — a claim among the notes, a window among the excerpts."""
+    """Selected items join their evidence faces; lookup receipts preserve their scopes."""
     lane = _SelectLane(parsed=EvidenceSelection(component_items=[0, 1]), seen=[])
     index = FakeClaimIndex([ClaimStub("z1", "memory/topics/x.md", "无关命中")])
     fa = await fast_recall(
@@ -504,7 +503,9 @@ async def test_in_select_mode_chosen_component_items_join_the_ordinary_faces():
         model=lane,
     )
     human = lane.answered[-1][-1].content
-    assert "# component lookups" not in human  # the face is not a section in select mode
+    assert "# component lookups" not in human
+    assert "# lookup scopes (1)" in human
+    assert "2 lookup items are shown in other evidence sections" in human
     assert fa.model_selected_component_items == 2
     picked = next(c for c in fa.used_claims if str(c.anchor) == "k0")
     assert "via:person" in picked.labels
