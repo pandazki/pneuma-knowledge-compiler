@@ -11,8 +11,13 @@ from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.fast import FastEvidence, RetrievedClaim
 from pneuma_knowledge_core.recall.evidence_context import EvidenceTime, retrieval_origin
 from pneuma_knowledge_core.recall.progressive import (
-    FirstChoice, FirstSummary, KnowledgeDecision, KnowledgeFact, first_candidates, first_finding, refine,
+    FirstDecision, KnowledgeDecision, KnowledgeFact, first_candidates, first_finding, refine,
 )
+
+
+def ready(index=0, quote="The Monday list records three pending ramp tasks.", **changes):
+    return FirstDecision(**dict(disposition="ready", index=index, subject="unambiguous",
+        support="direct", record_kind="subject_fact", quote=quote, **changes))
 
 
 class Model:
@@ -39,7 +44,7 @@ def evidence(text="The Monday list records three pending ramp tasks."):
 
 async def test_first_model_can_only_choose_a_whole_record_never_invent_a_count():
     pool = evidence()
-    model = Model(FirstChoice(index=0))
+    model = Model(ready(index=0))
     first = await first_finding(model, pool.question, pool)
     assert first.text == pool.used_claims[0].text
     assert first.usage["total_tokens"] == 11
@@ -52,7 +57,7 @@ async def test_first_finding_keeps_source_clock_and_lookup_scope_with_each_recor
         source_times=(EvidenceTime(SourceId("ferry-source"), 0, 0, "2026-07-01"),),
         retrieval_origins=(retrieval_origin("claim_search", "Relevance search", time_filter=None),))
     pool = replace(pool, used_claims=(claim,))
-    model = Model(FirstChoice(index=0))
+    model = Model(ready(index=0))
     first = await first_finding(model, "What happened this week?", pool, zone="Asia/Shanghai")
     human = model.messages[1].content
     assert "2026-07-01" in human and pool.as_of.isoformat() in human
@@ -66,7 +71,7 @@ async def test_first_finding_keeps_source_clock_and_lookup_scope_with_each_recor
 
 
 async def test_first_finding_keeps_unknown_dates_explicit():
-    model = Model(FirstChoice(index=0))
+    model = Model(ready(index=0))
     await first_finding(model, "Recent work?", evidence())
     assert prompt("recall.retrieval.time_unknown") in model.messages[1].content
 
@@ -77,7 +82,7 @@ async def test_first_finding_omits_whole_records_when_metadata_exceeds_budget():
         retrieval_origin("synthetic", "X" * 4500),))
     next_claim = replace(pool.used_claims[0], anchor=AnchorId("c:5678"),
                          text="A complete second record with its limitation.")
-    model = Model(FirstChoice(index=0))
+    model = Model(ready(index=0, quote=next_claim.text))
     first = await first_finding(model, "question", replace(pool, used_claims=(too_wide, next_claim)))
     assert first.locator == "projects/ferry.md#c:5678"
     assert "X" * 4500 not in model.messages[1].content
@@ -86,7 +91,7 @@ async def test_first_finding_omits_whole_records_when_metadata_exceeds_budget():
 
 @pytest.mark.parametrize("index", [-1, 8, 999])
 async def test_invalid_or_empty_selection_never_becomes_a_fact(index):
-    assert (await first_finding(Model(FirstChoice(index=index)), "question", evidence())).text == ""
+    assert (await first_finding(Model(ready(index=index)), "question", evidence())).text == ""
 
 
 def test_long_qualified_claim_is_not_shortened_into_an_unqualified_fact():
@@ -176,19 +181,43 @@ async def test_source_only_handles_cannot_admit_unknown_or_injected_sources(mark
                                              citations=[marker])), pool)
 
 
-async def test_long_records_can_supply_a_bounded_partial_answer_without_cutting_context():
+async def test_long_records_require_an_exact_complete_passage_without_rewriting():
     pool = evidence("An ongoing project is documented. " * 20 + "The final deadline is not agreed.")
-    model = Model(FirstSummary(index=0, summary="One project is ongoing, with no agreed deadline."))
+    model = Model(ready(quote="The final deadline is not agreed."))
     first = await first_finding(model, pool.question, pool)
-    assert "no agreed deadline" in first.text
-    assert "The final deadline is not agreed." in model.messages[1].content
-    assert first.locator == "projects/ferry.md#c:1234"
+    assert first.text == "The final deadline is not agreed."
+    assert "An ongoing project is documented." in model.messages[1].content
+    assert first.disposition == "ready"
+    invented = ready(quote="The project has no deadline.")
+    rejected = await first_finding(Model(invented), pool.question, pool)
+    assert rejected.text == "" and rejected.reason == "invalid_quote"
 
 
-async def test_long_record_summary_cannot_select_a_nonexistent_record():
-    pool = evidence("A full record with a qualification. " * 20)
-    first = await first_finding(Model(FirstSummary(index=9, summary="Invented.")), pool.question, pool)
-    assert first.text == ""
+@pytest.mark.parametrize("changes", [
+    {"subject": "ambiguous"}, {"subject": "unknown"}, {"support": "indirect"},
+    {"record_kind": "test_or_usage_instruction"}, {"record_kind": "question_or_hypothesis"},
+    {"disposition": "needs_review"}, {"disposition": "no_answer"},
+])
+async def test_any_unresolved_admission_field_suppresses_first_fact(changes):
+    parsed = ready().model_copy(update=changes)
+    result = await first_finding(Model(parsed), "What is it?", evidence())
+    assert result.text == "" and result.disposition != "ready"
+
+
+async def test_quoted_test_question_cannot_be_rewritten_as_a_subject_definition():
+    # Synthetic analogue of an observed UI-testing instruction misread as a definition.
+    pool = evidence('Ask "What is Lumenlab?" and the console shows a quick card, then a complete card.')
+    invented = ready(quote="Lumenlab is a system that shows quick and complete cards.")
+    result = await first_finding(Model(invented), "What is Lumenlab?", pool)
+    assert result.reason == "invalid_quote" and result.text == ""
+    classified = ready(quote=pool.used_claims[0].text).model_copy(update={"record_kind": "test_or_usage_instruction"})
+    assert (await first_finding(Model(classified), pool.question, pool)).reason == "admission_failed"
+
+
+async def test_a_clause_cannot_be_clipped_from_its_condition():
+    pool = evidence("Only if the inspection passes, the ramp opens on Monday.")
+    result = await first_finding(Model(ready(quote="the ramp opens on Monday.")), pool.question, pool)
+    assert result.text == "" and result.reason == "invalid_quote"
 
 
 async def test_refinement_schema_only_offers_retrieved_addresses():

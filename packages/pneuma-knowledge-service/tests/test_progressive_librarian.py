@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import AnchorId, SourceId, UserId
 from pneuma_knowledge_core.recall.fast import FastEvidence, RetrievedClaim
-from pneuma_knowledge_core.recall.progressive import FirstChoice, KnowledgeDecision, KnowledgeFact
+from pneuma_knowledge_core.recall.progressive import FirstDecision, KnowledgeDecision, KnowledgeFact
 from pneuma_knowledge_service.call import librarian as module
 from pneuma_knowledge_service.call.librarian import LibraryLibrarian
 
@@ -25,7 +25,10 @@ class Model:
     def with_structured_output(self, schema, **kwargs):
         class Bound:
             async def ainvoke(self, messages, config=None):
-                parsed = FirstChoice(index=0) if schema is FirstChoice else KnowledgeDecision(
+                parsed = FirstDecision(disposition="ready", index=0, subject="unambiguous",
+                    support="direct", record_kind="subject_fact", quote=(
+                        "Lyrra Framework builds applications." if "Lyrra" in str(messages)
+                        else "The ramp needs a flood inspection.")) if schema is FirstDecision else KnowledgeDecision(
                     status="answered", facts=[KnowledgeFact(text="The flood inspection is tomorrow.", citations=["[cite: s01 ¶0-0]"])], scope="Ramp record.", limitations=[])
                 return {"parsed": parsed, "raw": AIMessage(content="", usage_metadata={
                     "input_tokens": 9, "output_tokens": 2, "total_tokens": 11})}
@@ -243,3 +246,33 @@ async def test_only_broad_retrieval_inherits_the_configured_scorer(librarian, mo
     assert quick["evidence_scorer"] is None and broad["evidence_scorer"] is scorer
     assert broad["claim_candidate_cap"] == 80 and broad["select_score_floor"] == 0.65
     assert broad["evidence_selection_timeout"] == 5.0
+
+
+async def test_uncertain_first_result_emits_only_task_state_while_broad_lookup_continues(librarian, monkeypatch):
+    from pneuma_knowledge_core.recall.progressive import FirstFinding
+    broad_gate, progress_ready = asyncio.Event(), asyncio.Event()
+    first, progress, final = [], [], []
+
+    async def retrieve(user, question, **kw):
+        if kw["model"] is not None:
+            await broad_gate.wait()
+        return evidence()
+
+    async def uncertain(*args, **kwargs):
+        return FirstFinding(disposition="needs_review", reason="admission_failed")
+
+    def report(text):
+        progress.append(text)
+        progress_ready.set()
+
+    monkeypatch.setattr(module, "fast_recall", retrieve)
+    monkeypatch.setattr(module, "first_finding", uncertain)
+    task = asyncio.create_task(librarian.answer("Which subject?", on_preliminary=first.append,
+        on_progress=report, on_token=final.append, on_retrieved=lambda: None))
+    await asyncio.wait_for(progress_ready.wait(), 1)
+    assert not first and not final and not task.done()
+    assert progress == [module.prompt("call.progressive.checking")]
+    assert "flood" not in progress[0]
+    broad_gate.set()
+    result = await task
+    assert final and result.payload["progressive"]["first_disposition"] == "needs_review"

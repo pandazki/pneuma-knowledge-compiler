@@ -22,13 +22,14 @@ from .evidence_context import render_candidate_context
 from .fast import RetrievedClaim, FastEvidence, evidence_manifest, extract_usage, invoke_config, zero_usage
 
 
-class FirstChoice(BaseModel):
-    index: int = Field(description="Index of one relevant self-contained record, or -1 when none is safe")
-
-
-class FirstSummary(BaseModel):
-    index: int = Field(description="One relevant record index, or -1 if none answers the question")
-    summary: str = Field(default="", max_length=200, description="One brief supported partial answer; no totals or claims of completeness")
+class FirstDecision(BaseModel):
+    disposition: Literal["ready", "needs_review", "no_answer"]
+    index: int = Field(default=-1, description="Index of the record supporting an early answer")
+    subject: Literal["unambiguous", "ambiguous", "unknown"]
+    support: Literal["direct", "indirect", "none"]
+    record_kind: Literal["subject_fact", "test_or_usage_instruction", "question_or_hypothesis", "other"]
+    quote: str = Field(default="", max_length=300,
+        description="Exact complete sentence(s) from the selected record, including necessary qualifications; no rewriting")
 
 
 class KnowledgeFact(BaseModel):
@@ -48,6 +49,8 @@ class FirstFinding:
     text: str = ""
     usage: dict[str, int] = field(default_factory=zero_usage)
     locator: str = ""
+    disposition: Literal["ready", "needs_review", "no_answer"] = "no_answer"
+    reason: str = "no_candidates"
 
 
 @dataclass(frozen=True)
@@ -132,13 +135,9 @@ def first_candidates(evidence: FastEvidence, *, max_bytes: int = 300) -> list[tu
 
 
 async def first_finding(model, question: str, evidence: FastEvidence, *, zone: str = "UTC", callbacks=None, trace_metadata=None) -> FirstFinding:
-    candidates = first_candidates(evidence)
-    complete = first_candidates(evidence, max_bytes=6000)
-    summarize = any(len(text.encode("utf-8")) > 300 for text, _ in complete)
-    if summarize:
-        # Keep whole records, bounded in aggregate. Long records need a brief answer,
-        # not silent rejection or a substring that can drop a qualification.
-        candidates = complete
+    # Keep context whole for the admission decision; only an exact, bounded passage
+    # can leave this phase. A paraphrase cannot turn a test question into a definition.
+    candidates = first_candidates(evidence, max_bytes=6000)
     contexts = {
         f"{claim.document_path}#{claim.anchor}": render_candidate_context(claim, citations=False)
         for claim in evidence.used_claims
@@ -163,8 +162,8 @@ async def first_finding(model, question: str, evidence: FastEvidence, *, zone: s
     candidates = bounded
     if not candidates:
         return FirstFinding()
-    result = await model.with_structured_output(FirstSummary if summarize else FirstChoice, include_raw=True).ainvoke(
-        [SystemMessage(content=prompt("call.progressive.summarize" if summarize else "call.progressive.pick")),
+    result = await model.with_structured_output(FirstDecision, include_raw=True).ainvoke(
+        [SystemMessage(content=prompt("call.progressive.pick")),
          HumanMessage(content=prompt("call.progressive.pick_input",
              question=prompt("recall.retrieval.question_context", question=question,
                              as_of=evidence.as_of.isoformat(), zone=zone),
@@ -172,14 +171,28 @@ async def first_finding(model, question: str, evidence: FastEvidence, *, zone: s
         config=invoke_config("call.first", callbacks, trace_metadata),
     )
     parsed, usage = unpack(result)
-    if not isinstance(parsed, FirstSummary if summarize else FirstChoice) or not 0 <= parsed.index < len(candidates):
-        return FirstFinding(usage=usage)
+    if not isinstance(parsed, FirstDecision):
+        return FirstFinding(usage=usage, disposition="needs_review", reason="invalid_decision")
+    if parsed.disposition != "ready":
+        return FirstFinding(usage=usage, disposition=parsed.disposition, reason="not_ready")
+    if (parsed.subject != "unambiguous" or parsed.support != "direct"
+            or parsed.record_kind != "subject_fact"):
+        return FirstFinding(usage=usage, disposition="needs_review", reason="admission_failed")
+    if not 0 <= parsed.index < len(candidates):
+        return FirstFinding(usage=usage, disposition="needs_review", reason="invalid_index")
     text, locator = candidates[parsed.index]
-    if summarize:
-        text = speakable(parsed.summary).strip()
-        if not text:
-            return FirstFinding(usage=usage)
-    return FirstFinding(text=text, usage=usage, locator=locator)
+    quote = parsed.quote.strip()
+    # Verbatim admission prevents novel subject/predicate constructions. Complete
+    # sentence boundaries prevent clipping a clause off its negation or condition.
+    starts = [match.start() for match in re.finditer(re.escape(quote), text)] if quote else []
+    def bounded(start: int) -> bool:
+        before, after = text[:start].rstrip(), text[start + len(quote):].lstrip()
+        return ((not before or before[-1] in ".!?。！？\n")
+                and (not after or quote[-1] in ".!?。！？"))
+    if not starts or not any(bounded(start) for start in starts):
+        return FirstFinding(usage=usage, disposition="needs_review", reason="invalid_quote")
+    return FirstFinding(text=quote, usage=usage, locator=locator,
+                        disposition="ready", reason="direct_record")
 
 
 def unpack(result) -> tuple[object, dict[str, int]]:

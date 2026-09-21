@@ -15,6 +15,7 @@ from dataclasses import dataclass, fields, replace
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
+from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.canonical_glance import display_identity
 from pneuma_knowledge_core.domain.ids import UserId
 from pneuma_knowledge_core.recall.call import Ask, Exchange, Ledger, form_ask, vocabulary_of
@@ -102,6 +103,7 @@ class Librarian(Protocol):
         on_token: Callable[[str], None],
         on_retrieved: Callable[[], None],
         on_preliminary: Callable[[str], None],
+        on_progress: Callable[[str], None] | None = None,
     ) -> LibraryAnswer: ...
 
 
@@ -163,6 +165,7 @@ class LibraryLibrarian:
         on_token: Callable[[str], None],
         on_retrieved: Callable[[], None],
         on_preliminary: Callable[[str], None],
+        on_progress: Callable[[str], None] | None = None,
     ) -> LibraryAnswer:
         from ..api.routes import v1
 
@@ -246,6 +249,9 @@ class LibraryLibrarian:
                 on_preliminary(first.text)
             elif not first_reason and not first_skipped:
                 first_reason = "no_supported_finding"
+            if not first.text and not broad_task.done() and on_progress is not None:
+                # Task state only: unverified candidates never become Live context.
+                on_progress(prompt("call.progressive.checking"))
             evidence = await broad_task
             on_retrieved()
             answer_started = time.perf_counter()
@@ -277,6 +283,7 @@ class LibraryLibrarian:
             out = v1._fast_answer_out(answer, as_of=as_of, plane=plane, settings=ctx.settings)
             payload = out.model_dump(mode="json")
             payload["progressive"] = {"preliminary": first.text, "locator": first.locator,
+                                      "first_disposition": first.disposition, "first_reason": first.reason,
                                       "first_degraded": first_reason or None, "first_skipped": first_skipped or None}
             payload["lookup_result"] = {
                 "status": refined.status, "scope": refined.scope,

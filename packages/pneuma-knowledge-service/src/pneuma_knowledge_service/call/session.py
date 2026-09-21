@@ -500,7 +500,7 @@ class CallSession:
     async def _holding_line(self, delegation: Delegation) -> None:
         """Report an unfinished task once when it takes longer than the normal wait."""
         await asyncio.sleep(PROGRESS_AFTER_SECONDS)
-        if not delegation.said and self._current(delegation):
+        if not delegation.said and not any(u["phase"] == "progress" for u in delegation.updates) and self._current(delegation):
             with contextlib.suppress(Exception):
                 await self._hand_over(delegation, prompt("call.say.working"), result=False, phase="progress", quiet=True)
 
@@ -585,7 +585,7 @@ class _Attempt:
         self._released = False
         self._task = asyncio.create_task(
             session.librarian.answer(question, on_token=self._on_token, on_retrieved=self._on_retrieved,
-                                     on_preliminary=self._on_preliminary)
+                                     on_preliminary=self._on_preliminary, on_progress=self._on_progress)
         )
 
     # Result callbacks must not block the producer, so each callback
@@ -593,6 +593,10 @@ class _Attempt:
     def _on_token(self, delta: str) -> None:
         for chunk in self._chunker.feed(delta):
             self._final_chunks.append(chunk)
+
+    def _on_progress(self, text: str) -> None:
+        if text:
+            self._chunks.put_nowait(("progress", text, True))
 
     def _on_preliminary(self, text: str) -> None:
         if text:

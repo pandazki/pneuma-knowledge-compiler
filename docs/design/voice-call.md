@@ -187,16 +187,27 @@ standalone question ─┬─ bounded first lookup → partial record + scope �
 **First look.** The ordinary fast lane runs in evidence-only mode with no embedding, routing,
 selection or answer model call (including no inherited evidence scorer): 8 claim candidates / 6 retained claims, 3 raw-window candidates
 / 2 retained windows, no semantic summaries, and bounded source expansion. It uses the same
-archive filtering and source-span checks as selected recall. A small structured model call
-then chooses one short record index, or abstains. When candidates include records beyond the 300-byte quote
-budget, it sees complete records (at most 6,000 bytes each) and returns one selected index
-plus a partial answer of at most 200 characters. Each candidate retains its lookup scope
-and cited source clocks; the request carries the same `as_of` and owner timezone as broader
-retrieval. Exact-title overview claims obtain those clocks through tenant-scoped L0 reads.
-Missing dates stay unknown. Candidate cards, including that metadata, fit within 4,000
-characters; oversized cards are omitted whole, never stripped of their qualifiers to fit.
-The index must address a supplied record; summarization is model interpretation, not a
-mechanical guarantee of semantic entailment. Superseded and archived claims remain excluded.
+archive filtering and source-span checks as selected recall. A single structured model call
+classifies the first look as ready, needs_review or no_answer. Ready requires an unambiguous
+subject, direct support for the requested aspect and a subject-fact record. A title match
+alone does not qualify a definition for a latest-version question. Test instructions, quoted
+questions and UI examples are not subject facts. The output must be an exact passage of
+complete sentences, at most 300 characters, from one supplied record; new wording and
+clipped clauses are refused mechanically. The model still judges identity, relevance and
+whether qualifications elsewhere in the record are essential; these checks do not prove
+semantic entailment. The early phase no longer authors a summary.
+
+Each candidate retains its lookup scope and cited source clocks, with the same `as_of` and
+owner timezone as broader retrieval. Exact-title overview claims obtain clocks through
+tenant-scoped L0 reads; missing dates stay unknown. Whole records are capped at 6,000 bytes,
+with all candidate cards including metadata bounded to 4,000 characters. Oversized cards
+are omitted whole. Superseded and archived claims remain excluded.
+
+When no early fact qualifies and broader retrieval is still running, a fixed task-state
+message goes through `session.thinking.append`. No unverified candidate text is forwarded.
+The timer does not repeat this progress message. Only ready facts go through commentary;
+quiet progress never starts first-result timing or consumes the result budget. The trace
+retains `first_disposition` and `first_reason`. No additional model round is introduced.
 
 A quiet scope update identifies the result as one partial record before its factual text. The first-result deadline is six seconds;
 empty or uncertain results are labelled `no_supported_finding`, and timeouts are recorded

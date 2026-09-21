@@ -704,11 +704,6 @@ SURFACES: tuple[Surface, ...] = (
                 "Labels the voice model's lines of the transcript.",
                 "转写里语音模型那几行的标签。",
             ),
-            f(
-                'call.progressive.summarize',
-                'Produce one brief partial answer from a selected complete record when none is short enough to quote.',
-                '没有适合直接引用的短记录时，从选中的完整记录生成一句局部回答。',
-            ),
             f("call.lexicon.extract", "Select uncommon speech terms from canonical pages.", "从知识页提取语音易错词。"),
             f("call.lexicon.curate", "Select useful spoken names across pages.", "跨页面筛选适合口语的名称。"),
             f("call.lexicon.context", "Bounded spelling reference provided at call startup.", "通话开始时提供的有界拼写参考。"),
@@ -739,6 +734,7 @@ SURFACES: tuple[Surface, ...] = (
                 'No reliable answer and no earlier finding.',
                 '没有可靠答案，也没有先行发现。',
             ),
+            f('call.progressive.checking', 'Quiet task state after an inconclusive first lookup.', '首查未确认答案时的静默任务状态。'),
             f('call.progressive.partial_scope', 'Quiet scope of a one-record partial result.', '单条局部结果的后台范围说明。'),
             f('call.progressive.result_scope', 'Quiet status, evidence scope and limitations of the completed lookup.', '查库结果的状态、证据范围和未确定部分。'),
             f(
