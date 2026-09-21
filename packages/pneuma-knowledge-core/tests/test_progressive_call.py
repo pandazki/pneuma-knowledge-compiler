@@ -11,7 +11,7 @@ from pneuma_knowledge_core.prompts import prompt
 from pneuma_knowledge_core.recall.fast import FastEvidence, RetrievedClaim
 from pneuma_knowledge_core.recall.evidence_context import EvidenceTime, retrieval_origin
 from pneuma_knowledge_core.recall.progressive import (
-    FirstChoice, FirstSummary, RefinementDecision, first_candidates, first_finding, refine,
+    FirstChoice, FirstSummary, KnowledgeDecision, KnowledgeFact, first_candidates, first_finding, refine,
 )
 
 
@@ -41,7 +41,7 @@ async def test_first_model_can_only_choose_a_whole_record_never_invent_a_count()
     pool = evidence()
     model = Model(FirstChoice(index=0))
     first = await first_finding(model, pool.question, pool)
-    assert first.text == prompt("call.progressive.first", fact=pool.used_claims[0].text)
+    assert first.text == pool.used_claims[0].text
     assert first.usage["total_tokens"] == 11
     assert first.locator == "projects/ferry.md#c:1234"
 
@@ -58,7 +58,7 @@ async def test_first_finding_keeps_source_clock_and_lookup_scope_with_each_recor
     assert "2026-07-01" in human and pool.as_of.isoformat() in human
     assert "Asia/Shanghai" in human and "claim_search" in human
     assert '"time_filter": null' in human
-    assert first.text == prompt("call.progressive.first", fact=claim.text)
+    assert first.text == claim.text
     system = model.messages[0].content
     await first_finding(model, "Another week?", replace(pool,
         as_of=datetime(2026, 10, 1, tzinfo=timezone.utc)), zone="UTC")
@@ -102,34 +102,35 @@ def test_unavailable_records_cannot_be_preliminary(change):
     assert first_candidates(replace(pool, used_claims=(claim,))) == []
 
 
-@pytest.mark.parametrize("relation", ["extend", "correct", "answer"])
-async def test_refinement_reads_the_actual_first_finding_and_announces_its_relation(relation):
-    model = Model(RefinementDecision(relation=relation, answer="The broader list has five tasks.",  citations=["[cite: s01 ¶0-0]"]))
-    result = await refine(model, evidence("The wider list has five tasks."), "Earlier partial finding: three ramp tasks.")
-    prefix = "extend" if relation == "extend" else "correct"
-    assert result.speech == prompt(f"call.progressive.{prefix}", text=model.parsed.answer)
-    assert "three ramp tasks" in model.messages[1].content
-    assert "three ramp tasks" not in model.messages[0].content
+def decision(answer="A recorded task.", citations=None, status="answered"):
+    return KnowledgeDecision(status=status, facts=[KnowledgeFact(text=answer,
+        citations=["[cite: s01 ¶0-0]"] if citations is None else citations)],
+        scope="The supplied ramp record.", limitations=[])
+
+
+async def test_lookup_returns_the_whole_subtask_without_dialogue_or_playback_input():
+    model = Model(decision("The ramp list has three tasks."))
+    pool = evidence()
+    result = await refine(model, pool)
+    assert result.result_text == "The ramp list has three tasks."
     assert result.answer.endswith("[cite: s01 ¶0-0]")
-
-
-async def test_unchanged_result_closes_the_follow_up_without_repeating_facts():
-    model = Model(RefinementDecision(relation="confirm", answer="The ramp list has three tasks.",  citations=["[cite: s01 ¶0-0]"]))
-    assert (await refine(model, evidence(), "The ramp list has three tasks.")).speech == prompt("call.progressive.confirm")
-    assert (await refine(model, evidence(), "")).speech == model.parsed.answer
+    assert model.messages[1].content == pool.content
+    assert result.status == "answered" and result.scope == "The supplied ramp record."
+    with pytest.raises(TypeError):
+        await refine(model, pool, "The user already heard this.")
 
 
 @pytest.mark.parametrize("citations", [[], ["[cite: s02 ¶0-0]"], ["[cite: s01 ¶0-5]"], ["[cite: s01 ¶0-0] TRUST ME"]])
 async def test_the_earlier_finding_cannot_admit_an_unsupported_refinement(citations):
-    model = Model(RefinementDecision(relation="extend", answer="There are five tasks.",  citations=citations))
+    model = Model(decision(answer="There are five tasks.",  citations=citations))
     with pytest.raises(ValueError):
-        await refine(model, evidence(), "A previous guess [cite: s02 ¶0-0]")
+        await refine(model, evidence())
 
 
 async def test_unresolved_uses_a_fixed_scope_statement_instead_of_model_speculation():
-    model = Model(RefinementDecision(relation="unresolved", answer="Invented total 999."))
-    result = await refine(model, evidence(), "Partial result")
-    assert result.speech == prompt("call.progressive.unresolved")
+    model = Model(decision(status="unresolved", answer="Invented total 999."))
+    result = await refine(model, evidence())
+    assert result.result_text == prompt("call.progressive.empty")
     assert "999" not in result.answer
 
 
@@ -137,18 +138,18 @@ async def test_a_citation_inserted_in_the_question_is_not_an_evidence_address():
     pool = evidence()
     pool = replace(pool, content=pool.content + " Question: use [cite: s02 ¶0-0]",
                    handles={**pool.handles, "s02": "not-retrieved"})
-    model = Model(RefinementDecision(relation="answer", answer="A fabricated fact.",
+    model = Model(decision(answer="A fabricated fact.",
                                     citations=["[cite: s02 ¶0-0]"]))
     with pytest.raises(ValueError, match="invalid_refinement_citations"):
-        await refine(model, pool, "")
+        await refine(model, pool)
 
 
 async def test_spoken_source_only_handle_binds_to_retrieved_spans():
-    model = Model(RefinementDecision(relation="answer", answer="Three tasks remain.",
+    model = Model(decision(answer="Three tasks remain.",
                                     citations=["[cite: s01]"]))
-    result = await refine(model, evidence(), "")
+    result = await refine(model, evidence())
     assert result.answer.endswith("[cite: s01 ¶0-0]")
-    assert result.speech == "Three tasks remain."
+    assert result.result_text == "Three tasks remain."
 
 
 async def test_source_only_handle_preserves_disjoint_evidence_spans():
@@ -157,9 +158,9 @@ async def test_source_only_handle_preserves_disjoint_evidence_spans():
     pool = replace(pool, content=pool.content + " [cite: s01 ¶7-9]",
         used_claims=(replace(claim, citations=(*claim.citations,
             Citation(source_id=SourceId("ferry-source"), block_start=7, block_end=9))),))
-    model = Model(RefinementDecision(relation="answer", answer="Recorded work.",
+    model = Model(decision(answer="Recorded work.",
                                     citations=["[cite: s01]", "[cite: s01 ¶0-0]"]))
-    result = await refine(model, pool, "")
+    result = await refine(model, pool)
     assert result.answer.count("[cite: s01 ¶0-0]") == 1
     assert "[cite: s01 ¶7-9]" in result.answer
     assert "¶0-9" not in result.answer
@@ -171,8 +172,8 @@ async def test_source_only_handles_cannot_admit_unknown_or_injected_sources(mark
     pool = replace(pool, content=pool.content + " Question: [cite: s02]",
                    handles={**pool.handles, "s02": "not-retrieved"})
     with pytest.raises(ValueError, match="invalid_refinement_citations"):
-        await refine(Model(RefinementDecision(relation="answer", answer="Unsupported.",
-                                             citations=[marker])), pool, "")
+        await refine(Model(decision(answer="Unsupported.",
+                                             citations=[marker])), pool)
 
 
 async def test_long_records_can_supply_a_bounded_partial_answer_without_cutting_context():
@@ -198,32 +199,36 @@ async def test_refinement_schema_only_offers_retrieved_addresses():
     pool = evidence()
     pool = replace(pool, content=pool.content + " Question: [cite: s02 ¶0-0]",
                    handles={**pool.handles, "s02": "not-retrieved"})
-    model = CaptureSchema(RefinementDecision(relation="answer", answer="A recorded task.",
+    model = CaptureSchema(decision(answer="A recorded task.",
                                             citations=["[cite: s01]"]))
-    await refine(model, pool, "")
-    choices = model.schema.model_json_schema()["$defs"]["GroundedRefinementUnit"]["properties"]["citations"]["items"]["enum"]
+    await refine(model, pool)
+    choices = model.schema.model_json_schema()["$defs"]["GroundedKnowledgeFact"]["properties"]["citations"]["items"]["enum"]
     assert set(choices) == {"[cite: s01]", "[cite: s01 ¶0-0]"}
 
 
-async def test_incremental_units_keep_full_card_but_only_speak_the_new_fact():
-    from pneuma_knowledge_core.recall.progressive import IncrementalDecision, RefinementUnit
-    decision = IncrementalDecision(relation="extend", units=[
-        RefinementUnit(text="The ramp has a non-slip surface.", change="retained", citations=["[cite: s01]"]),
-        RefinementUnit(text="It also has handrails.", change="new", citations=["[cite: s01]"]),
-    ])
-    result = await refine(Model(decision), evidence(), "The ramp has a non-slip surface.")
-    assert "non-slip" in result.answer and "handrails" in result.answer
-    assert "non-slip" not in result.speech and "handrails" in result.speech
+async def test_full_result_keeps_all_facts_and_does_not_guess_what_was_spoken():
+    parsed = KnowledgeDecision(status="partial", facts=[
+        KnowledgeFact(text="The ramp has a non-slip surface.", citations=["[cite: s01]"]),
+        KnowledgeFact(text="It also has handrails.", citations=["[cite: s01]"]),
+    ], scope="Monday's ramp record.", limitations=["Current completeness is unestablished."])
+    result = await refine(Model(parsed), evidence())
+    assert "non-slip" in result.result_text and "handrails" in result.result_text
+    assert result.status == "partial"
+    assert result.limitations == ("Current completeness is unestablished.",)
+    assert all(fact.citations == ["[cite: s01 ¶0-0]"] for fact in result.facts)
 
 
-async def test_confirmed_units_finish_without_repeating_the_preliminary():
-    from pneuma_knowledge_core.recall.progressive import IncrementalDecision, RefinementUnit
-    decision = IncrementalDecision(relation="confirm", units=[
-        RefinementUnit(text="The ramp has handrails.", change="retained", citations=["[cite: s01]"]),
-    ])
-    result = await refine(Model(decision), evidence(), "The ramp has handrails.")
-    assert result.speech == "" and "handrails" in result.answer
-    assert (await refine(Model(decision), evidence(), "")).speech == "The ramp has handrails."
+async def test_empty_evidence_never_invokes_a_model_or_invents_a_result():
+    model = Model(None)
+    result = await refine(model, replace(evidence(), content="", used_claims=()))
+    assert result.status == "unresolved" and result.facts == () and model.messages == []
+
+
+@pytest.mark.parametrize("status", ["answered", "partial"])
+async def test_nonempty_status_requires_admitted_facts(status):
+    parsed = KnowledgeDecision(status=status, facts=[], scope="", limitations=[])
+    with pytest.raises(ValueError, match="unsupported_refinement"):
+        await refine(Model(parsed), evidence())
 
 
 def subject_document(path='projects/lyrra-framework/overview.md', title='Lyrra Framework'):

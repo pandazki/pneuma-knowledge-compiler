@@ -1,8 +1,8 @@
 """Two overlapping lookups inside one Live delegation.
 
 A bounded canonical-or-lexical first look selects a complete short record and hands it to Live with an
-explicit partial-scope wrapper. Broader fast recall runs concurrently; its answer compares
-against that exact first finding, returning an addition, correction or no new speech.
+explicit partial scope. Broader fast recall runs concurrently and returns supported facts,
+evidence scope and unresolved aspects of the standalone subtask. Live owns conversation.
 Both phases share tenant, time and archive scope. Neither writes the library.
 """
 
@@ -41,9 +41,9 @@ SELECTION_TIMEOUT_SECONDS = 5.0
 # A slow or empty first look must not prevent the broader answer from completing.
 FIRST_LOOK_SECONDS = 6.0
 
-#: The fast lane's spoken posture — see the module docstring for why each line is here.
+#: The fast lane's lookup posture — see the module docstring for why each line is here.
 POSTURE: dict[str, Any] = {
-    "answer_style": "spoken",
+    "answer_style": "concise",
     "render_glance": False,
     # Preserve model relevance selection for wide pools; do not hide a brittle subject-name
     # containment filter inside a component. Small pools can be judged during answering.
@@ -169,7 +169,7 @@ class LibraryLibrarian:
         ctx = self._ctx
         as_of = datetime.now(timezone.utc)
         plane = await v1._resolve_plane(ctx, self._user, None)
-        body = v1.RecallIn(query=question, mode="fast", answer_style="spoken")
+        body = v1.RecallIn(query=question, mode="fast", answer_style="concise")
         kwargs = await v1._fast_recall_kwargs(
             ctx,
             body,
@@ -249,10 +249,10 @@ class LibraryLibrarian:
             evidence = await broad_task
             on_retrieved()
             answer_started = time.perf_counter()
-            refined = await refine(model, evidence, first.text,
+            refined = await refine(model, evidence,
                 callbacks=kwargs.get("callbacks"), trace_metadata=kwargs.get("trace_metadata"))
-            if refined.speech:
-                on_token(refined.speech)
+            if refined.result_text:
+                on_token(refined.result_text)
             answer_ms = (time.perf_counter() - answer_started) * 1000
             total_ms = (time.perf_counter() - started) * 1000
             stages = tuple(
@@ -277,8 +277,12 @@ class LibraryLibrarian:
             out = v1._fast_answer_out(answer, as_of=as_of, plane=plane, settings=ctx.settings)
             payload = out.model_dump(mode="json")
             payload["progressive"] = {"preliminary": first.text, "locator": first.locator,
-                                      "relation": refined.relation, "spoken_update": refined.speech,
                                       "first_degraded": first_reason or None, "first_skipped": first_skipped or None}
+            payload["lookup_result"] = {
+                "status": refined.status, "scope": refined.scope,
+                "limitations": list(refined.limitations),
+                "facts": [fact.model_dump() for fact in refined.facts],
+            }
             return LibraryAnswer(payload=payload, answer_text=answer.answer_text)
         finally:
             # Cancellation, errors and superseded session shutdown must leave no hidden work.

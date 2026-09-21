@@ -725,34 +725,9 @@ SURFACES: tuple[Surface, ...] = (
                 '交给首段选择器的问题及有限的完整记录。',
             ),
             f(
-                'call.progressive.first',
-                'Mechanical partial-scope wrapper around the selected verbatim record.',
-                '为选中的记录原文添加明确局部范围的说明。',
-            ),
-            f(
-                'call.progressive.previous',
-                'The exact first finding, as dialogue context rather than evidence.',
-                '首段原文，仅作对话上下文，不作为证据。',
-            ),
-            f(
                 'call.progressive.refine',
-                'Compare broader evidence with the earlier finding and classify the update.',
-                '对照较广证据与先行发现，判断更新属于补充还是修正。',
-            ),
-            f(
-                'call.progressive.extend',
-                'Spoken transition before additional facts.',
-                '新增事实之前的口头过渡。',
-            ),
-            f(
-                'call.progressive.correct',
-                'Mandatory spoken transition before a correction.',
-                '修正前由程序添加的明确口头过渡。',
-            ),
-            f(
-                'call.progressive.unresolved',
-                'Broader evidence cannot establish a conclusion after a partial finding.',
-                '已有局部发现，但较广证据仍不能支持结论。',
+                'Return a grounded standalone subtask result with scope and limitations.',
+                '返回有据的独立子问题结果、范围与未确定部分。',
             ),
             f(
                 'call.progressive.incomplete',
@@ -764,11 +739,8 @@ SURFACES: tuple[Surface, ...] = (
                 'No reliable answer and no earlier finding.',
                 '没有可靠答案，也没有先行发现。',
             ),
-            f(
-                'call.progressive.confirm',
-                'Close the follow-up without repeating facts.',
-                '补充核对结束，不重复事实。',
-            ),
+            f('call.progressive.partial_scope', 'Quiet scope of a one-record partial result.', '单条局部结果的后台范围说明。'),
+            f('call.progressive.result_scope', 'Quiet status, evidence scope and limitations of the completed lookup.', '查库结果的状态、证据范围和未确定部分。'),
             f(
                 "call.say.working",
                 "Handed to the voice when a lookup is slow enough to be worth a word — once, never again for that ask.",

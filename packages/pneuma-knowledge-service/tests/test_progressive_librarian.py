@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from pneuma_knowledge_core.domain.canonical import Citation
 from pneuma_knowledge_core.domain.ids import AnchorId, SourceId, UserId
 from pneuma_knowledge_core.recall.fast import FastEvidence, RetrievedClaim
-from pneuma_knowledge_core.recall.progressive import FirstChoice, RefinementDecision
+from pneuma_knowledge_core.recall.progressive import FirstChoice, KnowledgeDecision, KnowledgeFact
 from pneuma_knowledge_service.call import librarian as module
 from pneuma_knowledge_service.call.librarian import LibraryLibrarian
 
@@ -25,8 +25,8 @@ class Model:
     def with_structured_output(self, schema, **kwargs):
         class Bound:
             async def ainvoke(self, messages, config=None):
-                parsed = FirstChoice(index=0) if schema is FirstChoice else RefinementDecision(
-                    relation="extend", answer="The flood inspection is tomorrow.",  citations=["[cite: s01 ¶0-0]"])
+                parsed = FirstChoice(index=0) if schema is FirstChoice else KnowledgeDecision(
+                    status="answered", facts=[KnowledgeFact(text="The flood inspection is tomorrow.", citations=["[cite: s01 ¶0-0]"])], scope="Ramp record.", limitations=[])
                 return {"parsed": parsed, "raw": AIMessage(content="", usage_metadata={
                     "input_tokens": 9, "output_tokens": 2, "total_tokens": 11})}
         return Bound()
@@ -81,7 +81,7 @@ async def test_first_result_reaches_the_caller_while_broader_retrieval_is_still_
     assert first and not speech and not task.done()
     release_broad.set()
     answer = await task
-    assert speech and answer.payload["progressive"]["relation"] == "extend"
+    assert speech and answer.payload["lookup_result"]["status"] == "answered"
     assert answer.payload["token_usage"]["total_tokens"] == 25  # first pick + refinement + broad selection
     quick, broad = [kw for _, kw in seen]
     assert all(user == UserId("scoped-owner") for user, _ in seen)

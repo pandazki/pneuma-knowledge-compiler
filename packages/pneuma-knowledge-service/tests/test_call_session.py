@@ -431,7 +431,7 @@ async def test_a_requested_explanation_is_not_cut_at_the_old_summary_budget():
 
 
 async def test_runaway_generation_has_a_safety_ceiling_and_keeps_the_complete_card():
-    sentences = [sentence(index) for index in range(1, 40)]
+    sentences = [sentence(index) for index in range(1, 100)]
     librarian = FakeLibrarian(reply=Reply(tokens=tuple(sentences)))
     async with running(librarian, events=[heard("第二点呢"), delegated("dg-1")]) as (session, channel, _queue):
         await until(lambda: card_state(session) == "done", what="the card to finish")
@@ -1002,3 +1002,44 @@ def test_speech_vocabulary_is_dynamic_context_not_standing_instructions():
     assert "<speech_vocabulary>" in context
     assert "Omne、omne assistant" in context
     assert "Omne" not in config["instructions"]
+
+
+async def test_lookup_scope_precedes_full_facts_without_suppressing_repeated_preliminary():
+    gate = asyncio.Event()
+    fact = "The ferry ramp has handrails."
+    class Structured(FakeLibrarian):
+        async def answer(self, question, *, on_token, on_retrieved, on_preliminary):
+            on_preliminary(fact)
+            await gate.wait()
+            on_retrieved()
+            on_token(fact + " Its latest inspection date is unestablished.")
+            return LibraryAnswer(payload={"lookup_result": {
+                "status": "partial", "scope": "Monday's ramp record.",
+                "limitations": ["Latest inspection date unestablished."],
+                "facts": [{"text": fact, "citations": ["[cite: s01 ¶0-0]"]}],
+            }}, answer_text=fact)
+    async with running(Structured(), events=[heard("The ramp?"), delegated("dg-1")]) as (session, channel, _):
+        await until(lambda: card(session) and card(session).preliminary)
+        preliminary = [e for e in channel.sent if e["type"].endswith(".append")]
+        assert [e["type"] for e in preliminary] == ["session.thinking.append", "session.commentary.append"]
+        gate.set()
+        await until(lambda: card_state(session) == "done")
+        updates = card(session).updates
+        assert [u["phase"] for u in updates] == ["scope", "preliminary", "scope", "refinement", "refinement"]
+        assert "partial" in updates[2]["content"] and "Monday" in updates[2]["content"]
+        assert "Latest inspection" in updates[2]["content"]
+        assert updates[2]["result"] is False
+        assert card(session).said.count(fact) == 2
+        assert "Monday" not in card(session).said
+
+
+async def test_failed_final_result_releases_no_fact_even_after_complete_sentence_callback():
+    class InvalidFinal(FakeLibrarian):
+        async def answer(self, question, *, on_token, on_retrieved, on_preliminary):
+            on_token("A syntactically complete but unvalidated assertion.")
+            await asyncio.sleep(0)
+            raise ValueError("invalid_refinement_citations")
+    async with running(InvalidFinal(), events=[heard("The ramp?"), delegated("dg-1")]) as (session, channel, _):
+        await until(lambda: card_state(session) == "failed")
+        assert card(session).said == ""
+    assert channel.spoken("dg-1") == [prompt("call.say.failed")]

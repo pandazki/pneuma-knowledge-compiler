@@ -76,7 +76,7 @@ EARLIER_ASKS = 3
 #: Safety ceiling for anomalously long output, not a routine conversational length limit.
 #: The answer style sets the normal length and allows detail when requested. A fixed 130
 #: characters cut ordinary English answers and repeatedly cut requests to explain more.
-SPOKEN_BUDGET_CHARS = 1200
+SPOKEN_BUDGET_CHARS = 4000  # Six bounded facts plus a preliminary; never drop final qualifiers.
 
 
 def session_config(settings: Any, *, zone: str, now: datetime | None = None, speech_vocabulary: str = "") -> dict[str, Any]:
@@ -452,7 +452,7 @@ class CallSession:
             await asyncio.sleep(0.05)
 
     async def _hand_over(self, delegation: Delegation, text: str, *, result: bool = True, phase: str = "refinement", quiet: bool = False) -> None:
-        """Give the voice something to say for this delegation — if it is still the latest."""
+        """Give Live factual results or task context for this delegation — if it is still the latest."""
         if not text or self._channel is None:
             return
         # Clarifications are model-generated too and do not pass through _Attempt's chunker.
@@ -498,7 +498,7 @@ class CallSession:
         self._publish(delegation.frame())
 
     async def _holding_line(self, delegation: Delegation) -> None:
-        """Say "still looking" once, if the lookup is slow enough to need it."""
+        """Report an unfinished task once when it takes longer than the normal wait."""
         await asyncio.sleep(PROGRESS_AFTER_SECONDS)
         if not delegation.said and self._current(delegation):
             with contextlib.suppress(Exception):
@@ -562,9 +562,6 @@ class CallSession:
             whole = SpokenChunker()
             for chunk in [*whole.feed(answer.answer_text), *whole.flush()]:
                 await self._hand_over(delegation, chunk)
-        if delegation.preliminary and answer.payload.get("progressive", {}).get("spoken_update") == "":
-            await self._hand_over(delegation, prompt("call.progressive.confirm"),
-                                  result=False, quiet=True, phase="completion")
         delegation.answer = answer.payload
         delegation.mark("completed")
         delegation.state = "done"
@@ -582,7 +579,8 @@ class _Attempt:
         self._session = session
         self._delegation = delegation
         self._chunker = SpokenChunker()
-        self._chunks: asyncio.Queue[tuple[str, str] | None] = asyncio.Queue()
+        self._final_chunks: list[str] = []
+        self._chunks: asyncio.Queue[tuple[str, str, bool] | None] = asyncio.Queue()
         self.retrieved = False
         self._released = False
         self._task = asyncio.create_task(
@@ -594,11 +592,12 @@ class _Attempt:
     # only queues; `release` does the sending.
     def _on_token(self, delta: str) -> None:
         for chunk in self._chunker.feed(delta):
-            self._chunks.put_nowait(("refinement", chunk))
+            self._final_chunks.append(chunk)
 
     def _on_preliminary(self, text: str) -> None:
         if text:
-            self._chunks.put_nowait(("preliminary", text))
+            self._chunks.put_nowait(("scope", prompt("call.progressive.partial_scope"), True))
+            self._chunks.put_nowait(("preliminary", text, False))
 
     def _on_retrieved(self) -> None:
         self.retrieved = True
@@ -613,16 +612,22 @@ class _Attempt:
             await self._task
 
     async def release(self):  # noqa: ANN201 — LibraryAnswer
-        """From here on what the library says reaches the voice, as it is written."""
+        """Deliver partial facts immediately and final facts only after successful admission."""
         self._released = True
         if self.retrieved:
             self._delegation.mark("retrieved")
 
         async def finish() -> None:
             try:
-                await self._task
-                for chunk in self._chunker.flush():
-                    self._chunks.put_nowait(("refinement", chunk))
+                answer = await self._task
+                self._final_chunks.extend(self._chunker.flush())
+                lookup = answer.payload.get("lookup_result")
+                if lookup is not None:
+                    context = prompt("call.progressive.result_scope", status=lookup["status"],
+                        scope=lookup["scope"], limitations="; ".join(lookup["limitations"]))
+                    self._chunks.put_nowait(("scope", context, True))
+                for chunk in self._final_chunks:
+                    self._chunks.put_nowait(("refinement", chunk, False))
             finally:
                 # A failed stream's unfinished tail is not a result. Wake the consumer,
                 # then propagate the failure so the caller can explain what happened.
@@ -631,9 +636,9 @@ class _Attempt:
         finisher = asyncio.create_task(finish())
         try:
             while (item := await self._chunks.get()) is not None:
-                phase, chunk = item
+                phase, chunk, quiet = item
                 before = self._delegation.said
-                await self._session._hand_over(self._delegation, chunk, phase=phase)
+                await self._session._hand_over(self._delegation, chunk, phase=phase, quiet=quiet, result=not quiet)
                 if self._delegation.said != before:
                     self._delegation.answer_phase = phase
                     self._delegation.mark(phase)

@@ -24,11 +24,14 @@ Calls are read-only. No compile, draft, owner statement, or source ingestion hap
 
 ## 2. Responsibility and official guidance
 
-GPT-Live handles full-duplex conversation. The application owns task state and runs the
-knowledge backend. The standing voice prompt carries personality, backchannels, interruption
-policy, actual backend capabilities, and concrete delegation conditions. Retrieval instructions
-and business rules belong to the backend. Volatile date/time context is separate from the
-byte-stable standing instructions.
+GPT-Live is the conversational librarian. It owns the dialogue, clarification, pacing,
+interruptions and the choice of what to say next. The delegated backend is its knowledge
+retrieval assistant: it receives a standalone subtask and returns facts, evidence scope and
+unresolved aspects. It has no complete dialogue or playback history and cannot decide what
+the Owner already heard. The application reconstructs the subtask from a frozen transcript
+and manages task revisions; that adapter responsibility is separate from evidence synthesis.
+The standing voice prompt carries personality and delegation policy. Volatile date/time
+context is separate from byte-stable instructions.
 
 This follows OpenAI's [Live guide](https://developers.openai.com/api/docs/guides/live),
 [prompting guide](https://developers.openai.com/api/docs/guides/live-prompting), and
@@ -176,9 +179,9 @@ pool, and the earlier size-based shortcut is removed. Both phases share the reso
 transactional snapshot of all indexes.
 
 ```text
-formed question ──┬─ bounded lexical lookup → pick one complete short record → Live speaks
-                 └─ broader fast recall ───────────────────┐
-                     exact first finding ──────────────────┴→ refine → Live continues
+standalone question ─┬─ bounded first lookup → partial record + scope ─→ Live
+                     └─ broader fast recall → facts + scope + limits ─→ Live
+                                               conversation decisions: Live
 ```
 
 **First look.** The ordinary fast lane runs in evidence-only mode with no embedding, routing,
@@ -195,7 +198,7 @@ characters; oversized cards are omitted whole, never stripped of their qualifier
 The index must address a supplied record; summarization is model interpretation, not a
 mechanical guarantee of semantic entailment. Superseded and archived claims remain excluded.
 
-The result is wrapped as a partial finding. The first-result deadline is six seconds;
+A quiet scope update identifies the result as one partial record before its factual text. The first-result deadline is six seconds;
 empty or uncertain results are labelled `no_supported_finding`, and timeouts are recorded
 separately. Neither cancels the broader lookup. If broader retrieval finishes before the
 first finding, the pending first task is canceled and refinement starts immediately with
@@ -210,34 +213,32 @@ Source traceability does not prove that a record is current or that a paraphrase
 semantic and enabled component faces. It inherits the deployment's evidence selector:
 when configured for TypeSafe/JEV, that scorer judges the complete cross-face candidate pool
 once, with the configured score floor and ordinary per-face caps. JEV selects evidence;
-the `call` chat-model role still forms questions and synthesizes the spoken answer.
+the `call` chat-model role still forms questions and synthesizes the subtask result.
 Cross-face selection retains its five-second timeout
 and explicit ranked fallback. There is no name-containment filter inside a time component.
-Once both the broader evidence and the first finding are available, a structured refinement
-call receives the first finding as conversation context, never as new evidence. It returns:
+Once broader evidence is available, a structured synthesis reads only that evidence and the
+standalone question. Its result contains:
 
-- ordered factual units, each marked retained, new or correction relative to the exact first finding;
-- its relationship to the first finding: answer, extension, correction, confirmation or
-  unresolved result;
-- citation addresses supporting the answer from the broader evidence actually supplied.
+- `status`: answered, partial or unresolved;
+- up to six self-contained facts, each with exact supplied citation addresses;
+- evidence scope, including subject, dates and coverage;
+- requested aspects that remain unestablished, including freshness when a latest-version
+  question has only dated evidence.
 
-Citation fields are admitted only if every address exactly matches that evidence. Nonempty
-factual answers require admitted references. An invalid result is refused before speech. This
-is address validation, not a semantic entailment proof. Unresolved output uses fixed honest
-wording, rather than forwarding a speculative model paragraph.
+The result contains no retained/new classification, prior utterance input or separate speech
+script. All supported subtask facts reach Live, including facts repeated from a preliminary.
+Live decides how to incorporate them using the actual conversation. Citation fields must
+match admitted evidence addresses before any final fact is released. Source-only handles
+expand to the exact admitted spans without filling gaps. This validates addresses, not
+semantic entailment or the accuracy of the model's scope judgment. Unresolved results
+release fixed factual wording and no speculative facts. The card retains the cited answer
+and structured `lookup_result`; both phases' token receipts remain available.
 
-Each factual unit is authored once. The card displays all units, including still-supported
-retained facts; after a first finding, speech contains only new/correction units. This makes
-selection mechanical, but the model's semantic classification can still be wrong. Mixed
-retained/new sentences must be split. Extensions and corrections receive application-owned
-transition prefixes. A confirmation with no new facts sends quiet completion, not another
-spoken summary. Without a first finding, all answer units are spoken. Both phases' token
-receipts are retained.
 `FastEvidence` now carries retrieval/selection usage so stopping before the answering call
 cannot lose the broader lookup's cost.
 
 This remains a fixed workflow over fast recall, not a new autonomous agent or write lane.
-The synthesis call is needed to compare records and resolve the earlier partial picture;
+The synthesis call compares records and resolves the standalone subtask;
 there is no extra model call merely to rewrite its result for speech.
 
 ## 6. Streaming a task's results into Live
@@ -247,17 +248,16 @@ OpenAI explicitly supports repeated `session.commentary.append` events for the s
 without opening a second delegation. Each append is at most 500 tokens. An acknowledgment
 means estimated context injection, not playback.
 
-The application streams **completed results across phases**. The refinement schema is parsed
-and its addresses checked before its spoken update is released; unvalidated JSON/token
+The application streams **completed results across phases**. The result schema is parsed
+and its addresses checked before its final facts are released; unvalidated JSON/token
 fragments are not read aloud. Complete sentences are handed over progressively within a
 result. Citation markers and display markup stay off the spoken channel. Every outgoing
 append, including clarification text, is bounded to 480 UTF-8 bytes and 420 characters;
-oversized sentences prefer word boundaries when split. A failed text stream's unfinished tail
-is discarded. Previously injected material cannot be retracted, so a revision must say what
+oversized sentences prefer word boundaries when split. A failed final result releases none of its buffered text. Previously injected material cannot be retracted, so a revision must say what
 changed.
 
-A 1,200-character safety ceiling limits runaway speech payloads. It is not the old
-130-character summary cap: requests to explain or compare can receive substantive detail.
+A 4,000-character delivery ceiling accommodates six facts of at most 600 characters each
+plus a preliminary without dropping a final qualification. Per-append bounds still apply.
 
 Progress, clarification and failure do not enter `said`, consume its budget, create result
 links or set first-result latency. A one-time holding line does not suppress an invoke-only
@@ -266,8 +266,9 @@ the first result remains partial. Both lookup tasks are canceled and joined on c
 a newer delegation suppresses every late spoken result of the older one, while its card may
 finish.
 
-Progress and no-change completion use `session.thinking.append`; useful findings and
-corrections use `session.commentary.append`. Trusted control instructions remain separate
+Scope, limitations and task progress use `session.thinking.append` before the associated
+facts use `session.commentary.append`. Progress reports unfinished processing, without
+claiming retrieval is still running after evidence has arrived or prescribing a spoken line. Trusted control instructions remain separate
 from retrieved content. The voice prompt asks Live to preserve scope, incorporate additions naturally
 and acknowledge corrections, without restarting the whole answer.
 

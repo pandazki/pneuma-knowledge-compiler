@@ -183,7 +183,7 @@ class AskDecision(BaseModel):
     ready: bool = Field(description="true whenever a subject and requested information are stated, even if the subject is absent from vocabulary or previous results; false only for an unfinished request or unresolved reference")
     question: str = Field(default="", description="the standalone question, when ready")
     clarify: str = Field(
-        default="", description="only for a missing request or unresolved pronoun; never ask which project when the owner already named it"
+        default="", description="report missing information or an unresolved reference, not a user-facing question; never mark a named subject as missing"
     )
 
 
