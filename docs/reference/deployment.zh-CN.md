@@ -4,14 +4,24 @@
 
 ## 本地开发
 
-四个中间件容器加两个宿主进程：
+需要 Python 3.12、uv、Docker、Node 18+ 和 pnpm。在仓库根目录执行：
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --wait   # Postgres、Qdrant、Meilisearch、RustFS
-bash scripts/dev-api.sh          # uvicorn 于 127.0.0.1:18000，自动重载
-bash scripts/dev-worker.sh       # 编译 worker（排空任务队列）
-cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理到 :18000
+uv sync --all-packages
+cp .env.example .env             # 配置所选模型与契约；不要提交 .env
+docker compose -f infra/docker-compose.yml up -d --wait
+cd apps/web && pnpm install
 ```
+
+用三个终端分别运行，每个都从仓库根目录开始：
+
+```bash
+bash scripts/dev-api.sh          # API 于 127.0.0.1:18000，自动重载
+bash scripts/dev-worker.sh       # worker：正本与派生任务两条道
+cd apps/web && VITE_ENGINE_FIXTURES=false pnpm dev  # Vite 于 :5173
+```
+
+该开关让引擎控制台连接真实引擎；不设时，该视图使用内置 fixture。其他视图仍调用 API。需要托管的单机安装，使用[个人版](../../personal/README.zh-CN.md)。
 
 所有容器只绑回环地址，带健康检查（`--wait` 因此可用）。端口刻意避开常见默认值，且仓库里每套可运行的栈各占一个不相交的端口块：
 
@@ -35,7 +45,7 @@ cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理�
 
 建 schema 的只有引擎自己的进程：引导批处理是 DDL（`CREATE INDEX IF NOT EXISTS` 即便索引已在，也要拿表的 ShareLock），所以其余进程——每个 `pkc` 命令、每个 `scripts/ops/` 命令——改为读 `schema_applied` 标记行（记录上次应用的 schema 文本的 sha256），只有该哈希与本次构建不符时才跑那批 DDL（全新数据库，或引擎尚未重启的升级）。
 
-启动刻意做成 fail-closed 且依赖网络：`build_context()` 先建 schema，再用**一次真实 embedding 调用**探测向量维度，然后连上 Meilisearch 与 Qdrant——四者齐备前不服务任何请求，启动窗口要给足预算。S3 client 是惰性的：第一次图片导入才创建或确认私有 bucket；compose 健康检查仍会确保整栈报告 healthy 之前 RustFS 已就绪。探测出的维度是承重的：换 `EMBEDDING_MODEL` 意味着换 collection 名并重建派生层；不同维度不能共存一个 collection。
+启动应用数据库 schema 并装配已配置的适配器。启用语义检索时，普通引擎启动会探测 embedding 维度并确认 Qdrant collection；`fake:<dim>` embedding 在本地运行，不需要密钥。`SEMANTIC_RETRIEVAL=off` 跳过 embedding 与 Qdrant。S3 client 是惰性的，首次导入图片时才创建或确认私有 bucket。切换 embedding 模型需要兼容的 collection 与派生重建；不同维度不能共用 collection。见[配置参考](configuration.zh-CN.md)。
 
 ## Web 层
 
@@ -45,12 +55,13 @@ cd apps/web && pnpm dev          # Vite 于 :5173，把 /v1 与 /healthz 代理�
 - Live Context 的 WebSocket 路径（`/v1/users/*/live-context/ws`）单独一个 location，`proxy_read_timeout 3600s`。
 - 其余走 SPA history 回退；`/_nginx_health` 本地返回。
 
-API 侧还会对 WebSocket 客户端做约 30 秒一次的 ping，避免带空闲超时的中间层（如 Cloudflare 约 100 秒）掐断长连接。
+Live Context 定期发送 WebSocket ping。Steward 对话同样需要 WebSocket upgrade 转发；仓库的 `docker/nginx.conf` 目前只为 Live Context 配了专用 upgrade location，因此通过它开放 Steward 前，需为 `/v1/users/*/steward` 扩展代理配置。Vite 代理和个人版引擎已支持该路由。
 
 ## 运维
 
 - **派生层全部可重建**：`scripts/ops/rebuild_derived.py <user-id>|--all` 重建 L1 + L2 以及其上的各份投影，每一份都从它声明的底重建——两类权威（L0 横跨 Postgres 与 S3，正本位于 Git），使用侧投影再加上被保留的咨询记录——并前后对账。记录是保留的，不是重新推导的：重建重放它们，不动它们分毫。适用于中间件被清空或换版本、换嵌入模型（新 collection）、改切块策略之后。
 - **只重切块**：`scripts/ops/reindex_l2.py <user-id>` 单独重跑 L2 切块与嵌入。
-- **任务自愈**是内建的：worker 重启时回收死进程留下的孤儿任务；任何异常都以失败完结，不会卡死该用户的队列。死掉的启动若留下一份已写有内容的 coding-agent 草稿，这份草稿会随重新入队的任务保留，下一次启动接着做，而不是从头来过。同一次清扫在 worker 运行期间也按时钟跑一遍（`WORKER_SELFHEAL_S`，60 秒；`0` 关闭），跳过它自己正在跑的那些认领，于是一条谁也说不清来历的认领会在一分钟内回到队列，而不是等到下一次进程启动。
-- **基础设施中断不会让引擎停下。** Postgres、Qdrant、Meilisearch 或 RustFS 断开或重启时，worker 只记一行日志（`[compile-worker] infrastructure unavailable (postgres: <原因>); retrying in 2s`），从 2 秒起退避、逐次翻倍、最长 60 秒，探测出故障的那个服务，等它有了应答再继续（`… infrastructure back after Ns; resuming (job <id> requeued)`）。**一条认领熬不过一次中断**：从认领到完结之间无论哪一步抛出异常——那一轮本身，或是紧随其后的派生工作——当时持有的任务都会放回队列；如果它的工作其实已经做完，就补写它的完结记录。无论哪种情况，任务既不会丢失，也不会重复执行，而且恢复那一行永远写明它对在途任务做了什么（`(job <id> requeued)`、`(job <id> completed)`、`(no job in flight)`）。若一个传输层错误没有被它的客户端包起来就直接抛到 worker 面前，那也是同一件事，按同样的方式处理（`http: <原因>`，并逐一探测每个外部依赖——赤裸的那种错误并不说是哪一个不见了）。而真正因自身原因失败的作业永远说得出理由：行上写异常自己的话，没有话就写它的类名（`worker error: httpx.ReadError`），worker 日志里则留下带 lane 与 job id 的完整堆栈。而一个被反复中断、drain 不再放回的作业写的是这件事本身（`infrastructure repeated: qdrant (ReadError) interrupted this job 4 times; failed`），行上和一行 warning 里各说一次。这期间 API 对受影响的请求返回 `503 {"code": "infrastructure_unavailable"}`，并且无需重启就能恢复，因为 Postgres 连接池在交出每一条连接之前都会先检查它。若 worker 在 drain 循环之外被中断停下，引擎会就地重启它（`[engine] worker stopped: …; restarting in Ns`），API 照常服务。每条 Postgres 连接都在 `application_name` 里写明自己的进程角色（`pkc-engine-api`、`pkc-engine-worker`、`pkc-api`、`pkc-worker`、`pkc-cli:<命令>`），除非 DSN 或 `PGAPPNAME` 已经设了名字。
+- **任务恢复**：重启和定时清扫都会回收孤儿认领（`WORKER_SELFHEAL_S`，默认 60 秒；`0` 关闭）。保留的 coding-agent 草稿随任务一起恢复，下一次启动可接着做。
+- **重试、暂停、恢复**：可恢复失败依次间隔 1 分钟、5 分钟、15 分钟、1 小时、4 小时、24 小时重试，随后暂停。修好所报原因后，执行 `pkc jobs resume --job JOB_ID`。来源已删除、任务种类不受支持等明确不可恢复的错误直接失败。用 `pkc jobs` 查看原因与状态。
+- **基础设施中断**：worker 按 2–60 秒退避探测故障服务，记录在途任务是重新入队还是已完结，服务恢复后继续。任务反复被中断时进入自己的重试计划。API 对受影响请求返回 `503 {"code": "infrastructure_unavailable"}`，可无需重启恢复。除非显式覆盖，连接的 `application_name` 标明进程角色。
 - **追踪**（Langfuse）在三个 `LANGFUSE_*` 变量齐备时才开启；worker 每个任务结束后 flush。

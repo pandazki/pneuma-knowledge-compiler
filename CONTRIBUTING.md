@@ -2,7 +2,7 @@
 
 **English** | [简体中文](CONTRIBUTING.zh-CN.md)
 
-Setup and architecture live in the [README](README.md) and [docs/architecture.md](docs/architecture.md); this page is only what you need before opening a PR.
+Setup and architecture live in the [deployment guide](docs/reference/deployment.md) and [docs/architecture.md](docs/architecture.md); this page is only what you need before opening a PR.
 
 ## Two gates before every commit
 
@@ -17,7 +17,7 @@ The suite is fully keyless: the root conftest registers the reference contracts,
 
 New or changed compile behavior needs tests that hold the four load-bearing properties: the canonical/derived boundary, `user_id` isolation, provenance citations, and synthetic honesty. The seven invariants in [architecture §9](docs/architecture.md#9-invariants) take precedence over any local trade-off.
 
-Canonical is written by four bounded verbs and nothing else — `create_document` / `append_block`, `edit_claim`, `supersede_claim` (the world changed, as against I was wrong) and `rewrite_overview`, the one wholesale write, which replaces the document's bounded head and leaves the ledger untouched. It is safe only because the gate grounds every overview block on a ledger claim or a source span and bounds the region in characters. A new write path lands with the gate check that bounds it; a verb whose safety rests on prompt wording is not a contribution the gate can hold.
+Claim writes are bounded: `create_document` / `append_block` add claims, `edit_claim` corrects one, and `supersede_claim` records a changed state. `rewrite_overview` replaces the bounded head while preserving the ledger; its references and character budget are checked mechanically. Metadata edits and mechanical archive/volume operations have their own narrow checks. Every new write path must land with the gate checks that bound it; prompt wording is not a substitute.
 
 ## Extending the framework
 

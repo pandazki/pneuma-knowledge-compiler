@@ -1,0 +1,22 @@
+{
+  "synthetic": true,
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "generator": "scripts/dev/capture_docs.mjs",
+  "files": [
+    "library-en-light.png",
+    "history-en-light.png",
+    "steward-en-light.png",
+    "library-en-dark.png",
+    "history-en-dark.png",
+    "steward-en-dark.png",
+    "library-zh-light.png",
+    "history-zh-light.png",
+    "steward-zh-light.png",
+    "library-zh-dark.png",
+    "history-zh-dark.png",
+    "steward-zh-dark.png"
+  ]
+}

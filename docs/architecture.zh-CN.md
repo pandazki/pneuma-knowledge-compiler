@@ -43,11 +43,12 @@
 
 **索引组件**（§6）就是图里那个可选的第三个盒子：从它声明的底派生出来的业务专属结构——同一份 L0 和同一座正本文库，使用侧投影再加上被保留的咨询记录（§4）——由应用贡献，不由框架提供。它把索引到的东西交给写入闸门、编译模型和检索面。持有投影的组件为它恰好拥有一条写路和一条重建路；只有面的组件一行都不持有，读的是框架已经握着的那份。一个都不启用时，这张图就是它一直以来的那两列。
 
-四个包，单向依赖：
+四个 Python 包加 Web 应用，单向依赖：
 
 - `pneuma-knowledge-core` —— 纯领域逻辑 + 异步 `Protocol` 端口。只依赖 pydantic、langchain-core、langchain、chonkie，**不含任何中间件客户端**。LLM 与向量模型以 langchain-core 类型入参（`BaseChatModel`、鸭子类型的 `Embeddings`）。
 - `pneuma-knowledge-service` —— 端口实现：FastAPI 应用、适配器（Postgres、Qdrant、Meilisearch、S3 兼容媒体、Git 子进程）、后台 worker、配置。
 - `pneuma-knowledge-strategies` —— 参考编译契约，纯数据包。框架永不 import 它。
+- `pneuma-knowledge-eval` —— 只读质量指标；作为叶子包，编译和召回永不导入它。
 - `apps/web` —— 只对 HTTP API 说话的 SPA。
 
 方向是严格的：`service → core`，`web → service API`。core 不 import 中间件客户端，service 不重写领域逻辑。
@@ -224,7 +225,18 @@ fast 面的 claim 检索带两个可选阶段（都默认关；关闭路径字�
 四个中间件容器（Postgres、Qdrant、Meilisearch、RustFS）加两个无状态进程：
 
 - **API**（FastAPI / uvicorn）—— 摄入、检索、评审界面；同时承载 SSE 流与 live-context WebSocket。
-- **Worker** —— 按用户分**两条道**排空任务队列（`FOR UPDATE SKIP LOCKED`；每用户每道同时至多一个在飞任务）。**正本道**装所有可能写库的种类——`compile`、`evolve`、`evolve_adopt`、`groom`、`archive`、`review`（把自查发现交给 Steward 自己一轮去修，docs/design/structure-lens.zh-CN.md §3.2），以及 `challenge`：它自己不提交，但要对着正本 HEAD 判覆盖并排出补偿编译，因此归在它所关乎的那次编译的道上——这条道的规则就是过去整个队列的规则：一个在飞任务，本道没有打开的草稿。该规则**就是**正本库的单写者保证，严格程度与从前一字不差。**派生道**装从不打开正本的种类——`index`、`episodes`、`recall_projection`、`recall_rebuild`——它是第二个位子，于是一个写正本的任务与一个派生任务同时在跑（在一台真机上，队列的一半是每轮六到八分钟的 `episodes`，却在编译轮次后面等一个它们碰不到的仓库）。分类是机械的、且往安全一侧倒：没有被分过的种类算正本道，所以忘记登记只会损失并行，绝不会损失单写者。两条道由同一个 worker 进程排空，各有自己的巡回、冷却与故障退避；因此同时可能有两个编码代理轮次在外，每道至多一个。既然两条道不再靠队列顺序互相牵制，正本道会**跳过那种其来源仍有 `index` 或 `episodes` 任务排队或在飞的 `compile`**，先取下一个编译；若剩下的编译全被这样挡住，这条道就空转等派生道清出一个（两种都算，因为 episodes 判断正是由 index 任务委派出来的）。一条道之内下一个领取谁按等级排，而非严格先进先出：`index`、`recall_projection`、`recall_rebuild` 只写派生层，不拉起 harness，也从不写正本，因此先于其他一切被领取——L1 可达性是无条件的（I3），不能在编译轮次后面等上几个小时；其余种类仍按各自在队列中的位置（`COALESCE(order_at, created_at)`）先进先出，而 index 任务把本来源的 `episodes` 判断排在自己的位置上，使这份判断先于该来源的编译。等级只决定一条道之内下一个是哪一行，从不决定同时有几个在飞。十一种任务：`compile`、`index`、`episodes`、`challenge`、`evolve`、`evolve_adopt`、`groom`、`archive`、`review`、`recall_projection`、`recall_rebuild`——`compile` 同时也是缺省，认不出的种类会被当成编译而不是被丢弃。组件不是任务，它搭已有的那几种：index 任务告诉每个启用的组件某个来源索引完成，`recall_projection` 按事件幂等地投递咨询开场或答案，`recall_rebuild` 重新推导记录之上的投影，compile 任务则以 `prepare` 开场——正是这一次调用，让组件那些同步的缝读得到另一个进程写下的投影。重启时自动回收孤儿任务；任何异常都以失败完结，绝不留下悬挂的占用，而一次挂死的模型调用由 `COMPILE_CALL_TIMEOUT` 兜底，断掉的连接不会把一个 worker 占到下次重启。
+- **Worker** —— 按两条道排空队列，每用户每道同时至多一个在飞任务（`FOR UPDATE SKIP LOCKED`）。正本道还拒绝第二份打开的草稿，以此保证文库的单写者。
+
+| 道 | 任务种类 |
+|---|---|
+| 正本 | `compile`、`evolve`、`evolve_adopt`、`groom`、`archive`、`review`、`challenge` |
+| 派生 | `index`、`episodes`、`recall_projection`、`recall_rebuild` |
+
+未分类的种类保守地进入正本道；worker 不支持的种类随后明确以 `unknown_kind` 失败。每条道独立巡回和退避。某来源还有排队或在飞的索引、episode 任务时，它的编译等待。在派生道内，`index`、`recall_projection`、`recall_rebuild` 优先，其余工作按队列顺序执行；index 把 episode 判断排在自己的队列位置上。
+
+组件搭这些已有任务运行：索引通知来源完成，咨询任务投影被保留的记录，编译调用 `prepare` 刷新另一个进程写出的投影。组件始终没有正本写入路径。
+
+worker 在启动及定时自愈时回收孤儿认领。可恢复失败依次在 1 分钟、5 分钟、15 分钟、1 小时、4 小时、24 小时后重试；用完计划后暂停，等待 `pkc jobs resume`。明确不可恢复的错误以失败完结。`COMPILE_CALL_TIMEOUT` 限制单次模型调用，基础设施中断另有探测和退避循环。运维方式见[部署指南](reference/deployment.zh-CN.md)。
 
 Git 二进制是运行时必备（正本适配器通过子进程调用它）。异步纪律贯穿全栈：端口及一切触及端口的代码都是 `async`；纯计算辅助函数保持同步；不可避免的阻塞操作（git 子进程、分块）在适配器内包线程执行。
 

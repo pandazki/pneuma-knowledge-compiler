@@ -106,12 +106,10 @@ has been removed. This developer edition deliberately uses pinned Tauri 3 alpha 
   call opens the panel on Dashboard with the reason on its message line; the item is never
   greyed, because a disabled item cannot say which of those it was. Not exercised here
   against a running engine or a real browser.
-- Retry failed jobs is intentionally disabled with a tooltip. The optional global
-  shortcut is not implemented. Fixed tray-anchored geometry needs no saved window prefs.
-- The Tauri 3 migration passes 29 frontend and 18 native tests and a release app build.
-  On macOS 27, real mouse events verify the panel on left click, the menu on right click,
-  and subsequent left clicks after closing the menu. The panel reads the running library's
-  status. Other platforms, login-time launch and long-running behavior require separate checks.
+- Delayed retries and paused jobs can be resumed with **Continue now**; see below.
+  Terminal failures are separate. The optional global shortcut is not implemented.
+  Fixed tray-anchored geometry needs no saved window preferences.
+- Other platforms, login-time launch and long-running behavior need separate verification.
 
 ## Continuing tasks and importing content
 

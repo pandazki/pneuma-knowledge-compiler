@@ -144,7 +144,7 @@ API 和控制台触达知识库，从不通过所有者的 agent 会话。
 - **2.5c 每日拉取（v1）。** *"每天早上七点，通过 API 抓我们团队 IM 昨天的消息，再拉我和这三家
   供应商之间的邮件；聊天按 IM 存进这座库，邮件按 email 存。"* Steward 在 `steward/tasks/` 下写出这
   个任务：一段调上游 API 的抓取脚本、一段整形成 `im/v1` 和 `email/v1` 载荷的转换、目标租户与
-  intake、一个日程。它当着所有者跑一次，`pkc ingest` 接受载荷，编译队列接手。框架没有变：五个来源
+  intake、一个日程。它当着所有者跑一次，`pkc ingest` 接受载荷，编译队列接手。框架没有变：版本化来源
   契约是门，`pkc ingest` 是手。排期是 harness 的或机器的 cron，从不是框架的 worker。
 - **2.5d 撤销它（v1）。** *"停掉供应商邮件拉取。"* 任务从任务表和日程里移除。它已摄入的东西留
   着：L0 是权威，由它编译出的知识留着，直到所有者退役它（2.5b）。之后重跑一个任务无害——来源的
@@ -202,7 +202,7 @@ API 和控制台触达知识库，从不通过所有者的 agent 会话。
 ### Steward 干活（S1–S7）
 
 - **2.17 打开作业（v1）。** `pkc draft open <job>` 领取作业，渲染契约和任务——与 langchain 编译放进
-  system 和 human 消息的字节相同——并在磁盘上创建 draft。此命令未跑之前，该作业不存在任何写命令。
+  system 和 human 消息的字节相同——并在 Postgres 中持久化 draft。此命令未跑之前，该作业不存在任何写命令。
 - **2.18 在写入处被拒（v1）。** `pkc draft append-block` 的文本无引用、span 错、路径在模板之外、
   或页面本轮尚未读过——以 langchain 工具会返回的同一段文字拒绝，非零退出，什么都没写。
 - **2.18b 写后即检（v1）。** 通过参数检查的写入被应用，然后命令对它触碰的页面跑 gate 的谓词——
@@ -330,7 +330,7 @@ key 部署在 L2 也完整的那件事——是后续项（§13）。
 2. **一道门，两种姿态。** claim 级 draft 加它的写工具加 gate，是两种执行器进入正本的唯一路径。
    langchain 循环和 CLI 是它的两个客户端。CLI 能拒绝的，langchain 工具以同一段文字拒绝；同一个
    测试序列走两条路产生同样的文件。
-3. **agent 持有期间 draft 落在磁盘。** CLI 在两次调用之间没有记忆，所以 `PatchDraft` 获得序列化
+3. **agent 持有期间 draft 存于 Postgres。** CLI 在两次调用之间没有记忆，所以 `PatchDraft` 获得序列化
    形式和每作业一个的家。它既不是正本也不是保留的记录：临时物，finish 或 abandon 时删除；对已有
    draft 的作业再次 `open` 只允许同一执行者续接；其他执行者会被拒绝。
 4. **skill 是一次渲染，不是第二份文本。** agent 读到的、影响判断的一切——契约、编译指令、工具
@@ -354,7 +354,7 @@ key 部署在 L2 也完整的那件事——是后续项（§13）。
     检查，失败即回滚；`pkc draft check` 随时对打开的 draft 跑完整 gate；`pkc library check` 对已提交
     的库跑全库谓词。skill 永不承载一条命令不强制的规则。
 11. **Steward 的常设工作住在框架之外。** 从上游抓取、整形、排期、决定喂哪座库：全部是 Steward 自己
-    的代码和 harness 自己的调度器，放在项目的 `steward/` 下。它只经五个来源契约和 `pkc ingest` 进入
+    的代码和 harness 自己的调度器，放在项目的 `steward/` 下。它只经六个来源契约和 `pkc ingest` 进入
     框架。新上游永不需要改框架，任务永不触碰 `data/` 或正本。
 12. **归档是上游的机制；在这道门上，理由永远是所有者的原话，而 Steward 只确认所有者点名的东西。**
     归档是一次搬到 `archive/` 之下的搬移、外加一页留在腾出的路径上的记录，什么都不会被删掉
@@ -500,7 +500,7 @@ pkc draft abandon [--take-over]              释放作业；删除 draft；显�
 每条命令加载 draft，为作业用户跑组件的 `prepare`，应用一个工具函数——`_build_tools` 构造的同一
 批闭包——**用 gate 的谓词对触碰的页面做后置检查**，然后才持久化 draft、退出。参数面的拒绝是工具
 自己的 `AnchorToolError` 文本输出到 stderr、退出码 2；后置检查失败同为退出码 2，违规按 gate 的渲染
-输出，磁盘上的 draft 是命令之前的那份；预算耗尽是退出码 3 加 `compile.budget.call_refused` 文本；
+输出，持久化的 draft 是命令之前的那份；预算耗尽是退出码 3 加 `compile.budget.call_refused` 文本；
 `finish` 或 `check` 处的 gate 失败是退出码 4 加渲染后的违规。退出码是让 workflow 脚本不解析散文就
 能分支的机制，而后置检查让"库仍然完整"成为 Steward 被告知的事实，而不是被交付的职责。
 
@@ -541,10 +541,10 @@ pkc profile set --field name=value …            一次一个字段，应付常
 ### 5.4 摄入与常设任务——Steward 自己的领地
 
 ```
-pkc ingest --contract im/v1|email/v1|meeting/v1|document-library/v1|owner-dialogue/v1 --file <f> [--intake <archetype>] [--user <tenant>]
+pkc ingest --contract im/v1|email/v1|meeting/v1|document-library/v1|owner-dialogue/v1|agent-session/v1 --file <f> [--intake <archetype>] [--user <tenant>]
 ```
 
-`pkc ingest` 是 `/sources/import` 的 CLI 面：五个契约之一的载荷、可选的 intake 覆盖、租户。它就是
+`pkc ingest` 是 `/sources/import` 的 CLI 面：六个契约之一的载荷、可选的 intake 覆盖、租户。它就是
 整个输入边界，而且足够，因为以契约形状到达的东西是框架的事，它如何被整成那个形状不是。
 
 它上游的一切都是 Steward 的：
@@ -564,7 +564,7 @@ skill 用一节描述这块领地：任务是一个目录；它从 `.env` 或钥
 的每次改动；它不是 `engine/`，因为任务是操作而非策略，任务的改动不改变任何东西被编译的方式。
 
 这条边界正是架构已有的那条——SourceAdapter 是"唯一允许随输入类型增长的层"——只是挪到了增长最
-便宜的地方：Steward 在所有者的项目里为所有者的那一个上游写适配器，框架的五个契约仍是五个。
+便宜的地方：Steward 在所有者的项目里为所有者的那一个上游写适配器，框架仍以六个契约为输入边界。
 
 ### 5.5 退役知识——这道门上的归档
 
@@ -848,7 +848,7 @@ v3 信封明确记录 `producer: agent`、`coverage: partial`、smart 重叠、�
 `steward.unattended.episodes_task`。生成技能增加「编译前的片段划分」，`references/cli.md`
 从当前解析器自动获得全部动词。
 
-## 6. 磁盘上的 draft
+## 6. 持久化的 draft
 
 `PatchDraft` 今天是内存对象：基础文档、工作文档、已读标记、路径模板、总览预算。它获得
 `to_state()` / `from_state()`，落成一个 JSON 文档，同时携带 runner 在它旁边持有的东西：作业 id 与
@@ -1061,7 +1061,7 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
 - **core 里的 `RoundRunner`。** `run_compile` 保留循环周围的一切——别名、`prepare`、draft、gate、
   提交——把循环委托给一个只有一个方法的协议：在预算下对一份 draft 的工具面跑一轮，返回花掉的调用、
   是否被截断、用量。`LangchainRoundRunner` 就是今天的 `tool_loop`，挪了个位置。CLI 执行器不在进程
-  内实现它：worker 的 `AgentRoundRunner` 把 draft 写到盘上、拉起 harness、等待、再把 draft 读回。
+  内实现它：worker 的 `AgentRoundRunner` 把 draft 写入 DraftStore、拉起 harness、等待、再把 draft 读回。
   core 知道协议和 draft 的状态形式；子进程住在 service。
 - **无人值守那一轮在哪里收尾，以及为什么不是 `run_compile`。** `RoundRunner` 接一份消息列表和一
   个工具面、返回这一轮花了多少——当循环和 draft 活在同一次函数调用里时这个形状有意义，当 draft
@@ -1314,7 +1314,7 @@ gate 的写入在下一轮建立在它上面之前就被拦住，而不是被叠
 ## 13. 边界，以及之后
 
 - **单次角色跑在 agent 上**（§9）仍推到 v2。结构演进已通过 evolve 草稿门运行（§5.7）。
-- **常设任务是 Steward 的，不是框架的。** 框架提供 `pkc ingest` 和五个契约；它不排期、不抓取、
+- **常设任务是 Steward 的，不是框架的。** 框架提供 `pkc ingest` 和六个契约；它不排期、不抓取、
   不整形、不知道任务存在。所有者想跨部署共享的任务是一个待分发的 skill，不是一个待加的框架功能。
 - **家持有状态，从不持有知识。** `~/.pkc` 记住项目、选择和凭据；它没有来源、claim 或记录。第二台
   机器从空的家开始，一个项目目录没有家也是完整的。

@@ -1,313 +1,120 @@
-# PKC personal
+# PKC 个人版
 
-[English](README.md)
+[English](README.md) | **简体中文**
 
-> 安装 pkc 个人知识库：运行
-> `curl -fsSL https://raw.githubusercontent.com/pandazki/pneuma-knowledge-compiler/main/personal/install.sh | sh`，
-> 然后遵循它最后打印的指引。
+在一台机器上管理一个人的多座知识库。`pkchome` 管理 home 目录、共享 Docker 中间件和各个独立知识库；coding-agent Steward 通过框架的草稿闸门导入材料、维护带引用的主张。浏览器控制台和可选桌面托盘提供阅读与操作界面。
 
-这句话写给编程代理，不是写给终端：把它贴进 Codex 或 Claude Code，代理会安装本版、读取
-随之安装的技能，并从那里继续。
+## 安装并打开
 
-在一台机器上维护一个人的多个带引用知识库。`pkchome` 管理 home（默认 `~/.pkc`，
-可用 `PKC_HOME` 修改）、共用的 Docker 中间件和明确选定的库。
-安装的库提供 `pkc`，所有 canonical 写入都通过其草稿闸门。
+把这句话交给 coding agent：
 
-## 安装脚本做什么
+> 安装 PKC 个人版：运行 `curl -fsSL https://raw.githubusercontent.com/pandazki/pneuma-knowledge-compiler/main/personal/install.sh | sh`，然后按最后打印的说明继续。
 
-`install.sh` 幂等，随时可重跑。顺序如下：
+安装器按需安装 `uv`、`pkchome` 包与 `pkc` 启动器、Steward skill 和控制台资源，并检查 Docker 是否运行。重复执行可以继续安装；脚本目前默认跟随 `main`，用 `PKC_RELEASE=<ref>` 选择其他版本，或用 `PKC_SOURCE=/path/to/checkout/personal` 从本地源码安装。
 
-1. **`uv`** —— 缺失时用官方脚本安装；本次运行会把 `~/.local/bin` 加入 PATH。
-2. **`pkc-personal`** —— 从固定的发布版做 `uv tool install --force`。`PKC_RELEASE=<ref>`
-   安装其他 ref；`PKC_SOURCE=<dir>` 从本地检出安装。
-3. **`pkc` 启动器** —— 写在 `pkchome` 同一个 bin 目录下（内容为
-   `exec pkchome exec -- pkc "$@"`）。该处已有的非本版 `pkc` 会被拒绝，绝不覆盖。
-4. **技能** —— 对每个存在的宿主目录（`~/.codex`、`~/.claude`）执行
-   `pkchome skill install --force`，装进该宿主自己的配置目录：`$CODEX_HOME/skills`（默认
-   `~/.codex/skills`）与 `$CLAUDE_CONFIG_DIR/skills`（默认 `~/.claude/skills`），绝不装进
-   `~/.agents/skills`——Codex 在每一个无人值守轮里都会从 HOME 读它。早先安装留在那里的全局
-   副本会被删除（`ok: removed the old global skill at …`）；只动带有本版全局标记的副本。
-5. **Docker** —— 探测 `docker info`。失败时说明 Docker Desktop 或 OrbStack 从哪里获取，
-   并以退出码 3 停止；此前完成的步骤不会回滚，重跑即可继续。
-6. **控制台页面** —— 执行 `pkchome console install`。只有在本仓库内构建的 wheel 才自带
-   已构建页面，否则从 `personal-console-v<version>` 发布下载，并在写入任何文件之前校验
-   随发布公布的 sha256。此步绝不致命：机器离线时上面各步的成果照旧保留，首次打开
-   `pkchome console` 时再取。
-7. **桌面应用** —— 发布构建后配合 `PKC_DESKTOP=1` 下载；否则只打印一行，说明
-   `pkchome tray` 会告知从哪里获取。
-
-每一步打印一行 `ok:` 或 `skip:`，最后几行给出已安装的 `SKILL.md` 与接下来要运行的两条
-命令。`--quiet` 只输出错误和这个末尾块。
-
-## 命令
-
-```
-pkchome setup [--answers <file>] [--non-interactive] [--no-skill]
-pkchome up | down | restart | console [install] | tray
-pkchome status [--json] [--library <name>]
-pkchome rebuild [--library <name>]
-pkchome onboarding [--library <name>]
-pkchome library create <name> [--from <name>] [--language en|zh] [--contract personal-projects|personal-knowledge|<path>] [--backend …]
-pkchome library ls | show [<name>] | use <name> | bind <name> [<dir>] | unbind [<dir>] | render [<name>]
-pkchome config get|set <key> [<value>] [--library <name>]
-pkchome credentials set KEY [--from-stdin] [--no-verify]
-pkchome env [--export] [--library <name>]
-pkchome exec [--library <name>] -- <command…>
-pkchome skill install [--backend codex|claude-code|all] [--force]
-```
-
-`register` 与 `forget` 是 v2 占位命令。`down` 保留中间件数据。
-
-当知识库里有没跑完的活时，`status` 会在 `Queue:` 下面印一行 `Waiting:`：`Waiting: 13 ·
-OpenRouter 402 payment required ×9 (next 14:05) · codex provider refused ×4 (next 13:52)`。
-失败的作业不会被划掉——它带着写在行上的理由回到队列里等待，引擎把这些理由分组
-（`GET /jobs/summary`）。于是服务商没钱了、harness 倒了的知识库会把话说出来，并在原因消失后
-自己把活捡起来，而不是看上去像一个悄悄停住的队列。
-
-其下还有一行 `Paused:`：`Paused: 5 · OpenRouter 402 payment required ×4 — pkc jobs resume`。
-等待会变长——一分钟、五分钟、十五分钟、一小时、四小时、一天——然后它停下来，因为一个作业连着
-一天半都在同一件事上失败，再问第七次也不会有变化。能改变它的是你：把账户充上、把 harness 登录
-好、把你留在库里的改动提交掉，然后运行 `pkc jobs resume`（`--job <id>`、`--reason-like <文字>`
-或 `--all`）。等待从一分钟重新开始；没有东西丢失，也没有东西被编译两次。`Failed:` 只计那少数
-几种重试也修不好的失败——不认识的作业种类、读不出的载荷、任何一轮都装不下的材料。
-
-可选的 [PKC 桌面托盘](desktop/README.zh-CN.md) 显示机器与知识库状态、提供带引用的搜索，
-并通过 `pkchome` 修改设置。将 `PKC.app` 安装到 `~/Applications` 或 `/Applications`，
-然后运行 `pkchome tray`；未安装时，该命令会打印发布页面。开发时运行
-`cd personal/desktop && pnpm install`，再运行 `pnpm tauri dev`；使用 `pnpm tauri build`
-构建安装包。即使引擎未运行，托盘仍会独立探测 home；详细健康信息来自各运行中引擎的
-`/home/status`。同步依赖托盘运行，因此「登录时启动」默认开启：首次启动由应用自己向操作系统
-注册，并记录这次决定；此后只由你决定——在设置中关闭后，之后的启动都不会再打开它。
-
-Setup 回答字段：`library: notes`、`language: en`、`backend: codex`、
-`semantic_retrieval: off`；可选的 `embedding_key` 只进入凭据文件；可选的 `owner:` 映射
-写明 Owner 已经给出的档案字段（`display_name`、`occupation`、`role`、`industry`、`bio`
-等 `pkc profile` 的任意字段），按“Owner 亲述”写入。配置的 embedding
-服务商的密钥在写入前会先向该服务商验证一次——被拒绝的密钥不改变任何东西（不写文件、
-不重启引擎、保留原密钥），离线时可用 `--no-verify` 跳过验证直接保存。Setup 需要终端或
-`--answers`；`--no-skill` 跳过向检测到的宿主目录安装技能。
-
-Setup 不会把档案留成空白。它读取这台机器已经说明的 Owner 信息——账户全名、系统时区、
-界面语言（`language` 回答优先于它）——并以 `inferred` 出处写入；在 Owner 逐项确认之前，
-`pkchome status` 不会把这样的档案算作已完成。`pkchome onboarding` 打印剩下要做的事：
-带值的推断字段与确认或更正它们的命令、尚未回答的注册问题（用 Owner 自己的语言提问），
-以及仍未决定时的检索选择。Setup 会打印同一段内容；这条命令是留给之后才到场的 Steward 的——
-setup 未能写入推断字段时，`onboarding` 会自行补写，并在首行报告 `seeded: <字段>`，
-清单里因此不会缺掉确认这一步。
-
-`config get|set` 读写每个库（不带 `--library` 时则是 home 的默认值）记录下来的一项选择：
-`backend`、`language`、`semantic_retrieval`、`embedding`、`unattended`，以及
-`model` / `reasoning_effort`——这个库的编译与演进轮跑哪个模型、想多深，而不是继承你自己
-全局 harness 配置里的那一套。Codex 两者都认（`reasoning_effort` 取 `minimal`、`low`、
-`medium`、`high`、`xhigh` 之一）；Claude Code 只认模型，因为它的 CLI 没有推理强度开关。
-留空即各自交给 harness。`reasoning_effort_episodes` 单独声明 episodes 轮（为一个来源划分
-L2 边界——判断简单，却按编译轮的上下文付费）的推理强度；取值集合相同，留空即继承
-`reasoning_effort`，`status` 会在 `Rounds:` 一行里以 `(episodes low)` 显示。
-`compile_call_timeout` 是一轮的一次启动最多可以跑多少秒，超时即被回收（1 到 21600；引擎自身
-的默认是 600，而真实材料上的编译轮在这个默认下平均约 474 秒）。它会被精准写进该库的
-`engine/engine.yaml`，所以下一次有什么东西重渲染这个目录时它不会丢；只有当它不同于那个默认
-值时，`status` 才在 `Rounds:` 一行里印出来——`up to 1200s each`。改动其中任何一个
-都会重启该库的引擎，因为启动器与引擎都只在启动时读一次设置。
-
-每个库都启用一个索引组件 `time`——把主人自己的日历当成一条索引。它为每个已存的块留一行派生
-记录（这个块属于你自己时区里的哪一个日历日），并在召回上给出一条走这份索引的 `timespan`
-查询路：于是「说说我这两天的工作」问的是一段时期，答案就来自那两天的材料——那几场会话，以及
-引用了它们的断言——而不是碰巧在字面上匹配上的东西。把口语说法折算成两个日期是路由那一轮的
-事，它看得到当前时刻和你的时区；索引自己不解析任何自然语言时间。`status` 会在
-`Components:` 一行里写明启用了什么，这份名单就是库里 `engine/engine.yaml` 的一行
-（`components:`）——框架随包附带的 `people` 与 `attention` 在这里是关着的。
-
-这些行是派生的，所以一座在组件出现之前就存在的库，对自己的过去一行都没有：`pkchome up`
-会先排上一次重建，把已经存下来的东西重新派生一遍，再把组件写进升级库的引擎文件，两件事都在
-那个引擎启动之前；而且要么都做，要么都不做——够不着存储的那次启动什么也不改，下一次原样再来
-一遍。`pkchome rebuild` 是同一件事的手动版——它按这个库自己的租户排一个 `recall_rebuild`
-任务，引擎的 worker 领走，等待期间 `status` 会多出一行 `Rebuild:`。没有任何权威数据被动过：
-来源与正本只被读，不被写。
-
-知识库选择优先级依次是 `--library`、`PKC_LIBRARY`、当前目录或祖先中最近的 `.pkc`
-文件，以及 home 的当前库。未选择时以退出码 2 拒绝执行。`env` 为用户自己的 shell
-有意输出密钥；状态文档不会输出。
-
-## 项目与编程代理会话
-
-新库使用双语 `personal-projects` 契约：项目概览、带日期的演进、关键功能和决策，然后
-是 Owner 本人的观点，人物与主题承载其他个人材料。使用
-`pkchome library create notes --contract personal-knowledge` 选择之前的契约，也可传入
-自定义契约路径。`--from NAME` 仍继承该库的契约，除非 `--contract` 显式覆盖。
-
-说明一次库的范围；库的引擎运行时，托盘会同步范围内的 Claude Code 与 Codex 会话：
+设置完成后：
 
 ```sh
-pkchome watch add /path/to/momo --library notes
-pkchome watch add ~/Codes --recursive --library notes
-pkchome watch add --all --library notes
+pkchome status
+pkchome onboarding              # 尚待确认的个人信息和检索选择
+pkchome up
+pkchome console
+pkchome tray                    # 打开已安装的桌面应用；未安装时给出发布页
+```
+
+设置需要终端或 `--answers answers.yaml`。机器推断出的个人信息会标为 inferred，直到你确认。默认契约是 `personal-projects`，也可选择 `personal-knowledge` 或自定义契约。所需凭据取决于编译与检索配置；coding-agent 订阅并不会自动配置所有依赖模型的浏览器功能。
+
+## 使用知识库
+
+控制台提供原文浏览、带引用的正本页面、编译历史、检索、结构检查和引擎设置。**Steward** 是 coding-agent 对话页，回复、执行命令和可选图片附件都在同一处可见。
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/assets/steward-zh-dark.png">
+  <img alt="Steward 页面中的虚构项目提问、合成回复和语音通话入口" src="../docs/assets/steward-zh-light.png">
+</picture>
+
+*当前 UI 中的合成演示对话。截图没有使用真实账号，没有运行真实 agent 或发起语音通话。[复现方法](../docs/assets/README.zh-CN.md)。*
+
+**给知识库打电话**是同页及托盘菜单里的独立语音功能，需要 OpenAI 项目 key 和已配置的 API 检索模型。只有点击开始才申请麦克风权限；打开页面本身不会启动计费。查库结果会随对话显示。拼写提示来自编译维护的词条，并按来源日期排序、淡出；它不改写原始转写字幕。参见[语音行为](../docs/design/voice-call.zh-CN.md)和[详细实现](../docs/design/voice-call-implementation.zh-CN.md)。
+
+[桌面托盘](desktop/README.zh-CN.md)提供健康状态、搜索、同步控制和设置。macOS 上将 `PKC.app` 安装到 `~/Applications` 或 `/Applications`。首次启动默认开启登录自启，在 Settings 关掉后不会自行打开。退出托盘不会停止引擎，但自动会话同步运行在托盘中，会随托盘退出而停止。
+
+## 选择与管理知识库
+
+```sh
+pkchome library create notes --language zh --backend codex
+pkchome library ls
+pkchome library use notes
+pkchome library bind notes /path/to/project
+pkchome status --library notes
+pkchome exec --library notes -- pkc jobs
+```
+
+选择顺序是 `--library`、`PKC_LIBRARY`、最近的 `.pkc` 目录绑定、home 的当前知识库。没有选择时命令会拒绝执行，不自行猜测。`library create --from NAME` 继承另一座库的契约，除非用 `--contract` 覆盖。
+
+| 操作 | 命令 |
+|---|---|
+| 启动、停止或重启引擎及中间件 | `pkchome up`、`pkchome down`、`pkchome restart` |
+| 查看或修改一项选择 | `pkchome config get KEY`、`pkchome config set KEY VALUE` |
+| 保存凭据，不把密钥放在命令行中 | `pkchome credentials set KEY --from-stdin` |
+| 向 harness home 安装 Steward skill | `pkchome skill install --backend codex`，也可选 `claude-code`、`all` |
+| 刷新已启用组件和咨询记录的投影 | `pkchome rebuild --library notes` |
+| 打开控制台或下载资源 | `pkchome console`、`pkchome console install` |
+
+`down` 保留数据。`rebuild` 为已启用组件和咨询投影排一个 `recall_rebuild`，不重新编译主张，也不等于框架的完整索引重建。`env --export` 为 shell 集成打印凭据，对外分享诊断时用 `status`。`register`、`forget` 目前是占位命令，不是可用的导入或迁移操作。
+
+每座库默认启用 `time` 组件。框架还提供 `people`、`attention`，但个人版默认没有启用它们。[组件说明](../docs/design/index-components.zh-CN.md)。
+
+## 同步项目会话
+
+先选择一个明确范围，检查 dry run：
+
+```sh
+pkchome watch add /path/to/project --library notes
 pkchome watch ls --library notes
 pkchome sync --library notes --dry-run
 pkchome sync --library notes --json
-pkchome watch rm /path/to/momo --library notes
-pkchome watch rm --all --library notes
-pkchome sync roots ls
-pkchome sync roots add ~/other/codex/sessions --harness codex
-pkchome sync roots rm ~/other/codex/sessions --harness codex
-pkchome config set sync.interval_minutes 15
-pkchome config set sync.enabled on
-pkchome config set sync.exclude '/private/tmp/**,~/scratch/**'
-pkchome config get sync.exclude
-pkchome config set sync.min_owner_turns 5
-pkchome config set sync.min_owner_chars 200
-pkchome config set sync.ack_max_words 1
-pkchome config set sync.max_part_chars 400000
 ```
 
-Setup answers 可包含 `watch: [/path/to/momo]`。每库在 `library.yaml` 中保存自己的
-`watch: [{path, recursive, harnesses: [claude-code, codex], since?}]`。`watch add` 接受
-`--harnesses codex claude-code` 和带时区的 `--since`，选择保留活动达到该时刻的会话。
+`watch add ~/Projects --recursive` 包含目录下面的项目；`watch add --all` 包含所有发现的项目。用 `watch rm PATH` 或 `watch rm --all` 移除范围。`sync roots ls` 显示 Codex、Claude Code 会话从哪里读取；`sync roots add DIR --harness codex|claude` 注册额外的会话根目录。
 
-一条记录有三种范围形式。给出目录即精确的单个项目，与此前相同。`--recursive` 使它成为
-前缀：该目录及其下的每个项目，按路径分段比较，因此 `/a/b` 绝不会收入 `/a/bc`。`--all`
-记录字面量 `all`：两种宿主留有会话的每个项目，直接从宿主根目录枚举得到，而不依赖一份
-目录清单——把库开放给四百个项目应当是一项配置，而不是四百次 `watch add`。
-`watch rm <dir>` 与 `watch rm --all` 按同一个键移除。
+托盘默认每 15 分钟检查新材料，Settings 控制开关和间隔。每个待导入增量通常需要至少三次 Owner 发言和 200 个 Owner 文本字符；不足时保持 **held**，等待后续内容积累。暂留的会话与知识库任务队列分开统计。
 
-watch 条目说的是「哪些项目」，根目录说的是「从哪里读到它们的转录」，而两者都不止一个。
-`pkchome sync roots ls` 按扫描顺序打印全部根目录，每条标明 `discovered` 或 `configured`
-以及 `exists`。Codex 侧自动发现：`~/.codex/sessions`、设置了 `$CODEX_HOME` 时的
-`$CODEX_HOME/sessions`，以及已知宿主容器为每个账号保留的 home——
-`~/Library/Application Support/orca/codex-accounts/*/home/sessions`。那是一条关于该容器
-布局的规则，而不是一份账号 id 清单：在一台真实机器上，两天内 197 份 rollout 有 183 份
-落在那里，只有 14 份落在 `~/.codex`。Claude Code 侧自动发现 `~/.claude/projects` 与
-`$CLAUDE_CONFIG_DIR/projects`，这就是全部——它把所有项目的转录写在同一个根目录下。
-`sync roots add <dir> --harness codex|claude` 为任何规则都不认识的布局在 `sync.roots` 中
-记下额外根目录（Codex 根目录是 `sessions` 日期树，Claude Code 根目录是 `projects` 文件夹）；
-额外根目录是对自动发现结果的追加，绝不替换它，`sync roots rm` 再把它移除。转换器自己的
-`--codex-root` / `--claude-root` 可重复给出，并替换该宿主的默认根目录。会话的身份与它从哪个
-根目录读到无关，因此经由第二个根目录也能触达的转录仍是同一条会话，不会被重复导入。
-每轮报告为每个根目录给出一个 `sessions` 计数，包含 0——写着目录名的 0 正是 Owner 据以看出
-该根目录被读过、而不是被漏掉的凭据。
+只有新增部分会作为 `agent-session/v1` 来源导入。保留 Owner 原话和 agent 正文，工具活动转换为有界摘要；排除工具参数与结果、推理、harness 注入上下文和子代理。知识库自己的 Steward 轮次及配置排除的目录会跳过。dry run 不写 cursor、锁或 journal。会话被改写、截断时会报告，只有明确使用 `--rewritten reingest` 才导入替换材料。
 
-这样宽的范围也会触及成千上万个已废弃的临时目录，因此 `sync.exclude` 保存一组 glob
-模式，与解析后的项目目录匹配，默认为 `/private/tmp/**`、`/tmp/**`、`/private/var/**`
-和 `/var/folders/**`。`config set sync.exclude` 追加一个模式或逗号分隔的列表；传入空值
-则全部清空。有两项排除是机制而非 Owner 可以移除的模式：home 本身，以及每个库自己的
-目录——它的 engine、canonical 仓库与渲染出的技能包。目录已不存在的项目计入
-`project_missing`，不逐条列出，因为在 `all` 下它们数以千计。
+同步负责导入和排队，由普通 worker 编译，不直接编辑正本文件。详细规则、根目录发现、阈值和恢复机制见[个人版设计](../docs/design/single-machine-edition.zh-CN.md)。
 
-引擎自己的轮次被整体跳过，既不索引也不编译：库若把它们收进来，就是在编译自己的产物。
-判据是会话在哪里打开——某一轮的临时工作目录或宿主配置 home（`pkc-round-*`、
-`pkc-agent-home-*`）、home 本身，或某个库自己的目录（控制台的 Steward 会话也开在那里）。
-它们计入 `skipped_steward`。运行过 `pkc` 或 `pkchome` 并不使一条会话成为其中之一：Owner
-在自己仓库里的工作本就会随手向库提问，而更宽的旧规则曾因一条 `pkchome status` 就丢掉
-Owner 指挥代理的一条 26 MB 会话。这样跳过的会话没有导出过任何东西，因此下一轮会重新判定，
-而不是凭字节未变直接放过——规则收窄时，它曾跳过的会话会被读进来。在这个标记出现之前写下的
-游标两种答案都没有，因此各被判定一次：旧规则跳过的会话由此找回，已导入的会话不受影响。
+## 有工作在等待时
 
-托盘默认间隔为 15 分钟；Settings 可修改间隔、开关与目录列表。
-Dashboard 展示上次同步和 held 数量，并提供 “Sync now” 按钮。
-
-Sync 只通过 `pkchome exec --library NAME -- pkc ingest` 送入新部分，自身不编译：
-ingest 将普通 index/compile 任务入队，由引擎 worker 或 Steward 排空。报告包含
-scanned、new、increments、held、unchanged、rewritten、ingested、skipped、
-skipped_steward、project_missing、逐会话细节，以及每个扫描根目录一行。Held 数量与库的
-队列分开；未变化的 held 会话同时计入这两个字段。
-
-全局技能还携带标准库 `scripts/agent_sessions.py`：`list --project <dir>` 展示整会话
-分流，`export --project <dir> --out <dir> [--owner-id ID]` 写出过滤后的 JSON，
-`ingest --project <dir> [--library NAME]` 与 sync 共用增量游标。`--session-id ID`
-选择特定会话；`--purpose research|chat` 将它们设为只索引。Export 的 Owner 身份默认
-为 `owner`；ingest 使用所选租户。手动导入只索引的 export 时需要 `--intake searchable`，
-元数据本身不设置 intake。
-
-每份待处理增量默认要求三次 Owner 发言和 200 个 Owner 文本字符；`sync.min_owner_turns`
-（下限 3）、`sync.min_owner_chars` 和 `sync.ack_max_words` 说明这台机器实际要求多少。
-任一阈值不足都保持 HELD，不推进导出游标，后续增长继续累积。
-
-`sync.max_part_chars`（默认 400,000，下限 1,000）是另一种界：一个入库分片最多携带多少
-Owner 与代理文本。它是关于**一轮编译的上下文**的事实，而不是对材料的评判——真实的一次四月
-会话有 24,439 次发言、180 万字符，它让每一次启动都死掉，且没有留下 worker 读得懂的话。
-更长的增量只在 Owner 发言处切成连续的分片（一次 Owner 发言连同其后的代理发言是一个单位，
-切口绝不落在一次发言内部），每个分片在同一次同步里按顺序作为普通的增长分片入库——
-`continues`、`from_turn`、`part`——于是按用户串行的队列按顺序编译它们，每一片都以前一片写下
-的页面为上下文。上面的阈值只对整个增量判定一次（不切分时会 HELD 的增量照样 HELD，不会被切分），
-每个分片继承这一判定；只有不含任何 Owner 发言的分片仅作检索。游标逐片推进（`sync-state.json` 里的
-`split_turns` 记下字节边界之后已入库的发言数），所以在分片之间中断的一次同步会从下一片
-接着来。报告以 `split_parts` 计数；单个超过界限的交换会整片入库，并记在 `oversized_parts` 下。转换器的 `--min-owner-turns`、`--min-owner-chars`
-和 `--ack-max-words` 仍可配置其手动分流（次数下限 3、字符下限 0，确认语默认限 1 词）。
-数值阈值满足后，仅命令/已知确认语和显式研究/闲聊只索引。子代理被排除；真正的目录冲突
-也被排除——即某一行记录的工作目录既不是项目目录，也不在其之下。宿主记录的是 shell 当时
-所在的目录，所以代理切进子目录或工作树的会话仍属同一项目；只有离开项目目录的路径，才能
-分辨一个编码文件夹名可能代表的两个项目（`-Users-a-b` 既是 `/Users/a/b` 也是 `/Users/a-b`）。
-Owner 原话与代理叙述逐字保留；工具缩为有长度上限的动作短句，排除参数、结果、思考
-与宿主注入上下文。宿主注入进 Owner 发言的上下文——`<system-info>`、`<pneuma:env>`、
-`<system-reminder>`、斜杠命令外壳，以及这份具名且逐条列出的集合里的其余标记——从来
-不算 Owner 的话：包裹被剥去，剥净后无字的发言不计入任何阈值、也不进入载荷，分流记录
-则写明剥去了多少块（`injected_blocks`）。`list`/`export` 保持整会话规则：字符不足跳过，
-次数不足只索引。
-
-`library.yaml` 旁的 `sync-state.json` 保存来源 ID、导出发言游标、已验证文件前缀，以及
-该游标是按哪个版本的筛选规则判定的。字节未变化时，mtime 不会触发再次导入；但按旧版本
-判定过的游标仍会被再读、再判一次，随后按今天的版本重新记录，于是规则收紧时能捞回旧规则
-拒绝的会话，而已经入库的内容不会被再次导入。正常增长只送入新发言，携带 `continues`、
-`from_turn`、`part` 元数据；先前 canonical 页面提供上下文，断言引用所属部分。
-前缀变化或截断报告 `rewritten`；显式使用 `pkchome sync --rewritten reingest` 才准入
-替换内容。旧 `ingested-sessions.json` 条目通过恢复精确历史载荷、经 ingest 去重取得
-来源 ID 完成迁移；无法证明的哈希会报告，绝不默认为今天的末尾。待处理载荷写入日志，
-用于崩溃或响应丢失后的精确重试。`--dry-run` 不写任何内容，也不创建锁或载荷日志。
-这些都属于本版状态；canonical 仍只通过库的草稿闸门改变。
-
-## 东西放在哪里
-
-```
-~/.pkc/                     home（可用 PKC_HOME 迁移）
-  config.yaml               安装信息、中间件端口、默认值
-  credentials               KEY=value，权限 0600 —— 状态与技能文本都不会回显
-  current                   未做其他选择时会话落入的库
-  infra/、run/、data/        生成的 compose 文件、引擎 pid 与日志、数据卷
-  libraries/<name>/         library.yaml、engine/、canonical/、skill/
-~/.local/bin/               pkchome（uv tool）与并列的 pkc 启动器
-$CODEX_HOME/skills/pkc-steward/          Codex 的全局技能（默认 ~/.codex）
-$CLAUDE_CONFIG_DIR/skills/pkc-steward/   Claude Code 的全局技能（默认 ~/.claude）
-```
-
-全局技能给你自己的会话用。无人值守的一轮只看得见它所在库的技能包
-（`libraries/<name>/.agents/skills/pkc-steward` 或 `.claude/skills/pkc-steward`）：它在不含任何
-技能的每作业配置目录下运行，而 Codex 轮会从 `~/.agents/skills` 读到的任何 `pkc-steward`
-都会按路径被关掉。
-
-一座库自己的技能包在 setup 中**最后**渲染——排在主体档案之后，因为包里就写着主体；
-无人值守的每一轮开跑前，worker 都会校验它，发现漂移就地重渲，让宿主读到的措辞始终是
-这套部署今天渲染出的措辞。
-
-## 卸载
+`pkchome status` 分开显示队列、重试等待、暂停任务和终止失败。供应商或 harness 故障按逐渐增长的间隔重试，然后暂停。先修复提示的原因，再恢复：
 
 ```sh
-pkchome down                 # 先停中间件；数据卷保留
-uv tool uninstall pkc-personal
-rm -f ~/.local/bin/pkc
-rm -rf ~/.codex/skills/pkc-steward ~/.claude/skills/pkc-steward
-rm -rf ~/.pkc                # 只有确实要连库一起删除时才执行
+pkchome exec --library notes -- pkc jobs
+pkchome exec --library notes -- pkc jobs resume --job JOB_ID
 ```
 
-## 开发
+暂停不等于丢失任务。正本工作区有未提交改动时，系统不会自动丢弃它们；先处理自己的改动再恢复。中间件恢复与完整派生索引重建见[部署运维](../docs/reference/deployment.zh-CN.md)。
 
-在所在工作树根目录使用 `uv run --project personal` 运行：
+## 文件、更新与开发
+
+```
+~/.pkc/                         home；可用 PKC_HOME 改到其他位置
+  config.yaml                   中间件、默认值和同步偏好
+  credentials                   私有 KEY=value 文件，权限 0600
+  current                       默认知识库选择
+  infra/, run/, data/            compose、进程状态、日志和中间件数据
+  libraries/<name>/             library.yaml、engine/、canonical/ 和 skills
+```
+
+harness skill 安装到 `$CODEX_HOME/skills`（默认 `~/.codex/skills`）或 `$CLAUDE_CONFIG_DIR/skills`（默认 `~/.claude/skills`）。无人值守轮次在隔离的 harness home 中使用对应知识库生成的包。安装器只移除带有本个人版标记的旧全局 skill 副本。
+
+控制台是构建产物。引擎读取 wheel 内附的页面、开发用 `PKC_CONSOLE_DIST`，或 home 中经过校验的下载版本。如果资源在引擎启动后才安装，运行 `pkchome restart` 后生效。[控制台构建与发布脚本](../scripts/personal_console_dist.sh)。
+
+在仓库根目录开发：
 
 ```sh
-uv run --project personal pkchome setup --answers answers.yaml --no-skill
-uv run --project personal pkchome library create notes --language en --backend codex
-uv run --project personal pkchome exec -- pkc jobs
 uv run --project personal pytest personal/tests -q
+PKC_SOURCE="$PWD/personal" sh personal/install.sh
 ```
 
-这是独立的 uv 项目，有自己的环境和随代码提交的锁文件。运行时仅依赖 core、service
-两个库发行包；本版的契约和全局技能文本作为自有资源随包分发。
-
-控制台页面始终是构建产物而非源码：引擎按顺序从 wheel 自带的 `pkc_personal/console/dist`、
-`PKC_CONSOLE_DIST`（本地构建，供开发）、或 `~/.pkc/console/<version>/dist`（由
-`pkchome console install` 从 `personal-console-v<version>` 发布下载、并按公布的 sha256
-校验的副本）中取用。在本仓库内，`scripts/personal_console_dist.sh` 构建该目录，
-`scripts/personal_console_release.sh` 将其发布为某一版本的发布资产。
-`pkchome status` 会说明本机用的是哪一种。
-
-当前接口限制：缺少 worker 租户过滤的库版本会被拒绝启动引擎；检索选择会被记录，但需要
-库暴露 `semantic_retrieval` 后才生效；引擎在启动时决定是否提供控制台页面，因此引擎启动
-之后才取到的页面要等下一次 `pkchome restart` 才会被提供。
+`personal/` 是有独立环境和 lockfile 的 uv 项目。桌面端有单独的[构建说明](desktop/README.zh-CN.md)。卸载包时先 `pkchome down`，再 `uv tool uninstall pkc-personal`；home 和知识库会保留，直到你明确移除它们。

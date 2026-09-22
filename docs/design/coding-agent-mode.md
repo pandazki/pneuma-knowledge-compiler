@@ -179,7 +179,7 @@ first version; **v2** are designed here with their shape stated and built next.
   `steward/tasks/`: a fetch script using the upstream API, a transform into `im/v1` and
   `email/v1` payloads, the target tenant and intake, and a schedule. It runs the task once with
   the Owner watching, `pkc ingest` accepts the payloads, and the compile queue takes over. The
-  framework did not change: the five source contracts were the door, and `pkc ingest` was the
+  framework did not change: the versioned source contracts were the door, and `pkc ingest` was the
   hand. Scheduling is the harness's or the machine's cron, never the framework's worker.
 - **2.5d Cancel it (v1).** *"Stop the supplier mail pull."* The task is removed from the
   task list and its schedule. What it already ingested stays: L0 is authority, and knowledge
@@ -255,7 +255,7 @@ first version; **v2** are designed here with their shape stated and built next.
 
 - **2.17 Open a job (v1).** `pkc draft open <job>` claims the job, renders the contract and
   the task — the same bytes the langchain compile would put in its system and human messages
-  — and creates the draft on disk. Until this has run, no write command exists for the job.
+  — and persists the draft in Postgres. Until this has run, no write command exists for the job.
 - **2.18 Refused at the write (v1).** `pkc draft append-block` with an uncited text, a bad
   span, a path outside the templates, or on a page not yet read this draft — refused with the
   same text the langchain tool would have returned, exit non-zero, nothing written.
@@ -422,7 +422,7 @@ follow-up (§13).
    only path into canonical for either executor. The langchain loop and the CLI are two
    clients of it. Whatever the CLI can refuse, the langchain tool refuses with the same text,
    and the same test sequence produces the same files through both.
-3. **The draft lives on disk while an agent holds it.** A CLI has no memory between
+3. **The draft lives in Postgres while an agent holds it.** A CLI has no memory between
    invocations, so `PatchDraft` gains a serialization and a home per job. It is neither
    canonical nor a kept record: ephemeral, deleted on finish or abort, and a second `open` on
    a job whose draft exists resumes it only for the same executor; another executor is refused.
@@ -460,7 +460,7 @@ follow-up (§13).
 11. **The Steward's standing work lives outside the framework.** Fetching from an upstream,
     transforming it, scheduling it, deciding which library it feeds: all of it is the Steward's
     own code and the harness's own scheduler, kept in the project under `steward/`. It enters
-    the framework only through the five source contracts and `pkc ingest`. A new upstream
+    the framework only through the six source contracts and `pkc ingest`. A new upstream
     never requires a framework change, and a task never touches `data/` or canonical.
 12. **The archive is the upstream mechanism; at this door the reason is always the Owner's
     words, and the Steward confirms only what the Owner named.** Archiving is a move under
@@ -636,7 +636,7 @@ one tool function — the same closures `_build_tools` builds — **post-checks 
 with the gate's predicates**, and only then persists the draft and exits. A refusal at the
 argument face is the tool's own `AnchorToolError` text on stderr with exit code 2; a
 post-check failure is exit 2 as well, with the violation rendered as the gate renders it, and
-the draft on disk is the one from before the command; budget exhausted is exit 3 with the
+the persisted draft is the one from before the command; budget exhausted is exit 3 with the
 `compile.budget.call_refused` text; a gate failure at `finish` or `check` is exit 4 with the
 rendered violations. Exit codes are the mechanism that lets a workflow script branch without
 parsing prose, and the post-check is what makes "the library is still whole" a fact the
@@ -686,10 +686,10 @@ after the facts worth keeping are on the profile and the owner has said so.
 ### 5.4 Ingest and standing tasks — the Steward's own realm
 
 ```
-pkc ingest --contract im/v1|email/v1|meeting/v1|document-library/v1|owner-dialogue/v1 --file <f> [--intake <archetype>] [--user <tenant>]
+pkc ingest --contract im/v1|email/v1|meeting/v1|document-library/v1|owner-dialogue/v1|agent-session/v1 --file <f> [--intake <archetype>] [--user <tenant>]
 ```
 
-`pkc ingest` is the CLI face of `/sources/import`: a payload under one of the five contracts,
+`pkc ingest` is the CLI face of `/sources/import`: a payload under one of the six contracts,
 an optional intake override, the tenant. It is the whole input boundary, and it is enough,
 because what arrives shaped as a contract is the framework's business and how it came to be
 shaped is not.
@@ -717,7 +717,7 @@ an operation and not a strategy, and a task's change does not alter how anything
 The boundary this draws is the one the architecture already has — the SourceAdapter is "the
 only layer allowed to grow with input types" — moved to where growth is cheapest: the
 Steward writes the adapter for the Owner's one upstream, in the Owner's project, and the
-framework's five contracts stay five.
+framework's six contracts remain the input boundary.
 
 ### 5.5 Retiring knowledge — the archive at this door
 
@@ -1081,7 +1081,7 @@ Attended jobs wait for `open`; unattended jobs use the same launcher and draft l
 compile and evolve, with `steward.unattended.episodes_task`. The generated skill adds
 “Episodes before compile”, and `references/cli.md` learns the verbs from the live parser.
 
-## 6. The draft on disk
+## 6. The persisted draft
 
 `PatchDraft` today is an in-memory object: base documents, working documents, read marks,
 path templates, the overview budget. It gains `to_state()` / `from_state()` over a JSON
@@ -1357,7 +1357,7 @@ went around the gate is stopped before the next round builds on it, rather than 
   method: run a round under a budget over a draft's tool face, return calls spent, whether
   it was cut off, usage. `LangchainRoundRunner` is today's `tool_loop`, moved. The CLI
   executor does not implement it in-process: the worker's `AgentRoundRunner` writes the draft
-  to disk, spawns the harness, waits, and reads the draft back. Core knows the protocol and
+  to the DraftStore, spawns the harness, waits, and reads the draft back. Core knows the protocol and
   the draft's state form; the subprocess lives in service.
 - **Where the unattended round finishes, and why it is not `run_compile`.** `RoundRunner`
   takes a message list and a tool face and returns what the round spent — a shape that means
@@ -1695,7 +1695,7 @@ Order, Codex first throughout:
 - **Single-shot roles on an agent** (§9) remain deferred to v2. Structural evolution
   already runs through the evolve draft door (§5.7).
 - **Standing tasks are the Steward's, not the framework's.** The framework offers `pkc
-  ingest` and the five contracts; it does not schedule, fetch, transform, or know a task
+  ingest` and the six contracts; it does not schedule, fetch, transform, or know a task
   exists. A task the Owner wants shared across deployments is a skill to distribute, not a
   framework feature to add.
 - **The home holds state, never knowledge.** `~/.pkc` names projects and remembers

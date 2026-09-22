@@ -2,7 +2,7 @@
 
 [English](CONTRIBUTING.md) | **简体中文**
 
-环境搭建与架构见 [README](README.zh-CN.md) 和 [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md)；本页只写发 PR 前需要知道的事。
+环境搭建与架构见 [部署指南](docs/reference/deployment.zh-CN.md) 和 [docs/architecture.zh-CN.md](docs/architecture.zh-CN.md)；本页只写发 PR 前需要知道的事。
 
 ## 每次提交前的两道门
 
@@ -17,7 +17,7 @@ cd apps/web && pnpm run build      # 动过 web 时
 
 新增或改动编译行为需要测试守住四条承重性质：正本/派生边界、`user_id` 隔离、来源引用、合成诚实。[架构 §9](docs/architecture.zh-CN.md#9-不变量) 的七条不变量优先于任何局部取舍。
 
-正本只由四个有界的写动词写入，没有第五个——`create_document` / `append_block`、`edit_claim`、`supersede_claim`（世界变了，而不是我错了），以及唯一一次性整块写入的 `rewrite_overview`——它换掉文档那个有界的头部，账本一字不动。它之所以安全，只因为闸门要求 overview 里每一块都落在一条账本 claim 或一段来源区间上，并把整个区域按字符数封顶。新增写入路径就要同时补上约束它的闸门检查；安全性靠提示词措辞撑着的写动词，闸门接不住。
+claim 写入是有界的：`create_document` / `append_block` 添加主张，`edit_claim` 修正一条主张，`supersede_claim` 记录状态变化。`rewrite_overview` 替换有界的总览头部，保留账本；引用与字符预算由机械检查约束。元数据编辑以及机械的归档、分卷操作各有自己的窄检查。每条新增写入路径都必须同时带上约束它的闸门检查，提示词措辞不能替代这些检查。
 
 ## 扩展框架
 

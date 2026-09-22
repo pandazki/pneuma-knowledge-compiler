@@ -4,14 +4,24 @@
 
 ## Local development
 
-Four middleware containers plus two host processes:
+Use Python 3.12, uv, Docker, Node 18+ and pnpm. From the repository root:
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --wait   # Postgres, Qdrant, Meilisearch, RustFS
-bash scripts/dev-api.sh          # uvicorn on 127.0.0.1:18000, autoreload
-bash scripts/dev-worker.sh       # compile worker (drains the job queue)
-cd apps/web && pnpm dev          # Vite on :5173, proxies /v1 and /healthz to :18000
+uv sync --all-packages
+cp .env.example .env             # configure the chosen models and contract; never commit .env
+docker compose -f infra/docker-compose.yml up -d --wait
+cd apps/web && pnpm install
 ```
+
+Run these in three terminals, each starting at the repository root:
+
+```bash
+bash scripts/dev-api.sh          # API on 127.0.0.1:18000, autoreload
+bash scripts/dev-worker.sh       # worker: canonical and derived job lanes
+cd apps/web && VITE_ENGINE_FIXTURES=false pnpm dev  # Vite on :5173
+```
+
+The flag connects Engine Console to the actual engine; without it that view uses bundled fixtures. Other views use the API. For a managed single-machine installation, use the [personal edition](../../personal/README.md).
 
 All containers bind loopback only, with healthchecks (so `--wait` works). Ports are deliberately offset from common defaults, and each runnable stack in the repository owns a disjoint port block:
 
@@ -35,7 +45,7 @@ Two things are baked into the Dockerfile and are easy to trip over when building
 
 Only the engine's own processes create the schema: the bootstrap batch is DDL (`CREATE INDEX IF NOT EXISTS` takes a ShareLock on its table even when the index is already there), so every other process — every `pkc` command, every `scripts/ops/` command — instead reads the `schema_applied` marker row, which holds the sha256 of the schema text that was last applied, and runs the batch only when that hash is not this build's (a fresh database, or an upgrade before the engine restarted).
 
-Startup is deliberately fail-closed and network-dependent: `build_context()` creates the schema, probes the embedding dimension with one real embedding call, and connects to Meilisearch and Qdrant before serving anything — budget a generous startup window. The S3 client is lazy; the first image import creates or verifies its private bucket, while compose health still keeps RustFS ready before the stack reports healthy. The probed dimension is load-bearing: switching `EMBEDDING_MODEL` means a new collection name and a derived rebuild; mixed dimensions cannot share a collection.
+Startup applies the database schema and assembles the configured adapters. With semantic retrieval enabled, normal engine startup probes the embedding dimension and ensures the Qdrant collection; a `fake:<dim>` embedding is local and keyless. `SEMANTIC_RETRIEVAL=off` skips embeddings and Qdrant. The S3 client is lazy: the first image import creates or verifies its private bucket. Switching embedding models requires a compatible collection and a derived rebuild; different dimensions cannot share a collection. See [configuration](configuration.md).
 
 ## Web tier
 
@@ -45,12 +55,13 @@ Startup is deliberately fail-closed and network-dependent: `build_context()` cre
 - The Live Context WebSocket path (`/v1/users/*/live-context/ws`) has its own location with `proxy_read_timeout 3600s`.
 - SPA history fallback for everything else; `/_nginx_health` is served locally.
 
-The API also pings WebSocket clients (~30 s), which keeps intermediaries with idle timeouts (e.g. Cloudflare's ~100 s) from dropping live connections.
+Live Context sends periodic WebSocket pings. Steward chat also requires WebSocket upgrade forwarding; the bundled `docker/nginx.conf` currently has a dedicated upgrade location only for Live Context, so extend your deployment proxy for `/v1/users/*/steward` before exposing that view through it. The Vite proxy and personal engine already support this route.
 
 ## Operations
 
 - **Everything derived is rebuildable**: `scripts/ops/rebuild_derived.py <user-id>|--all` rebuilds L1 + L2 and the projections above them from the substrate each declares — the two authorities (L0 spans Postgres and S3; canonical is Git), and for a use-side projection the kept consultation records — with before/after accounting. Records are kept rather than re-derived: a rebuild replays them and leaves them untouched. Use after wiping or upgrading middleware, switching embedding models (new collection), or changing chunking.
 - **Re-chunk only**: `scripts/ops/reindex_l2.py <user-id>` re-runs L2 chunking/embedding alone.
-- **Job self-healing** is built in: on restart the worker re-queues jobs orphaned by a dead process; any exception completes the job as failed rather than wedging the per-user queue. A coding-agent draft that a dead launch left holding work is kept with its re-queued job, and the next launch continues it instead of starting over. The same sweep also runs on a clock while the worker works (`WORKER_SELFHEAL_S`, 60 s; `0` turns it off), skipping the claims that worker is running, so a claim nobody can account for comes back within a minute instead of at the next process start.
-- **Infrastructure outages do not stop the engine.** When Postgres, Qdrant, Meilisearch or RustFS drops or restarts, the worker logs one line (`[compile-worker] infrastructure unavailable (postgres: <reason>); retrying in 2s`). It backs off from 2 s, doubling to 60 s, probes the service that failed, and resumes once the service answers (`… infrastructure back after Ns; resuming (job <id> requeued)`). **A claim outlives no outage**: the job the worker was holding goes back on the queue whatever raised between claiming it and completing it — its round, or the derived work that follows one — and if that job's work had already finished, its completion is written instead. Either way the job is neither lost nor run twice, and the resume line always names what became of it (`(job <id> requeued)`, `(job <id> completed)`, `(no job in flight)`). A transport error that reaches the worker without its client's wrapper is the same fact and is treated as one (`http: <reason>`, every peer probed, because a bare one does not say which went away). A job that does fail for its own reasons always says so: the row carries the exception's message, or its class when it has none (`worker error: httpx.ReadError`), and the worker log carries the traceback with the lane and job id. A job the drain gave up putting back — interrupted by the same outage more times than the guard allows — says that instead (`infrastructure repeated: qdrant (ReadError) interrupted this job 4 times; failed`), in the row and in one warning. Meanwhile the API answers affected requests with `503 {"code": "infrastructure_unavailable"}` and recovers without a restart, because the Postgres pool checks every connection before handing it out. If a worker is stopped by an outage outside its drain, the engine restarts it in place (`[engine] worker stopped: …; restarting in Ns`) and keeps serving the API. Each Postgres connection names its process role in `application_name` (`pkc-engine-api`, `pkc-engine-worker`, `pkc-api`, `pkc-worker`, `pkc-cli:<command>`), unless the DSN or `PGAPPNAME` already sets one.
+- **Job recovery**: orphaned claims are re-queued on restart and by a periodic sweep (`WORKER_SELFHEAL_S`, default 60 s; `0` disables it). A retained coding-agent draft travels with its job so the next launch can continue it.
+- **Retry, pause, resume**: recoverable failures wait 1 minute, 5 minutes, 15 minutes, 1 hour, 4 hours and 24 hours between attempts, then pause. Fix the reported cause and use `pkc jobs resume --job JOB_ID`. Explicit terminal errors, such as a missing source or unsupported job kind, fail without retry. Inspect `pkc jobs` for the reason and state.
+- **Infrastructure outages**: the worker probes failed services with a 2–60 second backoff, records whether its in-flight job was re-queued or completed, and resumes when they return. Repeated interruption of a job enters its retry schedule. The API returns `503 {"code": "infrastructure_unavailable"}` for affected requests and can recover without restart. Connection `application_name` identifies the process role unless explicitly overridden.
 - **Tracing** (Langfuse) activates only when all three `LANGFUSE_*` variables are set; the worker flushes after every job.
