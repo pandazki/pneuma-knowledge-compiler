@@ -41,8 +41,8 @@ def write(path: Path, data: dict) -> None:
         Path(name).unlink(missing_ok=True)
 
 
-def vocabulary(settings, user_id: str, documents) -> str:
-    data = read(cache_path(settings, user_id), user_id)
+def candidates(documents, data: dict) -> list[dict]:
+    """Existing compile admission and transitional fallback, before activity ranking."""
     rows = []
     selected = set(data.get("selected_terms", []))
     for document in live_documents(documents):
@@ -53,11 +53,11 @@ def vocabulary(settings, user_id: str, documents) -> str:
         text = str(document.frontmatter.get("title", "")) + "\n" + document.body
         for term, aliases in data.get("confusions", {}).items():
             if spelling(term) and occurs(term, text):
-                rows.append({"term": term, "confusions": aliases, "reason": "maintained", "risk": 3})
+                rows.append({"term": term, "confusions": aliases, "reason": "maintained", "risk": 3, "path": document.path})
         for row in data.get("documents", {}).get(document.path, {}).get("terms", []):
             term = spelling(row.get("term"))
             if term and term in selected and occurs(term, text):
-                row = dict(row)
+                row = dict(row, path=document.path)
                 # Explicit operator corrections are data, never model-invented aliases.
                 aliases = data.get("confusions", {}).get(term, [])
                 row["confusions"] = aliases
@@ -69,7 +69,18 @@ def vocabulary(settings, user_id: str, documents) -> str:
     for row in rows:
         if row.get("reason") != "maintained":
             row["risk"] = 1
-    encoded = render(rows)
+    return rows
+
+
+def vocabulary(settings, user_id: str, documents, *, today=None) -> str:
+    from datetime import datetime, timezone
+    from .speech_activity import ranked_candidates
+
+    documents = list(documents)
+    data = read(cache_path(settings, user_id), user_id)
+    rows = ranked_candidates(settings, user_id, documents, candidates(documents, data),
+                             today=today or datetime.now(timezone.utc).date())
+    encoded = render(rows, preserve_order=True)
     return prompt("call.lexicon.context", terms=encoded) if encoded else ""
 
 

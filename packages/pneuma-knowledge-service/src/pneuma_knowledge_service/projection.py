@@ -7,6 +7,10 @@ derived retrieval stores (invariant I2: fully reconstructable from canonical):
   2. Meilisearch `claims_<uid>` — the L3 lexical retrieval face;
   3. Qdrant claim layer (`payload.layer="claim"`) — the L3 semantic retrieval face.
 
+The same sync/rebuild also prepares the optional speech-activity file from canonical
+spelling candidates and their cited L0 occurrences. That projection declares both
+substrates and never uses a compile timestamp as a source clock.
+
 `rebuild_projection(ctx, user)` is the standalone repair/strategy-upgrade entry point.
 The normal worker path uses `sync_projection`: it compares the complete projected
 snapshot with PostgreSQL's last successful manifest and synchronizes only the content
@@ -39,6 +43,7 @@ purpose is a legitimate operation — it just may not happen by accident.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
@@ -286,6 +291,7 @@ async def sync_projection(
             writes.append(ctx.vectors.sync_claims(user_id, upserts, vectors, deleted))
         await asyncio.gather(*writes)
 
+    await _speech_activity(ctx, user_id, docs)
     await ctx.store.sync_canonical_claims(
         user_id, snapshot_ref, upserts, deleted
     )
@@ -354,4 +360,20 @@ async def rebuild_projection(
             vectors = await ctx.embeddings.aembed_documents([c.text for c in claims])
             await ctx.vectors.upsert_claims(user_id, claims, vectors)
 
+    await _speech_activity(ctx, user_id, docs, force=True)
     return len(claims)
+
+
+async def _speech_activity(ctx, user_id, documents, *, force=False):
+    """Optional call metadata follows both projection paths, never canonical writes."""
+    # Minimal projection-only clients have no deployment settings or speech cache.
+    settings = getattr(ctx, 'settings', None)
+    if settings is not None:
+        from .call.speech_activity import refresh_activity
+        try:
+            await refresh_activity(settings, str(user_id), documents, ctx.store, force=force)
+        except Exception as exc:  # A spelling enhancement cannot invalidate committed knowledge.
+            logging.getLogger(__name__).warning(
+                "Speech activity refresh failed for %s (%s); next sync/rebuild will retry",
+                user_id, type(exc).__name__,
+            )
