@@ -1,48 +1,57 @@
-# apps/web
+# Web workbench
 
 **English** | [简体中文](README.zh-CN.md)
 
-The bilingual web workbench over the HTTP API: walk the whole pipeline — materials, compile jobs, the canonical library with per-claim citations, three retrieval lanes, evolution review — with every step drillable back to its evidence.
+The bilingual browser interface for reading sources and cited canonical pages, inspecting compilation, asking the library, and working with its Steward. English/Chinese and light/dark themes are built in.
 
-## Run
+## Run and check
 
-```bash
-docker compose -f ../../infra/docker-compose.yml up -d --wait
-bash ../../scripts/dev-api.sh        # API on 127.0.0.1:18000
-bash ../../scripts/dev-worker.sh     # compile worker (when you want jobs to run)
-pnpm install && pnpm dev             # Vite on :5173, proxies /v1 and /healthz
-```
+Set up the API, worker and middleware using the [deployment guide](../../docs/reference/deployment.md). In `apps/web`:
 
 ```bash
-pnpm run build    # tsc -b && vite build — run before committing web changes
-pnpm test         # node --test tests/*.test.mjs (pure-logic tests, no browser)
+pnpm install
+VITE_ENGINE_FIXTURES=false pnpm dev  # :5173; API proxy defaults to :18000
+pnpm run build                     # tsc -b && vite build
+pnpm test                          # node --test tests/*.test.mjs
 ```
 
-The only environment variable is `VITE_API_BASE` (empty = same-origin via the dev proxy). For a fully packaged deployment (nginx + API + worker + seeded demo data, no API key), see [`examples/opc/`](../../examples/opc/).
-
-## Shape
-
-React 18 + Zustand + Radix + Tailwind v4. No react-router: `src/App.tsx` maps view names to lazy components, and the Zustand store syncs selection to `location.hash` — deep links and back/forward work (`#/evolve/evolve-task/<id>`).
-
-The shell carries the tenant switcher, the snapshot picker (HEAD / frozen KB snapshots / canonical history, read-only mode stamped when pinned), a zh/en locale toggle (full dictionaries under `src/i18n/`) and the Paper/Lightbox theme toggle. A console opened from the personal edition's tray arrives with `?locale=zh|en&theme=light|dark`: `src/lib/handoff.ts` adopts the two valid values into the console's own stored preferences, ignores anything else, and strips the parameters from the address, so the Owner's tray language and appearance carry over without ever sticking to a shared link. Views, grouped as the sidebar presents them:
-
-| Group | Views |
+| Variable | Behavior |
 |---|---|
-| Front matter | overview (system map with live counts) |
-| Materials | sources (catalog, galleys, L0 fetch), ingest (contracts + documents, preview-first) |
-| Process | process (trigger + job queue), history (compile timeline, per-claim diffs) |
-| Retrieval | recall (rag / fast / deep-SSE), ask (briefings), live_context (SSE + WS, gate ledger) |
-| Canon | library (documents, claim badges, citations, neighbourhood), lens (the structure lens: six dimensions, each with its band, statement, metrics and movement), review (the check: page-level findings, and the Steward round that repairs them) |
-| Evolution | evolve (draft review: rationale, file diffs, dropped anchors, adopt/drop) |
-| Back matter | components (the design-system gallery) |
+| `VITE_API_BASE` | Empty means same-origin; development requests use the Vite proxy. |
+| `PNEUMA_KNOWLEDGE_API_PORT` | Vite's backend proxy port, default `18000`. |
+| `VITE_ENGINE_FIXTURES` | Set exactly `false` for the real Engine Console API. Otherwise that view uses bundled, mutable fixtures; this does **not** mock other views. |
 
-The owner-only `steward` view is a chat with the coding agent that compiles the library: its prose streams as Markdown, and the composer takes images (paste, drop, or the attach button — png/jpeg/webp/gif, at most 4 per message and 5 MiB each), which travel with the message as data URLs and stay visible as thumbnails in the Owner's own bubble.
+Vite variables are baked into production builds. For a packaged synthetic demo, see [OPC](../../examples/opc/). For other installation options, see the [project README](../../README.md).
 
-## Design rules
+## What is available
 
-The design authority is [`DESIGN.md`](DESIGN.md); its executable forms are two files — [`src/styles/tokens.css`](src/styles/tokens.css) (every color lives here; components use zero hex/rgb literals; derived shades via `color-mix` only) and [`src/index.css`](src/index.css) (prose typography, scroll-region conventions, native-control resets). The short version:
+Navigation depends on the Owner/Visitor lens and deployment. The personal edition also supplies home and library selection.
 
-- Two themes, independently tuned, not inversions: light "Paper", dark "Lightbox".
-- One accent (the blue pencil) for links, selection, focus and footnote numbers; status is conveyed in text and ink shades, not traffic-light colors.
-- Editorial feel: near-square corners, fade/2–4px motion only, hairline dividers, serif reading faces (LXGW WenKai first) with sans UI and mono machine text.
-- The `components` view is the gallery of the ~35 primitives under `src/ui/` — check there before building a new one.
+| Surface | Purpose |
+|---|---|
+| Sources and ingest | Browse verbatim material and preview imports before writing. |
+| Process and history | Inspect queue states, retry waits, commits and per-claim changes. |
+| Library | Read canonical documents, claim anchors, source references and related pages. |
+| Recall, briefings and Live Context | Search through rag/fast/deep lanes, ask questions and follow a live context stream. |
+| Consultations | Inspect recorded questions, delivered evidence and answers. |
+| Structure Lens and review | Inspect six structural dimensions and page-level findings; hand repairs to the Steward. |
+| Evolution | Review proposed contract/library changes before adoption. |
+| Engine Console | Inspect configuration, edit versioned engine files and review changes before applying. |
+| Profile and overview | View declared owner information and the system's current counts. |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/history-en-dark.png">
+  <img alt="Compile history with two invented commits and source-linked claim changes" src="../../docs/assets/history-en-light.png">
+</picture>
+
+*Current UI with entirely synthetic sources and history. [Screenshot data and reproduction](../../docs/assets/README.md).*
+
+**Steward**, available to the Owner from the shell, streams the coding agent's replies and activity. Its composer accepts pasted, dropped or attached images (PNG/JPEG/WebP/GIF, up to four per message and 5 MiB each). The **Call the library** entry starts a separate voice session when the deployment has the required credentials and API recall model. Opening the view does not start a call. See [voice design](../../docs/design/voice-call.md).
+
+## Implementation and design
+
+React 18, Zustand, Radix and Tailwind 4. `src/App.tsx` maps view names to lazy components; the store synchronizes selections with `location.hash`, so deep links and browser history work without react-router. The shell carries library/tenant selection, snapshots, locale, theme and the Steward entry. A frozen snapshot is marked read-only.
+
+Personal-tray links pass `?locale=zh|en&theme=light|dark`. `src/lib/handoff.ts` validates and stores these preferences, then removes the parameters from the address.
+
+The design authority is [DESIGN.md](DESIGN.md). Colors live in [tokens.css](src/styles/tokens.css); reading typography and scroll conventions live in [index.css](src/index.css). Light “Paper” and dark “Lightbox” are independently tuned, with one blue accent, restrained motion and serif reading text. The `#/components` gallery exposes the primitives under `src/ui/`; check it before adding one.

@@ -2,82 +2,89 @@
 
 [English](README.md) | **简体中文**
 
-把你领域里的原始材料——会议、文档、聊天、邮件——编译成可演进、带引用、不可编造的知识库。
+把会议、文档、聊天、邮件和 coding-agent 会话整理成持续维护的知识库，让每条主张都能回到原始材料。
 
-### 面向领域的知识库建模
-
-领域概念不一致、使用场景不一致，构建知识库的方式就应该不一致。记什么、记成什么结构，由你的编译契约定义；框架只提供领域无关的索引与检索底座。
-
-### 知识库模型可演进
-
-没有任何业务一成不变。预先建模会随数据量、数据分布和业务本身的变化逐渐失效。框架为此提供一套演进的底层基础设施——演进提案、diff 评审、数据迁移——由业务按需驱动模型迭代。
-
-### 框架级溯源约束
-
-每条知识必须携带指向原文段落的引用，写入时由框架机械校验，不满足即拒绝。溯源不是提示词约定，而是写入层的强制约束：无法编造，也无法丢失出处。
-
-### 它不是什么
-
-> 这不是 Agent 记忆系统。知识库和记忆是两码事。Agent 的记忆应该记住的是「我有一个怎样的知识库」——它的构建哲学、顶层概览、检索方式与维护方法——而不是把知识库本身当作记忆。
+**编译契约**定义一个领域记什么、页面怎样组织。框架保留原文，在写入边界检查溯源，用 Git 记录知识库版本，并支持重建搜索索引。引用校验保证的是可追溯性，不证明模型对证据的解读一定正确。
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/history-dark.png">
-  <img alt="编译历史：提交时间线、逐条知识的前后差异及其依据来源" src="docs/assets/history-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/library-zh-dark.png">
+  <img alt="当前正本文库界面：虚构项目、逐条主张及编号来源引用" src="docs/assets/library-zh-light.png">
 </picture>
 
-## 三分钟看见它
+*截图使用当前 UI 和完全合成的文档示例，没有打开个人知识库或真实账号。[截图来源与复现方法](docs/assets/README.zh-CN.md)。*
 
-不需要 API key，也不需要回答任何问题。一条命令生成一个「已经编好库」的真实项目（191 份合成来源、1188 条知识），起好，并告诉你去哪看：
+## 从哪里开始
+
+| 你想做什么 | 入口 |
+|---|---|
+| 管理个人知识库、同步项目会话、使用桌面托盘 | [个人版](personal/README.zh-CN.md) |
+| 用自己的数据和编译契约生成独立项目 | [项目生成器](scaffold/README.zh-CN.md) |
+| 不用 API key 浏览一座已经编好的示例库 | 下方的合成演示 |
+| 集成或开发框架 | [架构](docs/architecture.zh-CN.md)、[API](docs/reference/http-api.zh-CN.md)、[贡献指南](CONTRIBUTING.zh-CN.md) |
+
+## 体验合成演示
+
+准备好 Python 3.12+、`uv` 和 Docker，在此仓库运行：
 
 ```bash
-cd scaffold && ./init.py --demo      # 落在一个新建临时目录；用 --target DIR 自己指定
+cd scaffold && ./init.py --demo      # 新建临时项目；用 --target DIR 指定目录
 ```
 
-它会打印一个 `http://127.0.0.1:<端口>`。在浏览器里走完整条流水线：原始材料、编译历史、带逐条引用的正本文库（还有一卷真实的已结卷）、各检索面，以及**引擎控制台**——在那里改一个策略配置、看清它的影响范围，然后作为一个版本 apply 出去。以上都不需要 key；问答需要。
+命令恢复预编译知识库，并打印本地浏览器地址。浏览原始材料、正本页面、引用、编译历史和引擎控制台不需要模型 key。首次构建容器可能需要几分钟。模型问答需要相应凭据；演示使用的确定性向量用于浏览，不代表语义检索质量。
 
-它自带的那座库来自 [`examples/opc`](examples/opc/README.zh-CN.md)——一个由代理建成的示例，也可以就地跑（`cd examples/opc && ./demo.sh`）。
+参考库位于 [`examples/opc`](examples/opc/README.zh-CN.md)，材料全部合成，构建记录和评测结果随示例保留。运行 `cd examples/opc && ./demo.sh` 可打开它的交互菜单。
 
-## 用你自己的数据建库
+## 现在能做什么
 
-`scaffold/` 是一个项目生成器——交互式引导（或用一个 answers 文件单命令），把一个完整的知识库项目生成到你指定的目录，中间件端口自动探测、互不冲突：
+- **编译并核对证据。** 从每条主张回到原文段落，查看 Git 历史与逐条修改。概览描述主题的当前面貌，账本保留历史。
+- **提问或通话。** 使用检索、快速问答、深度调查、简报问答或 Live Context。Steward 页面提供 coding-agent 对话，并可在配置后单独发起知识库语音通话。[语音行为与要求](docs/design/voice-call.zh-CN.md)。
+- **持续整理项目知识。** 个人版按你选择的项目范围导入符合条件的 Codex、Claude Code 会话；托盘显示同步、队列和服务状态。[个人版](personal/README.zh-CN.md)。
+- **检查知识库结构。** Structure Lens 从六个维度观察结构，Review 列出页面级问题，并可交给 Steward 修整。它们是诊断工具，不是事实准确率评分。[结构透镜](docs/design/structure-lens.zh-CN.md)。
+- **有依据地调整模型。** 先审阅演进提案，再采纳结构变化；通过明确的提案归档主题，同时保留历史和仍可检索的说明记录。[演进](docs/guides/evolution.zh-CN.md) · [归档](docs/design/archive.zh-CN.md)。
+
+## 使用自己的材料
 
 ```bash
-cd scaffold && ./init.py     # 交互式：默认空项目与可运行的起始契约
-cd ~/my-kb && ./start.sh     # 验证材料、启动中间件、导入并编译
+cd scaffold && ./init.py            # 交互设置；默认建立空项目
+cd ~/my-kb && ./start.sh             # 换成设置时选择的目录
+./app.py glance
+./app.py ask "哪些事情还没有决定？" --sources
 ```
 
-然后检查它：运行 `./app.py glance`，用 `./app.py ask "…" --sources` 提出实际问题并追查引用。建模判断写在 `engine/compile/contract.md`；`engine/persona/profile.yaml` 的个人资料可选。改契约只影响未来编译，不会重新编译已有知识。
+生成器探测空闲中间件端口，创建运行文件、配置和可用的起始契约。建模判断写入 `engine/compile/contract.md`；可选的个人信息放在 `engine/persona/profile.yaml`。凭据留在项目忽略的 `.env` 中。修改契约影响未来编译，不重写已有知识。
 
-想有人带着走？把 `scaffold/AGENT-GUIDE.md` 交给你的 coding agent，它会一步步陪你用自己的数据建完。
+需要引导时，把 [scaffold/AGENT-GUIDE.zh-CN.md](scaffold/AGENT-GUIDE.zh-CN.md) 交给 coding agent。如果要在一台机器上统一管理多个个人库，使用[个人版入口](personal/README.zh-CN.md)。
 
-## 它怎么工作
+## 工作方式
 
-原始材料逐字保存，四层同时可达：L0 原文直取、L1 词法检索、L2 语义检索、L3 正本知识。权威的只有两样——原始材料本身，和存放正本的每用户 Git 仓库：每次编译是一个 commit，每条知识带着引用。它们旁边是第三类持久物：被保留的记录——一份分块 manifest、一次编译事件、一次答复调用的记录——一份存下来的观察，重建只重放它，绝不改写它。其余（索引、投影）都是派生物，各自从声明的底随时可重建。什么能成为正本，由你的编译契约决定；写入闸门在提交时机械校验每条引用，解析不回原文的一律拒绝。
+同一份材料有四个并行访问层：**L0** 原文直取、**L1** 词法搜索、**L2** 语义检索、**L3** 正本主张。无论是否编译，L0 和 L1 都保持可达。
 
-原生媒体从窄而完整的边界起步：IM 消息可以携带 JPEG、PNG、WebP 或 GIF 原图。原图进入私有 S3 兼容 L0（本地使用 RustFS），以带标签的 caption/OCR 或真实图片块交给编译模型，经消息原有的块级引用解析，并在正文阅读器与引用视图中展示。其他媒体类型目前没有声明为已支持。
+权威只有两样：原始来源和每用户的正本 Git 仓库。分块清单、编译事件、咨询记录属于被保留的观察，重建时只重放、不改写。搜索索引和其他投影从各自声明的底层材料派生；重建派生层不改变原始来源或正本知识。
 
-## 演进怎么发生
+输入边界有六种与供应商无关的契约：`meeting/v1`、`document-library/v1`、`im/v1`、`email/v1`、`owner-dialogue/v1`、`agent-session/v1`。IM 来源还可携带 JPEG、PNG、WebP 或 GIF 原图，并通过原有块级引用追溯。[来源契约](docs/reference/source-contracts.zh-CN.md)。
 
-编译器会记下每次编译发生了什么。框架从这些痕迹里起草 schema 修改——新的文档族、调整的路径模板、重组的页面——在独立分支上完成，把 diff 摆在你面前。采纳，机械对账合入；丢弃，一切如旧。单独修改契约不会重写旧主张；采用结构提案可以改变正本知识，所以既要审阅机械有效性，也要审阅它改变了什么含义。
+这是知识库框架，不是 Agent 记忆系统。Agent 可以记住知识库在哪里、如何使用；知识本身仍通过知识库检索和维护。
 
-## 仓库布局
+## 仓库地图
 
-```
-packages/pneuma-knowledge-core        # 领域逻辑 + 异步端口（仅依赖 pydantic 与 langchain）
-packages/pneuma-knowledge-service     # FastAPI 服务、适配器（Postgres/Qdrant/Meilisearch/S3/Git）、worker
-packages/pneuma-knowledge-strategies  # 参考编译契约（纯数据包；框架永不 import）
-packages/pneuma-knowledge-eval        # 判断质量度量
-apps/web                              # 双语 Web 界面
-scaffold/                             # 拷出去就归你的知识库应用模板
-examples/                             # opc：一个由代理建成的完整示例项目，附预编译库
-infra/                                # 本地开发栈（Postgres、Qdrant、Meilisearch、RustFS）
-```
+| 路径 | 用途 |
+|---|---|
+| `packages/pneuma-knowledge-core` | 领域逻辑和异步端口，不依赖中间件客户端 |
+| `packages/pneuma-knowledge-service` | FastAPI、适配器、worker、coding-agent CLI 和语音接入 |
+| `packages/pneuma-knowledge-strategies` | 参考编译契约；框架不导入这个数据包 |
+| `packages/pneuma-knowledge-eval` | 只读的判断质量度量 |
+| `apps/web` | 双语控制台 |
+| `personal` | 独立个人版、`pkchome` 和可选桌面托盘 |
+| `scaffold` | 独立项目生成器及 agent 建库指南 |
+| `examples/opc` | 合成参考项目、预编译库、构建和评测记录 |
+| `infra` | 本地开发中间件 |
 
+[文档索引](docs/README.zh-CN.md) · [开发环境](docs/reference/deployment.zh-CN.md) · [贡献规范](CONTRIBUTING.zh-CN.md)
 
 ## 致谢
 
-Web 阅读面内嵌霞鹜文楷屏幕阅读版（OFL 1.1）。阅读层排版纪律借鉴 [kami](https://github.com/tw93/kami)——其默认中文字体仓耳今楷 02 仅限个人免费使用、商用需另行授权，本项目因此改用 OFL 字体。语义分块的边界检测哲学受 [nemori](https://github.com/nemori-ai/nemori) 启发。
+阅读界面内嵌霞鹜文楷屏幕阅读版（OFL 1.1）。排版纪律借鉴 [kami](https://github.com/tw93/kami)，语义分块的边界检测哲学受 [nemori](https://github.com/nemori-ai/nemori) 启发。
 
-## License
+## 许可证
 
 [MIT](LICENSE)

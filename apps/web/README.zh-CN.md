@@ -1,48 +1,57 @@
-# apps/web
+# Web 工作台
 
 [English](README.md) | **简体中文**
 
-架在 HTTP API 之上的双语 Web 工作台：把整条流水线——原始材料、编译任务、带逐条引用的正本文库、三档检索、演进评审——走一遍，每一步都能下钻回证据。
+双语浏览器界面：阅读来源与带引用的正本页面，检查编译过程，向知识库提问，与 Steward 协作。内置中英文及明暗主题。
 
-## 运行
+## 运行与检查
 
-```bash
-docker compose -f ../../infra/docker-compose.yml up -d --wait
-bash ../../scripts/dev-api.sh        # API 于 127.0.0.1:18000
-bash ../../scripts/dev-worker.sh     # 编译 worker（需要任务真跑起来时）
-pnpm install && pnpm dev             # Vite 于 :5173，代理 /v1 与 /healthz
-```
+按[部署指南](../../docs/reference/deployment.zh-CN.md)配置 API、worker 和中间件。在 `apps/web` 中运行：
 
 ```bash
-pnpm run build    # tsc -b && vite build——提交 web 改动前必须跑
-pnpm test         # node --test tests/*.test.mjs（纯逻辑测试，无浏览器）
+pnpm install
+VITE_ENGINE_FIXTURES=false pnpm dev  # :5173；API 代理默认指向 :18000
+pnpm run build                     # tsc -b && vite build
+pnpm test                          # node --test tests/*.test.mjs
 ```
 
-唯一的环境变量是 `VITE_API_BASE`（留空 = 同源走开发代理）。要一个完整打包的部署形态（nginx + API + worker + 预置演示数据，零 API key），见 [`examples/opc/`](../../examples/opc/)。
-
-## 形状
-
-React 18 + Zustand + Radix + Tailwind v4。没有 react-router：`src/App.tsx` 用一张视图名 → 懒加载组件的映射表，Zustand store 把选中状态双向同步到 `location.hash`——深链与前进后退都好使（`#/evolve/evolve-task/<id>`）。
-
-外壳带租户切换器、快照选择器（HEAD / 冻结 KB 快照 / 正本历史，钉住时盖只读印）、中英 locale 切换（全量词典在 `src/i18n/`）和纸/灯箱主题切换。从个人版托盘打开的控制台会带上 `?locale=zh|en&theme=light|dark`：`src/lib/handoff.ts` 只接受这两个合法取值、写入控制台自己的偏好存储，其余一律忽略，随后把参数从地址中抹去——托盘的语言与外观得以延续，又不会粘在分享出去的链接上。视图按侧栏分组：
-
-| 组 | 视图 |
+| 变量 | 行为 |
 |---|---|
-| 卷首 | overview（带实时计数的系统地图） |
-| 原料 | sources（目录、校样、L0 直取）、ingest（契约 + 文档，先预览后落地） |
-| 工序 | process（触发 + 任务队列）、history（编译时间线、逐 claim 差异） |
-| 取用 | recall（rag / fast / deep-SSE）、ask（briefing）、live_context（SSE + WS、门禁账） |
-| 正本 | library（文档、claim 徽章、引用、邻域）、lens（结构透镜：六个维度，各带档位、判词、指标与移动）、review（质检：按页的发现，以及修它们的那轮 Steward round） |
-| 演化 | evolve（草稿评审：理由、文件 diff、消失锚点、采纳/丢弃） |
-| 卷末 | components（设计系统画廊） |
+| `VITE_API_BASE` | 留空表示同源；开发请求走 Vite 代理。 |
+| `PNEUMA_KNOWLEDGE_API_PORT` | Vite 后端代理端口，默认 `18000`。 |
+| `VITE_ENGINE_FIXTURES` | 必须设为 `false` 才连接真实引擎控制台 API。否则该视图使用内置可变 fixture；它**不会**模拟其他视图。 |
 
-仅 Owner 可见的 `steward` 视图是与编译这座库的编码代理的对话：它的散文按 Markdown 流式渲染，输入框收图片（粘贴、拖入，或点附件按钮——png/jpeg/webp/gif，一条消息最多 4 张、每张不超过 5 MiB），图片以 data URL 随消息发出，并作为缩略图留在你自己的气泡里。
+Vite 变量在生产构建时写入产物。完整打包的合成演示见 [OPC](../../examples/opc/)，其他安装方式见[项目 README](../../README.zh-CN.md)。
 
-## 设计规则
+## 功能入口
 
-设计权威是 [`DESIGN.zh-CN.md`](DESIGN.zh-CN.md)；它的可执行形态在两个文件——[`src/styles/tokens.css`](src/styles/tokens.css)（所有颜色只住这里；组件零 hex/rgb 字面量；派生色只用 `color-mix`）和 [`src/index.css`](src/index.css)（阅读排版、分区滚动约定、原生控件重置）。速览版：
+导航随 Owner/Visitor 视角与部署而变。个人版还提供首页和知识库选择。
 
-- 双主题独立调校、非反色：日间「纸 Paper」、夜间「灯箱 Lightbox」。
-- 唯一强调色（蓝铅笔）用于链接、选中、focus 与脚注编号；状态用文字和墨色阶表达，不用红绿灯。
-- 编辑部气质：近直角、只有 fade/2–4px 位移的动效、发丝分隔线、衬线阅读面（霞鹜文楷优先）+ 无衬线 UI + 等宽机器文本。
-- `components` 视图是 `src/ui/` 下约 35 个原子组件的画廊——造新轮子前先去那儿看一眼。
+| 界面 | 用途 |
+|---|---|
+| 来源与导入 | 浏览原文，写入前预览导入结果。 |
+| 工序与历史 | 检查队列状态、重试等待、提交及逐条主张变化。 |
+| 文库 | 阅读正本文档、主张锚点、来源引用与关联页面。 |
+| 检索、简报与实时上下文 | 通过 rag/fast/deep 检索、提问，跟随实时上下文流。 |
+| 咨询记录 | 检查留存的问题、交付的证据与答案。 |
+| 结构透镜与质检 | 查看六个结构维度和页面级发现，将修复交给 Steward。 |
+| 演进 | 采纳前审阅契约与文库变更提案。 |
+| 引擎控制台 | 检查配置、编辑版本化引擎文件，应用前审阅变更。 |
+| 档案与概览 | 查看已声明的拥有者信息与当前系统计数。 |
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/history-zh-dark.png">
+  <img alt="编译历史：两次虚构提交及带来源引用的主张变化" src="../../docs/assets/history-zh-light.png">
+</picture>
+
+*当前界面，来源与历史全部为合成数据。[截图数据与复现方式](../../docs/assets/README.zh-CN.md)。*
+
+Owner 可从外壳进入 **Steward**，查看编码代理流式回复与活动。输入框接受粘贴、拖入或附加图片（PNG/JPEG/WebP/GIF，每条最多四张，每张不超过 5 MiB）。部署配好所需密钥与 API 召回模型后，可用**呼叫知识库**入口开启独立语音会话。仅打开视图不会开始通话。见[语音设计](../../docs/design/voice-call.zh-CN.md)。
+
+## 实现与设计
+
+React 18、Zustand、Radix、Tailwind 4。`src/App.tsx` 将视图名映射到懒加载组件；store 把选择同步到 `location.hash`，无需 react-router 即支持深链和浏览器历史。外壳提供知识库/租户选择、快照、语言、主题及 Steward 入口；冻结快照标明只读。
+
+个人版托盘链接携带 `?locale=zh|en&theme=light|dark`。`src/lib/handoff.ts` 验证并保存偏好，随后从地址移除参数。
+
+设计权威是 [DESIGN.zh-CN.md](DESIGN.zh-CN.md)。颜色放在 [tokens.css](src/styles/tokens.css)，阅读排版与滚动约定放在 [index.css](src/index.css)。明亮的「纸 Paper」与深色的「灯箱 Lightbox」独立调校，使用单一蓝色强调、克制动效及衬线阅读字体。`#/components` 画廊展示 `src/ui/` 的原子组件，新增前先检查已有组件。
