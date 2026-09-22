@@ -1443,7 +1443,7 @@ def _snapshot_out(snapshot: KbSnapshot | None) -> SnapshotScopeOut | None:
     )
 
 
-async def _subject_zone(ctx, user: UserId) -> str:
+async def _subject_clock(ctx, user: UserId):
     """The subject's IANA timezone for the fast lane's routing turn, resolved exactly as
     compile resolves it (provider → profile → the deployment default).
 
@@ -1461,9 +1461,13 @@ async def _subject_zone(ctx, user: UserId) -> str:
             user,
             profile,
             default_timezone=getattr(ctx.settings, "default_timezone", "UTC"),
-        ).zone_name
+        )
     except Exception:  # noqa: BLE001 — a zone is context for one routing turn, not a gate
-        return "UTC"
+        return time_context_for(user, default_timezone="UTC")
+
+
+async def _subject_zone(ctx, user: UserId) -> str:
+    return (await _subject_clock(ctx, user)).zone_name
 
 
 async def _render_profile(ctx, user: UserId) -> str | None:
@@ -1584,6 +1588,9 @@ async def _fast_recall_kwargs(
     component_paths = bool(
         getattr(ctx.settings, "recall_component_paths", True)
     ) and bool(registered_components())
+    from pneuma_knowledge_core.ports.evidence_scorer import SourceClockPolicy
+    scorer = ctx.get_evidence_scorer()
+    subject_clock = await _subject_clock(ctx, plane.owner) if component_paths or isinstance(scorer, SourceClockPolicy) else None
     return dict(
         as_of=as_of,
         claim_lexical=ctx.lexical,
@@ -1617,7 +1624,7 @@ async def _fast_recall_kwargs(
         ),
         # None unless this deployment composes `select` with a scorer; the lane reads None
         # as "the recall model selects", which is the historical path.
-        evidence_scorer=ctx.get_evidence_scorer(),
+        evidence_scorer=scorer,
         select_score_floor=ctx.settings.recall_select_score_floor,
         evidence_selection_timeout=ctx.settings.recall_selection_timeout_s,
         answer_format=body.answer_format or ctx.settings.recall_answer_format,
@@ -1629,10 +1636,9 @@ async def _fast_recall_kwargs(
         # None = whatever the enabled components offer; () = the switch is off.
         fast_paths=None if component_paths else (),
         component_budget_chars=ctx.settings.recall_component_budget_chars,
-        # Read only when a routing turn will actually happen: with no component enabled
-        # the lane must cost nothing extra at all (not even a profile read), and `zone`
-        # is consumed by that turn alone.
-        zone=(await _subject_zone(ctx, plane.owner)) if component_paths else "UTC",
+        # Date admission needs the owner's clock even when component routing is off.
+        zone=subject_clock.zone_name if subject_clock else "UTC",
+        source_time_history=subject_clock.history if subject_clock else (),
         # The archive scope the caller asked for. It has to reach the LANE and not only
         # `_glance_inputs`: the documents are one half of the exclusion, the index filters
         # and the assembly filter are the other, and half of it would show an archived claim

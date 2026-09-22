@@ -1,0 +1,14 @@
+[
+  {"id":"day_before","question":"前天的聊天记录提到了什么？","status":"resolved","start":"2026-09-19","end":"2026-09-19"},
+  {"id":"seven_days","question":"Show notes written in the last seven calendar days, including today.","status":"resolved","start":"2026-09-15","end":"2026-09-21"},
+  {"id":"fourteen_days","question":"Find the work logs from the last fourteen calendar days, including today.","status":"resolved","start":"2026-09-08","end":"2026-09-21"},
+  {"id":"this_year","question":"今年写下的工作记录里有哪些决定？","status":"resolved","start":"2026-01-01","end":"2026-09-21"},
+  {"id":"single_date","question":"What appears in the notes recorded on 2026-08-18?","status":"resolved","start":"2026-08-18","end":"2026-08-18"},
+  {"id":"invalid_date","question":"查找 2026-02-30 当天记录的决定。","status":"unresolved"},
+  {"id":"unsupported_quarter","question":"上一季度的会议记录讨论了哪些事情？","status":"unresolved"},
+  {"id":"latest","question":"What features are described in the latest deployment notes?","status":"unresolved"},
+  {"id":"named_yesterday","question":"What is the synthetic project named Yesterday?","status":"not_requested"},
+  {"id":"named_tomorrow","question":"介绍一下名叫 Tomorrow 的合成示例项目。","status":"not_requested"},
+  {"id":"event_date","question":"What launch date did the team agree on for the synthetic Heron demo?","status":"not_requested"},
+  {"id":"undated_definition","question":"What problem does the synthetic Heron demo solve?","status":"not_requested"}
+]

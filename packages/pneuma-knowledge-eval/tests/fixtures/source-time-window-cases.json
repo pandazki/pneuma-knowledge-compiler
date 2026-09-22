@@ -1,0 +1,22 @@
+[
+  {"id":"today_zh","question":"今天的会议记录里讨论了什么？","period":"today","status":"resolved","start":"2026-09-21","end":"2026-09-21"},
+  {"id":"today_en","question":"What was discussed in today's meeting notes?","period":"today","status":"resolved","start":"2026-09-21","end":"2026-09-21"},
+  {"id":"yesterday_zh","question":"昨天的工作记录有哪些？","period":"yesterday","status":"resolved","start":"2026-09-20","end":"2026-09-20"},
+  {"id":"two_days_zh","question":"说说我这两天的工作。","period":"last_two_days","status":"resolved","start":"2026-09-20","end":"2026-09-21"},
+  {"id":"three_days_en","question":"Show work records from the last three calendar days, including today.","period":"last_three_days","status":"resolved","start":"2026-09-19","end":"2026-09-21"},
+  {"id":"this_week_zh","question":"本周写下的决定有哪些？","period":"this_week","status":"resolved","start":"2026-09-21","end":"2026-09-21"},
+  {"id":"last_week_en","question":"Which decisions were recorded during the previous calendar week?","period":"last_week","status":"resolved","start":"2026-09-14","end":"2026-09-20"},
+  {"id":"last_month_zh","question":"上个月的会议记录里有哪些安排？","period":"last_month","status":"resolved","start":"2026-08-01","end":"2026-08-31"},
+  {"id":"this_month_en","question":"What appears in this month's work logs?","period":"this_month","status":"resolved","start":"2026-09-01","end":"2026-09-21"},
+  {"id":"last_year_en","question":"Find the decisions recorded in last year's notes.","period":"last_year","status":"resolved","start":"2025-01-01","end":"2025-12-31"},
+  {"id":"explicit_iso","question":"Find records written from 2026-09-10 to 2026-09-12.","period":"explicit_dates","status":"resolved","start":"2026-09-10","end":"2026-09-12"},
+  {"id":"explicit_zh","question":"查找 2026年9月10日 到 2026年9月12日 记录的决定。","period":"explicit_dates","status":"resolved","start":"2026-09-10","end":"2026-09-12"},
+  {"id":"event_release","question":"蓝鹭项目是哪天发布的？","status":"not_requested"},
+  {"id":"event_deadline","question":"会议里定下的交付截止日期是什么？","status":"not_requested"},
+  {"id":"historical_fact","question":"为什么蓝鹭在 2025 年的测试失败了？","status":"not_requested"},
+  {"id":"prior_experience","question":"我以前研究过哪些游戏引擎？","status":"not_requested"},
+  {"id":"vague_recent","question":"最近的工作有哪些进展？","status":"unresolved"},
+  {"id":"subday","question":"昨晚十点到今天早上八点的聊天里讨论了什么？","status":"unresolved"},
+  {"id":"disjoint","question":"比较昨天和上个月的会议记录。","status":"unresolved"},
+  {"id":"exclusion","question":"查找本周记录，但不要昨天的记录。","status":"unresolved"}
+]

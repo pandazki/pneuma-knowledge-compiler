@@ -11,14 +11,17 @@ import asyncio
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from itertools import groupby
 from typing import TypeVar
 
 from ..domain.ids import SourceId, UserId
 from ..domain.source import NormalizedSource
 from ..domain.source_time import block_instants
+from ..domain.time_context import load_zone
 from ..ports.content_store import ContentStore
 from ..prompts import prompt
+from .timespan import local_day, parse_iso_day, relative_label
 
 
 class CachedSources:
@@ -157,7 +160,11 @@ def render_times(item: object, *, citations: bool = True) -> str:
     times = getattr(item, "source_times", ())
     if not times:
         return prompt("recall.retrieval.time_unknown")
-    return "\n".join(prompt(
+    return "\n".join(_render_source_time(t, citations=citations) for t in times)
+
+
+def _render_source_time(t: EvidenceTime, *, citations: bool = True) -> str:
+    return prompt(
         "recall.retrieval.source_time",
         citation=(
             f"[cite: {t.source_id} ¶{t.block_start}-{t.block_end}]" if citations else
@@ -168,13 +175,91 @@ def render_times(item: object, *, citations: bool = True) -> str:
         first=t.first or prompt("recall.retrieval.unknown"),
         last=t.last or prompt("recall.retrieval.unknown"),
         known=t.timed_blocks, total=t.block_end - t.block_start + 1,
-    ) for t in times)
+    )
 
 
 def render_candidate_context(item: object, *, citations: bool = True) -> str:
     """Selectors read the same origin and clocks that survive into the answer."""
     return "\n".join(filter(None, (
         render_origins(getattr(item, "retrieval_origins", ())), render_times(item, citations=citations),
+    )))
+
+
+def _scorer_time_facts(item: object, *, as_of: datetime, zone: str = "UTC") -> dict | None:
+    """Compute source-clock relations; infer neither query ranges nor event dates.
+
+    Local calendar dates are calculated before the decision model sees them. An occurrence
+    day on the source is not a timestamp on every block, and incomplete envelopes remain
+    partial. Unknown zones produce no computed facts rather than silently shifting dates.
+    """
+    times = getattr(item, "source_times", ())
+    if not times:
+        return None
+    resolved_zone = load_zone(zone)
+    if resolved_zone is None:
+        return None
+    today = local_day(as_of, resolved_zone)
+    rows = []
+    for time in times:
+        row = {"source_id": str(time.source_id), "span": [time.block_start, time.block_end],
+               "coverage": "unknown"}
+        try:
+            first = datetime.fromisoformat(time.first)
+            last = datetime.fromisoformat(time.last)
+            if last < first:
+                raise ValueError("inverted source clock")
+            for name, instant in (("first", first), ("last", last)):
+                day = local_day(instant, resolved_zone)
+                row[f"{name}_day"] = day.isoformat()
+                row[f"{name}_relation"] = relative_label(day, today)
+            row["coverage"] = (
+                "complete" if time.timed_blocks == time.block_end - time.block_start + 1 else "partial"
+            )
+        except (ValueError, TypeError, OverflowError):
+            try:
+                day = parse_iso_day(time.occurred_on)
+                row.update(source_day=day.isoformat(), source_day_relation=relative_label(day, today),
+                           coverage="source_day_only")
+            except ValueError:
+                pass
+        rows.append(row)
+    return {"clock_scope": "source_occurrence_not_event_time", "zone": zone,
+            "as_of_day": today.isoformat(), "source_clocks": rows}
+
+
+def scorer_time_context(item: object, *, as_of: datetime, zone: str = "UTC") -> str:
+    """Structured clock facts for diagnostics and paired-input evaluations."""
+    facts = _scorer_time_facts(item, as_of=as_of, zone=zone)
+    return json.dumps(facts, ensure_ascii=False) if facts else ""
+
+
+def render_scorer_context(
+    item: object, *, as_of: datetime | None = None, zone: str = "UTC",
+) -> str:
+    """Keep computed relations beside their source clocks, without repeating a JSON bundle.
+
+    Render from structured metadata, never by replacing a string in source content. Unknown
+    clocks add nothing to the existing explicit unknown. Exact instants and provenance stay
+    intact; these relations never assert the date of the events the source discusses.
+    """
+    facts = _scorer_time_facts(item, as_of=as_of, zone=zone) if as_of else None
+    if facts is None:
+        return render_candidate_context(item)
+    lines = []
+    for time, row in zip(item.source_times, facts["source_clocks"]):
+        line = _render_source_time(time)
+        if row["coverage"] != "unknown":
+            if row["coverage"] == "source_day_only":
+                relation = f"source_day={row['source_day']} ({row['source_day_relation']})"
+            else:
+                relation = (
+                    f"first_day={row['first_day']} ({row['first_relation']}), "
+                    f"last_day={row['last_day']} ({row['last_relation']})"
+                )
+            line += f"; computed source clock, not event time: {relation}; coverage={row['coverage']}"
+        lines.append(line)
+    return "\n".join(filter(None, (
+        render_origins(getattr(item, "retrieval_origins", ())), "\n".join(lines),
     )))
 
 

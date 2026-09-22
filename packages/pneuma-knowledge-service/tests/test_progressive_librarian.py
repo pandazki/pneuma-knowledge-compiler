@@ -169,6 +169,81 @@ async def test_exact_subject_overview_bypasses_lexical_first_look(librarian, mon
     assert answer.payload['progressive']['locator'] == 'projects/lyrra/overview.md#aa11'
 
 
+async def test_early_canonical_lookup_shares_the_policy_and_withholds_undated_facts(librarian, monkeypatch):
+    from pneuma_knowledge_core.domain.canonical import CanonicalDocument
+    from pneuma_knowledge_core.ports.evidence_scorer import SourceClockDecision
+    from pneuma_knowledge_core.recall.temporal import resolve_source_time_scope, temporal_notice
+    from pneuma_knowledge_service.api.routes import v1
+
+    doc = CanonicalDocument(doc_id="synthetic", path="projects/lyrra.md",
+        frontmatter={"title": "Lyrra Framework"},
+        body="<!-- overview -->\n<!-- overview:definition -->\n"
+             "Lyrra Framework builds applications. [cite: synthetic-source ¶0] <!-- c:aa11 -->\n"
+             "<!-- /overview -->")
+    calls, received, first, facts = [], [], [], []
+    release_broad = asyncio.Event()
+
+    class Policy:
+        async def source_clock_policy(self, question):
+            calls.append(question)
+            return SourceClockDecision(True, 0.98, 13, "synthetic", "today", 0.95)
+
+    async def kwargs(*args, **kw):
+        return {"as_of": kw["as_of"], "documents": [doc], "evidence_scorer": Policy()}
+
+    async def retrieve(user, question, **kw):
+        assert kw["model"] is not None
+        clock = await asyncio.shield(kw["source_clock_decision"])
+        received.append(clock)
+        await release_broad.wait()
+        scope = resolve_source_time_scope(clock, question=question, as_of=kw["as_of"])
+        return FastEvidence(question=question, as_of=kw["as_of"], system="", content="", handles={},
+            source_time_scope=scope, temporal_notice=temporal_notice(scope, has_evidence=False),
+            scorer_input_tokens=clock.input_tokens)
+
+    monkeypatch.setattr(v1, "_fast_recall_kwargs", kwargs)
+    monkeypatch.setattr(module, "fast_recall", retrieve)
+    answer = await asyncio.wait_for(librarian.answer("今天关于 Lyrra Framework 的记录是什么？",
+        on_preliminary=first.append, on_token=facts.append, on_retrieved=lambda: None,
+        on_progress=lambda text: release_broad.set()), 1)
+    assert len(calls) == len(received) == 1
+    assert first == [] and len(facts) == 1
+    assert "builds applications" not in facts[0]
+    assert answer.payload["lookup_result"]["status"] == "unresolved"
+    assert answer.payload["lookup_result"]["facts"] == []
+
+
+async def test_librarian_cancellation_joins_the_shared_policy(librarian, monkeypatch):
+    from pneuma_knowledge_service.api.routes import v1
+
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    class Policy:
+        async def source_clock_policy(self, question):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+    async def kwargs(*args, **kw):
+        return {"as_of": kw["as_of"], "documents": (), "evidence_scorer": Policy()}
+
+    async def retrieve(user, question, **kw):
+        await asyncio.shield(kw["source_clock_decision"])
+        raise AssertionError("cancelled lookup must not continue")
+
+    monkeypatch.setattr(v1, "_fast_recall_kwargs", kwargs)
+    monkeypatch.setattr(module, "fast_recall", retrieve)
+    task = asyncio.create_task(librarian.answer("question", on_preliminary=lambda text: None,
+        on_token=lambda text: None, on_retrieved=lambda: None))
+    await asyncio.wait_for(started.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled.is_set()
+
+
 async def test_broad_evidence_does_not_wait_for_a_slow_first_finding(librarian, monkeypatch):
     quick_started, quick_cancelled = asyncio.Event(), asyncio.Event()
     first, speech = [], []

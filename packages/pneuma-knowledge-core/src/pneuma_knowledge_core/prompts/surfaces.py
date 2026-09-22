@@ -3417,6 +3417,21 @@ SURFACES: tuple[Surface, ...] = (
                 "给两种选择器提供与路由相同的提问时间和时区。",
             ),
             f(
+                "recall.temporal.empty",
+                "Mechanical response when no source-time-admitted evidence remains.",
+                "没有通过来源时间准入的证据时，机械生成的答复。",
+            ),
+            f(
+                "recall.temporal.unresolved",
+                "Mechanical result when the requested source period is unresolved.",
+                "无法确定所请求的来源时间范围时，机械生成的结果。",
+            ),
+            f(
+                "recall.temporal.unavailable",
+                "Mechanical result when source-time validation is unavailable.",
+                "来源时间校验不可用时，机械生成的结果。",
+            ),
+            f(
                 "recall.retrieval.method",
                 "Describes a component lookup even when no items survive selection.",
                 "即使没有结果通过选择，也说明组件查询的方法。",
