@@ -481,15 +481,28 @@ flowchart TD
     C --> F[Global NFKC/casefold dedup, original spelling retained]
     E --> F
     F --> G[Remove confusion that is another real selected term]
-    G --> H[At most 80 terms and 3000 JSON chars]
+    G --> R[Decay source mentions and drop scores below the floor]
+    R --> H[At most 80 terms and 3000 JSON chars]
     H --> I[Initial developer context at dialing]
     H --> J[Backend ask-formation spelling reference]
     K[Explicit offline rebuild] --> D
 ```
 
-Deleted/archived pages contribute nothing. An explicit `[]` deliberately clears a page and cannot fall back to old cache. With no cache, only metadata contributes; startup does not silently dump all page titles. Rendering prioritizes maintained entries, globally deduplicates spellings and removes confusions also naming another actual term. It does not solve every ambiguous mapping: a confusion shared by multiple terms still needs topic/sound-based clarification.
+Deleted/archived pages contribute nothing. An explicit `[]` deliberately clears a page and cannot fall back to old cache. With no cache, only metadata contributes; startup does not silently dump all page titles. Before activity preparation, rendering prioritizes maintained entries; afterwards source activity determines rank. Rendering globally deduplicates spellings and removes confusions also naming another actual term. It does not solve every ambiguous mapping: a confusion shared by multiple terms still needs topic/sound-based clarification.
 
 Output is bounded to eighty terms and 3,000 JSON characters, with wrapper instructions additional; oversized entries are omitted whole. Dialing runs no extraction/curation model. A vocabulary failure loses the enhancement rather than disabling calling. Official prompting guidance supports language, pronunciation and clarification policies but does not establish the effectiveness of this project's vocabulary. [Live prompting guide](https://developers.openai.com/api/docs/guides/live-prompting)
+
+### 12.4 Source-activity ranking and fade-out
+
+Compilation still selects `speech_terms`. Activity ranks admitted spellings only: it neither truncates candidates by frequency before admission nor calls JEV or another model. Compiled metadata independently admits spellings. The transitional historical cache retains its pre-decay selection under the original ordering and budget: faded slots do not backfill previously omitted historical hints that could introduce new phonetic ambiguities. New compile metadata can still admit new terms. `sync_projection` incrementally prepares activity after normal commits; `rebuild_projection` (including the L3 path of `rebuild_derived`) reconstructs it from canonical + L0. Explicit historical vocabulary preprocessing also refreshes activity. The atomic file is `<sha256(user_id)>.activity.json` beside the existing cache, holding page dependency digests and term → source_id → occurrence dates. It is derived, neither authoritative knowledge nor a kept record.
+
+Only raw blocks that **actually contain the spelling**, within that page's claim citation spans, supply dates. Shared citation/provenance projection resolves transitive claim references; `block_instants` supplies aligned source clocks. When a block clock is unavailable, only the source's declared `occurred_on` date may substitute, never ingestion, compilation or page modification time. Dates use UTC calendar days; future days do not vote. Duplicate claims, overlapping spans and multiple pages share one vote per term/source, using its latest occurrence day no later than today.
+
+The initial score is `sum(min(3, distinct_sources_on_day) * 2 ** (-age_days / 60))`. The half-life is 60 days. A score below 0.25 leaves the call reference even when there is spare capacity. New source mentions can reintroduce a faded term; original `speech_terms` and correction mappings remain intact. Within that admission boundary, rank precedes the final 80-term/3,000-character budget. The threshold supplies actual exit: decay alone would never remove a word from an underfull list. These are explicit initial policy values, not ASR-calibrated thresholds.
+
+A wholly undated term retains low-priority eligibility at 0.25: it is not labelled recent and cannot honestly expire by age. An unknown observation cannot revive another already dated, expired occurrence. A future-only term does not enter. Before the first activity projection after upgrade, legacy vocabulary order remains; the next projection sync or explicit derived rebuild enables ranking. A page changed between canonical commit and activity preparation temporarily contributes no hints, preventing a digest mismatch from reviving an expired word as an undated new candidate.
+
+Dialing reads local dates and computes scores, without scanning L0 or requesting a model; an existing Live session still keeps its fixed opening reference. There is no periodic job: elapsed time takes effect on the next read. Unchanged page dependencies reuse dates; a full rebuild re-reads sources, neither adding votes nor renewing old words. Source-read failures preserve the previous complete file and are logged without failing the committed knowledge projection; the next sync/rebuild retries. Missing historical citations remain undated rather than acquiring invented dates. Tenant/page/source identity checks preserve isolation. An Owner correction supplies a new date only after ordinary `owner-dialogue/v1` ingestion and compilation cite a block actually containing the name. Live transcripts and consultations do not currently add usage votes automatically.
 
 ## 13. Latency and cost mechanisms
 

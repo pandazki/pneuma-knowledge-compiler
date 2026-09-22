@@ -95,10 +95,12 @@ async def extract(model, document, *, config=None) -> list[dict]:
     return rows
 
 
-def render(rows: list[dict], *, max_chars=3000, max_terms=80) -> str:
+def render(rows: list[dict], *, max_chars=3000, max_terms=80, preserve_order=False) -> str:
     """Exact spellings, globally deduplicated; coverage count never promotes a common word."""
     merged: dict[str, dict] = {}
-    for row in sorted(rows, key=lambda r: (r.get("reason") != "maintained", -r.get("risk", 1))):
+    ordered = rows if preserve_order else sorted(
+        rows, key=lambda r: (r.get("reason") != "maintained", -r.get("risk", 1)))
+    for row in ordered:
         term = spelling(row.get("term"))
         if not term:
             continue

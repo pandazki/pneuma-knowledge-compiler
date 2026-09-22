@@ -39,6 +39,8 @@ async def main(args):
         model = _build_from_name(args.model, settings, reasoning_effort="none", max_tokens=2500)
         data = await rebuild(settings, args.user, documents, model, model_name=args.model, confusions=confusions,
                              on_progress=lambda path, n: print(json.dumps({"page": path, "terms": n}), flush=True))
+        from pneuma_knowledge_service.call.speech_activity import refresh_activity
+        await refresh_activity(settings, args.user, documents, ctx.store, force=True)
         print(json.dumps({"cache": str(cache_path(settings, args.user)), "pages": len(data['documents']),
                           "failures": data['failures']}, ensure_ascii=False), flush=True)
         if data["failures"]:

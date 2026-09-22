@@ -647,3 +647,28 @@ async def test_a_flag_flip_alone_still_reaches_the_indexes():
     assert result.unchanged == 2
     assert [str(c.anchor) for c in ctx.store.synced[2]] == ["aa11"]
     assert ctx.store.synced[2][0].archived is True
+
+
+async def test_both_projection_paths_refresh_speech_activity_even_without_claim_changes(monkeypatch):
+    from pneuma_knowledge_service import projection
+
+    seen = []
+
+    async def refresh(ctx, user_id, documents, *, force=False):
+        seen.append((user_id, [d.path for d in documents], force))
+
+    monkeypatch.setattr(projection, '_speech_activity', refresh)
+    ctx = _ctx()
+    await sync_projection(ctx, USER, 'sha-current')
+    claims = projection.project_snapshot_claims(await ctx.canonical.list(USER))
+    ctx.store.list_canonical_claims = lambda user: _rows(claims)
+    unchanged = await sync_projection(ctx, USER, 'sha-current')
+    assert unchanged.upserted == unchanged.deleted == 0
+    from unittest.mock import AsyncMock
+    ctx.store.replace_canonical_claims = AsyncMock()
+    ctx.lexical.index_claims = AsyncMock()
+    ctx.vectors = None
+    await rebuild_projection(ctx, USER, 'sha-current')
+    assert len(seen) == 3
+    assert all(user == USER and paths for user, paths, _ in seen)
+    assert [force for _, _, force in seen] == [False, False, True]
