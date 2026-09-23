@@ -74,7 +74,7 @@ RATE_LIMIT_MARKERS: tuple[str, ...] = (
 #: The OTHER way a launch never becomes a round, and the reason this is a second list rather
 #: than four more rows above: nothing here is about the Owner's subscription. `Selected model
 #: is at capacity. Please try a different model.` is the provider saying this model has no
-#: room right now — observed live from `codex exec -m gpt-5.6-luna` minutes after a restored
+#: room right now — observed live from a Codex run minutes after a restored
 #: quota, arriving as a `turn.failed` event with no tool calls and no draft touched. For the
 #: worker the two are one fact ("waiting is the only thing that helps"), so both route into
 #: the same backoff and the same `HARNESS_UNAVAILABLE`; they are kept apart HERE because they

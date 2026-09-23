@@ -148,8 +148,8 @@ def test_answer_model_and_effort_resolve_from_the_engine(monkeypatch, tmp_path):
         tmp_path,
         {
             "engine.yaml": """\
-                recall: openrouter:openai/gpt-5.6-luna
-                answer: openrouter:openai/gpt-5.6-luna-pro
+                recall: openrouter:openai/gpt-6-luna
+                answer: openrouter:openai/gpt-6-sol
                 answer_reasoning_effort: high
             """,
         },
@@ -158,7 +158,7 @@ def test_answer_model_and_effort_resolve_from_the_engine(monkeypatch, tmp_path):
 
     settings = get_settings()
 
-    assert settings.llm_model_answer == "openrouter:openai/gpt-5.6-luna-pro"
+    assert settings.llm_model_answer == "openrouter:openai/gpt-6-sol"
     assert settings.answer_reasoning_effort == "high"
 
 

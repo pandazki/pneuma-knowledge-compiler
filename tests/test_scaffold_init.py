@@ -82,6 +82,12 @@ def test_generates_a_complete_project_from_answers(tmp_path):
         "engine/prompts/overlays.yaml",
     ):
         assert (target / name).exists(), f"missing {name}"
+    engine = (target / "engine" / "engine.yaml").read_text(encoding="utf-8")
+    assert "compile: openrouter:openai/gpt-6-luna" in engine
+    assert "recall: openrouter:openai/gpt-6-luna" in engine
+    assert "live_discover: openrouter:openai/gpt-6-sol" in engine
+    assert "live_pick: openrouter:openai/gpt-6-luna" in engine
+    assert "image_mode: native" in engine
     # Machinery is a byte copy — the replay story is literal.
     assert (target / "app.py").read_bytes() == (ROOT / "scaffold" / "templates" / "app.py").read_bytes()
     # Example data rides along under my-data/.

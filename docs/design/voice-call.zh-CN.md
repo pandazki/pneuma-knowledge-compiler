@@ -76,7 +76,7 @@ Live 会转述，也可能独立发言；引用存在和注入确认都不能证
 
 ```sh
 uv run python scripts/ops/build_speech_lexicon.py USER --dry-run
-uv run python scripts/ops/build_speech_lexicon.py USER --model openrouter:openai/gpt-5.6-luna
+uv run python scripts/ops/build_speech_lexicon.py USER --model openrouter:openai/gpt-6-luna
 ```
 
 扫描有效 canonical 标题与全部正文，分段有重叠。Luna 筛选生僻专名、生造词、混合语言词和易错缩写；
@@ -228,7 +228,7 @@ OpenAI 明确支持对同一个客户端 `delegation_id` 多次发送 `session.c
 
 `pneuma_knowledge_eval.progressive_call.compare` 对三个合成情景各运行两次：局部区域数量扩展为较广清单、
 开通日期被后续记录变更、补充更多细节。使用生产环境的证据渲染器（包括 `as_of`）与中文提示词。
-模型是当前部署的 `openrouter:openai/gpt-5.6-luna`，关闭推理。六次首段都逐字引用了完整记录；
+实验使用当时部署的 `openrouter:openai/gpt-5.6-luna`，关闭推理。六次首段都逐字引用了完整记录；
 六次后续更新都选择了预期关系并包含检查的新信息。这些是诊断检查，不是整体语义质量评分。一次首段选择调用耗时 3.773 秒：
 不设超时的后端诊断保留它供检查，但当时版本会在 2.5 秒首路截止时跳过。六次中五次选择调用本身在期限内，
 真实检索还会消耗同一预算。

@@ -110,8 +110,8 @@ DEMO_MATERIAL = (
 )
 
 DEFAULT_MODELS = {
-    "compile": "openrouter:openai/gpt-5.6-luna",
-    "recall": "openrouter:openai/gpt-5.6-luna",
+    "compile": "openrouter:openai/gpt-6-luna",
+    "recall": "openrouter:openai/gpt-6-luna",
     # Fast answers borrow the recall role by default. A separate answer model and explicit
     # reasoning effort remain available deployment choices, but they should be justified by
     # the deployment's own validation rather than imposed on every generated project.
@@ -126,11 +126,11 @@ DEFAULT_MODELS = {
     #   few dozen tokens. sol is that shape; its effort is pinned LOW in the framework.
     # pick — a WEAK FAST model: it chooses between cards that are already assembled and may
     #   not rewrite a word of them. Reasoning is pinned off.
-    "live_discover": "openrouter:openai/gpt-5.6-sol",
-    "live_pick": "openrouter:openai/gpt-5.6-luna",
+    "live_discover": "openrouter:openai/gpt-6-sol",
+    "live_pick": "openrouter:openai/gpt-6-luna",
     # The optional supplementary internet face. Named here even though `live_web_search` is
     # off, so a person turning it on finds a model already stated rather than a blank.
-    "live_web_search_model": "openai/gpt-5.6-luna",
+    "live_web_search_model": "openai/gpt-6-luna",
 }
 
 # Answers files must never carry credentials: they are meant to be shareable and replayable
@@ -238,15 +238,15 @@ mode = "auto"              # auto = follow the data (example data → demo contr
 reference = ""             # e.g. "personal-knowledge@v2" (list with ./init.py --list-references)
 
 [models]
-compile = "openrouter:openai/gpt-5.6-luna"        # compile model (must support tool calling)
-recall = "openrouter:openai/gpt-5.6-luna"         # retrieval planning/glance model
+compile = "openrouter:openai/gpt-6-luna"        # compile model (must support tool calling)
+recall = "openrouter:openai/gpt-6-luna"         # retrieval planning/glance model
 answer = ""                                       # empty = final answer borrows recall
 answer_reasoning_effort = ""                      # empty = preserve provider default
 embedding = "openrouter:openai/text-embedding-3-small"
 deep = "openrouter:openai/gpt-5.6-terra"  # deep-recall (agentic) model; empty falls back to recall
-live_discover = "openrouter:openai/gpt-5.6-sol"   # Live Context stage 1: small reasoning, LOW effort
-live_pick = "openrouter:openai/gpt-5.6-luna"      # Live Context stage 3: weak + fast, reasoning off
-live_web_search_model = "openai/gpt-5.6-luna"     # supplementary internet search (off unless enabled)
+live_discover = "openrouter:openai/gpt-6-sol"   # Live Context stage 1: small reasoning, LOW effort
+live_pick = "openrouter:openai/gpt-6-luna"      # Live Context stage 3: weak + fast, reasoning off
+live_web_search_model = "openai/gpt-6-luna"     # supplementary internet search (off unless enabled)
 
 [advanced]
 user_id = "u-app-owner"    # tenant id: a different id is a different, empty library
@@ -551,11 +551,15 @@ def build_config(answers: dict, *, target: str | None) -> dict:
             f"got {compile_image_mode!r}"
         )
     # OpenRouter model ids do not always carry LangChain model profiles. The shipped compile
-    # default is an explicitly multimodal GPT-5.6 route, so record that declaration in the
+    # default is an explicitly multimodal GPT-6 Luna route, so record that declaration in the
     # generated project instead of silently degrading its image inputs to caption-only.
     if (
         compile_image_mode == "auto"
-        and models["compile"].startswith("openrouter:openai/gpt-5.6")
+        and models["compile"].startswith((
+            "openrouter:openai/gpt-5.6",
+            "openrouter:openai/gpt-6-luna",
+            "openrouter:openai/gpt-6-sol",
+        ))
     ):
         compile_image_mode = "native"
 

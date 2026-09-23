@@ -111,7 +111,7 @@ Preprocessing is explicit, outside dialing:
 
 ```sh
 uv run python scripts/ops/build_speech_lexicon.py USER --dry-run
-uv run python scripts/ops/build_speech_lexicon.py USER --model openrouter:openai/gpt-5.6-luna
+uv run python scripts/ops/build_speech_lexicon.py USER --model openrouter:openai/gpt-6-luna
 ```
 
 Use the deployment's environment. The tool reads live canonical titles and complete bodies

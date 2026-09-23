@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Preprocess canonical speech terms with deployment environment variables.
 
-uv run python scripts/ops/build_speech_lexicon.py USER --model openrouter:openai/gpt-5.6-luna
+uv run python scripts/ops/build_speech_lexicon.py USER --model openrouter:openai/gpt-6-luna
 Use --dry-run to inspect the read budget; --confusion 'Canonical=misheard' adds an explicit
 operator spelling hint. This writes only a derived cache, never canonical frontmatter.
 """
@@ -52,7 +52,7 @@ async def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("user")
-    parser.add_argument("--model", default="openrouter:openai/gpt-5.6-luna")
+    parser.add_argument("--model", default="openrouter:openai/gpt-6-luna")
     parser.add_argument("--confusion", action="append")
     parser.add_argument("--dry-run", action="store_true")
     asyncio.run(main(parser.parse_args()))

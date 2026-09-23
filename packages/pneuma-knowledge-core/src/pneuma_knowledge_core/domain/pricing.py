@@ -126,7 +126,7 @@ def parse_model_pricing(declaration: str) -> dict[str, ModelPrice]:
         if len(parts) != 2:
             raise PricingError(
                 f"model_pricing: {entry!r} — expected four rates and a currency, "
-                "e.g. `openai/gpt-5.6-luna = 1.25/10/0.125/1.25 USD`"
+                "e.g. `openai/gpt-6-luna = 0.1/0.5/0.01/0.125 USD`"
             )
         rates, currency = parts
         numbers = rates.split("/")
@@ -150,7 +150,7 @@ def normalize_model(model: str) -> str:
     """A model spec as this table keys it: trimmed and lower-cased, nothing else.
 
     Deliberately not clever. The provider prefix is NOT stripped here, because
-    `openrouter:openai/gpt-5.6-luna` and `openai:gpt-5.6-luna` are two purchases at two
+    `openrouter:openai/gpt-6-luna` and `openai:gpt-6-luna` are two purchases at two
     prices, and a normalizer that collapsed them would let a declaration about one silently
     price the other. `price_for` is where a declaration written without the prefix is still
     found, and it says so.
@@ -162,8 +162,8 @@ def price_for(model: str, table: Mapping[str, ModelPrice]) -> ModelPrice | None:
     """The declared price for one model spec, or `None` — which means "nobody said".
 
     Two lookups, in order: the spec exactly as the deployment routes it
-    (`openrouter:openai/gpt-5.6-luna`), then the bare model id after the provider prefix
-    (`openai/gpt-5.6-luna`). The second exists because a rate card is quoted per model, and
+    (`openrouter:openai/gpt-6-luna`), then the bare model id after the provider prefix
+    (`openai/gpt-6-luna`). The second exists because a rate card is quoted per model, and
     a deployment that declares the model it buys should not have to re-declare it for every
     gateway it buys through. The exact spec wins whenever it is declared, so a deployment
     that DOES price two gateways differently gets what it wrote.

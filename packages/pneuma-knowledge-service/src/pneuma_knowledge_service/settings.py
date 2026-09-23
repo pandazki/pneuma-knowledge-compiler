@@ -567,7 +567,7 @@ class Settings(BaseSettings):
     cors_allow_origin_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 
     # Default / fallback chat model. Per-operation routing below overrides it when set.
-    llm_model: str = "openrouter:openai/gpt-5.6-luna"
+    llm_model: str = "openrouter:openai/gpt-6-luna"
     # Per-operation model routing (PNEUMA_KNOWLEDGE_LLM_MODEL_COMPILE / _RECALL / _ANSWER /
     # _DEEP / _SKILL).
     # Empty → falls back to llm_model, so scripted-model tests (which set llm_model only)
@@ -635,7 +635,7 @@ class Settings(BaseSettings):
     #     (see below); with no key the adapter reports itself unavailable and the lookup is
     #     never offered, whatever this says.
     live_web_search: bool = False
-    live_web_search_model: str = "openai/gpt-5.6-luna"
+    live_web_search_model: str = "openai/gpt-6-luna"
     # Provider-call guardrails for EVERY chat-model role (compile/recall/deep/evolve/…).
     # Deliberately not split per role: one timeout and one retry budget is a guardrail, and
     # a per-role matrix would be a knob nobody can reason about.
@@ -670,7 +670,7 @@ class Settings(BaseSettings):
     # framework, and it enters as somebody's declaration rather than as anybody's opinion.
     # One entry per model, separated by newlines (or `;` for a one-line env var):
     #
-    #     openrouter:openai/gpt-5.6-luna = 1.25/10/0.125/1.25 USD
+    #     openrouter:openai/gpt-6-luna = 0.1/0.5/0.01/0.125 USD
     #
     # that is `<model id> = <input>/<output>/<cache_read>/<cache_creation> <CURRENCY>`, each
     # rate per 1M tokens. All four are required — leaving the cache rates off is not saying

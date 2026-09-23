@@ -95,7 +95,7 @@ def test_the_openrouter_provider_pin_reaches_the_new_role_like_every_other(monke
 
     monkeypatch.setattr("langchain.chat_models.init_chat_model", fake_init)
     settings = Settings(
-        llm_model="openrouter:openai/gpt-5.6-luna",
+        llm_model="openrouter:openai/gpt-6-luna",
         OPENROUTER_API_KEY="k",
         openrouter_provider_order="openai",
         openrouter_allow_fallbacks=False,
@@ -103,7 +103,7 @@ def test_the_openrouter_provider_pin_reaches_the_new_role_like_every_other(monke
     ctx = SimpleNamespace(settings=settings, _chat_models={})
     wiring.AppContext.get_chat_model.__get__(ctx, wiring.AppContext)("glance_pick")
 
-    assert seen["model"] == "openai/gpt-5.6-luna"
+    assert seen["model"] == "openai/gpt-6-luna"
     assert seen["extra_body"] == {
         "reasoning": {"effort": "none"},
         "provider": {"order": ["openai"], "allow_fallbacks": False},
