@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from pneuma_knowledge_service.settings import Settings
 from pneuma_knowledge_service.workers.compile_worker import resolve_compile_image_mode
 
@@ -24,10 +26,17 @@ def test_auto_uses_native_only_when_active_model_declares_image_inputs():
     assert resolve_compile_image_mode(settings, unknown) == "caption"
 
 
-def test_auto_knows_the_gpt_5_6_family_is_multimodal_even_through_openrouter():
+@pytest.mark.parametrize("model_spec", [
+    "openrouter:openai/gpt-5.6-terra",
+    "openrouter:openai/gpt-6-luna",
+    "openrouter:openai/gpt-6-sol",
+    "openai:gpt-6-luna",
+    "openai:gpt-6-sol",
+])
+def test_auto_preserves_native_images_for_known_models_without_gateway_profiles(model_spec):
     settings = Settings(
         compile_image_mode="auto",
-        llm_model_compile="openrouter:openai/gpt-5.6-terra",
+        llm_model_compile=model_spec,
     )
 
     assert resolve_compile_image_mode(settings, SimpleNamespace(profile=None)) == "native"

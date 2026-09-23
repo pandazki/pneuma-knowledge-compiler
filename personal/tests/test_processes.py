@@ -162,10 +162,10 @@ def test_status_document_shape_and_failed_probes(home, make_library, monkeypatch
     assert "Rounds: the harness default model at the harness default effort" in rendered
     assert row["reasoning_effort_episodes"] == "" and "(episodes" not in rendered
     # Episodes rounds at their own effort are named on the same line, only when stated.
-    named = {**row, "agent_model": "gpt-5.6-luna", "reasoning_effort": "medium",
+    named = {**row, "agent_model": "gpt-6-luna", "reasoning_effort": "medium",
              "reasoning_effort_episodes": "low"}
-    assert status.rounds_line(named) == "gpt-5.6-luna at medium (episodes low)"
-    assert "  Rounds: gpt-5.6-luna at medium (episodes low)" in status.render_text(
+    assert status.rounds_line(named) == "gpt-6-luna at medium (episodes low)"
+    assert "  Rounds: gpt-6-luna at medium (episodes low)" in status.render_text(
         {**document, "libraries": [named]})
 
 

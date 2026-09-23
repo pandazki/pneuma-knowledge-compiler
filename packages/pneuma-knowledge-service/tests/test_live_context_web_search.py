@@ -89,7 +89,7 @@ def transport(*events: dict, seen: list | None = None) -> httpx.MockTransport:
 
 def adapter(*events: dict, seen: list | None = None) -> OpenRouterWebSearch:
     return OpenRouterWebSearch(
-        "test-key", "openai/gpt-5.6-luna", transport=transport(*events, seen=seen)
+        "test-key", "openai/gpt-6-luna", transport=transport(*events, seen=seen)
     )
 
 
@@ -176,9 +176,9 @@ async def test_an_error_frame_ends_the_search_rather_than_producing_a_bare_answe
 
 
 def test_availability_needs_both_a_key_and_a_model():
-    assert not OpenRouterWebSearch("", "openai/gpt-5.6-luna").available()
+    assert not OpenRouterWebSearch("", "openai/gpt-6-luna").available()
     assert not OpenRouterWebSearch("k", "").available()
-    assert OpenRouterWebSearch("k", "openai/gpt-5.6-luna").available()
+    assert OpenRouterWebSearch("k", "openai/gpt-6-luna").available()
 
 
 def test_an_answer_with_no_page_still_parses_and_is_refused_later_by_core():

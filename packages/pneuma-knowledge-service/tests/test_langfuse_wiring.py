@@ -125,11 +125,11 @@ def test_openrouter_provider_pin_rides_extra_body(monkeypatch):
         openrouter_provider_order="openai",
         user_schema_base_version="v1",
     )
-    _build_from_name("openrouter:openai/gpt-5.6-luna", pinned)
+    _build_from_name("openrouter:openai/gpt-6-luna", pinned)
     assert captured["extra_body"] == {
         "provider": {"order": ["openai"], "allow_fallbacks": False}
     }
 
     unpinned = Settings(user_schema_base_version="v1")
-    _build_from_name("openrouter:openai/gpt-5.6-luna", unpinned)
+    _build_from_name("openrouter:openai/gpt-6-luna", unpinned)
     assert "extra_body" not in captured

@@ -66,7 +66,7 @@ def test_non_openrouter_provider_path_is_guarded_too(
     `openrouter:`) must not be the one branch that can still hang."""
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-a-real-key")
     settings = Settings(
-        llm_model="openai:gpt-5.6-luna", llm_timeout=222.0, llm_max_retries=5
+        llm_model="openai:gpt-6-luna", llm_timeout=222.0, llm_max_retries=5
     )
 
     model = build_chat_model_for(settings, "recall")

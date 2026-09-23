@@ -602,6 +602,10 @@ def resolve_image_mode(requested: str, model: object, model_spec: str) -> str:
     known_visual_prefixes = (
         "openai:gpt-5.6",
         "openrouter:openai/gpt-5.6",
+        "openai:gpt-6-luna",
+        "openrouter:openai/gpt-6-luna",
+        "openai:gpt-6-sol",
+        "openrouter:openai/gpt-6-sol",
     )
     return "native" if model_spec.strip().lower().startswith(known_visual_prefixes) else "caption"
 

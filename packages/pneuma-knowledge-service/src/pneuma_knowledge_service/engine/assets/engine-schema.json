@@ -892,7 +892,7 @@
           "key": "live_web_search_model",
           "env": "PNEUMA_KNOWLEDGE_LIVE_WEB_SEARCH_MODEL",
           "type": "string",
-          "default": "openai/gpt-5.6-luna",
+          "default": "openai/gpt-6-luna",
           "apply": "restart",
           "label": {
             "en": "Live Context · internet search model",
