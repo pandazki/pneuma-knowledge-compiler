@@ -4,8 +4,8 @@
  * The page is a transcript and a composer, and the transcript is deliberately literal: the
  * Steward's prose as it is written, and every command it ran as a row with the command on the
  * line and its result folded underneath. The console adds nothing the agent did not do and
- * hides nothing it did (docs/design/coding-agent-mode.md §5.6) — so a step shows the command
- * text the harness reported, its exit code and how long it took, and nothing is re-worded.
+ * hides nothing it did (docs/design/coding-agent-mode.md §5.6) — so a step keeps the reported command
+ * and output verbatim. Status icons disclose exit codes and timing on hover/focus/tap.
  *
  * Three states the page has to be honest about, because each of them is a different truth:
  *
@@ -23,8 +23,8 @@
  * still typing" — mechanically, `lib/steward.ts` INVALIDATING and `store.libraryChanged`.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bot, ChevronRight, Phone, Plug, RotateCcw, Terminal } from "lucide-react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Bot, Check, ChevronRight, CircleAlert, CircleMinus, CircleX, Gauge, LoaderCircle, Phone, RotateCcw } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useT } from "@/lib/useT";
 import {
@@ -61,6 +61,7 @@ import { Tooltip } from "@/ui/Tooltip";
 import { CallSurface } from "./CallSurface";
 import { StewardComposer } from "./StewardComposer";
 import { StewardMarkdown } from "./StewardMarkdown";
+import { StewardDetails } from "./StewardDetails";
 
 export default function StewardView() {
   const t = useT();
@@ -191,12 +192,13 @@ export default function StewardView() {
                       ? t("steward.status.connecting")
                       : t("steward.status.closed")}
               </Badge>
-              <Badge>
-                {t("steward.status.backend", {
-                  label: status.label || status.backend,
-                  protocol: status.protocol,
-                })}
-              </Badge>
+              <Tooltip content={t("steward.status.backend", {
+                label: status.label || status.backend, protocol: status.protocol,
+              })}>
+                <span tabIndex={0} className="rounded-1 text-12 text-ink-2">
+                  {status.label || status.backend}
+                </span>
+              </Tooltip>
             </>
           )}
           {/* The call stands beside the text session whatever the Steward's own state is:
@@ -423,20 +425,33 @@ function ConversationItem({
   }
   if (item.kind === "usage") {
     const entries = usageEntries(item.usage);
+    const hasDetails = entries.length > 0 || item.costUsd != null || item.durationMs > 0;
+    if (!hasDetails && !item.error) return null;
     return (
-      <p className="text-12 text-ink-3">
+      <div className="flex items-start gap-2">
         {item.error !== "" && (
-          <span className="text-danger">{t("steward.item.turnError", { error: item.error })} </span>
+          <p role="alert" className="flex-1 text-12 text-danger">
+            {t("steward.item.turnError", { error: item.error })}
+          </p>
         )}
-        {entries.length > 0 &&
-          t("steward.item.usage", {
-            usage: entries.map(([k, v]) => `${k} ${v}`).join(" · "),
-          })}
-        {item.costUsd != null && ` · ${t("steward.item.cost", { cost: item.costUsd.toFixed(4) })}`}
-        {item.durationMs > 0 && ` · ${formatDuration(item.durationMs)}`}
-      </p>
+        {hasDetails && (
+          <StewardDetails align="start" label={t("steward.item.usageDetails")} icon={<Gauge size={14} aria-hidden />}>
+            <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-6 gap-y-1 tabular-nums">
+              {entries.map(([key, value]) => (
+                <div key={key} className="contents">
+                  <dt className="text-ink-2">{usageLabel(key, t)}</dt>
+                  <dd className="text-right">{value.toLocaleString()}</dd>
+                </div>
+              ))}
+              {item.costUsd != null && <><dt>{t("steward.item.costLabel")}</dt><dd className="text-right">${item.costUsd.toFixed(4)}</dd></>}
+              {item.durationMs > 0 && <><dt>{t("steward.item.duration")}</dt><dd className="text-right">{formatDuration(item.durationMs)}</dd></>}
+            </dl>
+          </StewardDetails>
+        )}
+      </div>
     );
   }
+
   if (item.kind === "notice") {
     return (
       <p className="text-12 text-ink-3">
@@ -447,48 +462,49 @@ function ConversationItem({
   return <StepRow step={item} />;
 }
 
-/** One command the Steward ran, with its result folded under it. */
+/** Harness field names are transport details; unknown metrics stay inspectable. */
+function usageLabel(key: string, t: ReturnType<typeof useT>): string {
+  const labels: Record<string, "input" | "output" | "cached" | "cacheWrite" | "reasoning" | "total"> = {
+    inputtokens: "input", outputtokens: "output", cachedinputtokens: "cached",
+    cachereadtokens: "cached", cachewritetokens: "cacheWrite", cachecreationinputtokens: "cacheWrite",
+    reasoningoutputtokens: "reasoning", reasoningtokens: "reasoning", totaltokens: "total",
+  };
+  const label = labels[key.replaceAll("_", "").toLowerCase()];
+  return label ? t(`steward.usage.${label}`) : key;
+}
+
+/** One command the Steward ran, with output and diagnostic details disclosed separately. */
 function StepRow({ step }: { step: StepItem }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const tone = step.stopped ? "danger" : step.failed ? "warn" : step.running ? "neutral" : "ok";
+  const outputId = useId();
   const detail = useMemo(() => step.output.trimEnd(), [step.output]);
+  const state = step.stopped ? "stoppedShort" : step.failed ? "failed" : step.running ? "running" : step.exitCode === 0 ? "succeeded" : "finished";
+  const label = t(`steward.item.${state}`);
+  const Icon = step.stopped ? CircleMinus : step.failed ? CircleX : step.running ? LoaderCircle : step.exitCode === 0 ? Check : CircleAlert;
   return (
-    <div className="rounded-2 border border-line-2 bg-surface">
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <ChevronRight
-          size={14}
-          aria-hidden
-          className={`shrink-0 text-ink-3 transition-transform ${open ? "rotate-90" : ""}`}
-        />
-        {step.tool === "permission" ? (
-          <Plug size={14} aria-hidden className="shrink-0 text-danger" />
-        ) : (
-          <Terminal size={14} aria-hidden className="shrink-0 text-ink-3" />
-        )}
-        <Mono className="min-w-0 flex-1 truncate text-13 text-ink">{step.command}</Mono>
-        {step.running ? (
-          <Badge tone="neutral">{t("steward.item.running")}</Badge>
-        ) : (
-          <>
-            {step.exitCode != null && (
-              <Badge tone={tone}>{t("steward.item.exit", { code: String(step.exitCode) })}</Badge>
-            )}
-            {step.durationMs > 0 && (
-              <span className="text-12 text-ink-3">{formatDuration(step.durationMs)}</span>
-            )}
-          </>
-        )}
-      </button>
+    <div className="border-b border-line">
+      <div className="flex items-center gap-1">
+        <button type="button" aria-expanded={open} aria-controls={outputId}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-1 px-1 py-1.5 text-left hover:bg-hover"
+          onClick={() => setOpen((value) => !value)}>
+          <ChevronRight size={14} aria-hidden className={`shrink-0 text-ink-2 transition-transform ${open ? "rotate-90" : ""}`} />
+          <Mono className="min-w-0 flex-1 truncate text-13 text-ink-2">{step.command}</Mono>
+        </button>
+        <StewardDetails label={label}
+          className={step.failed || step.stopped ? "text-danger" : "text-ink-2"}
+          icon={<Icon size={14} aria-hidden className={step.running ? "animate-spin" : undefined} />}>
+          <div className="flex flex-col gap-1">
+            {step.exitCode != null && <p>{t("steward.item.exit", { code: String(step.exitCode) })}</p>}
+            {step.durationMs > 0 && <p>{t("steward.item.duration")}: {formatDuration(step.durationMs)}</p>}
+          </div>
+        </StewardDetails>
+      </div>
       {open && (
-        <div className="border-t border-line-2 px-3 py-2">
-          {step.stopped && <p className="mb-1 text-12 text-danger">{t("steward.item.stopped")}</p>}
-          <p className="mb-1 text-12 text-ink-3">{t("steward.item.output")}</p>
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap font-mono text-12 text-ink-2">
+        <div id={outputId} className="px-6 pb-3 pt-1">
+          {step.stopped && <p className="mb-2 text-12 text-danger">{t("steward.item.stopped")}</p>}
+          <pre className="mb-2 overflow-auto whitespace-pre-wrap break-words font-mono text-12 text-ink">{step.command}</pre>
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-12 text-ink-2">
             {detail || t("steward.item.noOutput")}
           </pre>
         </div>

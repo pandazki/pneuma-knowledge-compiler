@@ -10,9 +10,10 @@ export interface PreparedCitedMarkdown {
   citations: PreparedCitation[];
 }
 
-const CITE_GROUP_RE = /\[cite:[^\]]*\](?:\s*\[\s*¶[^\]]*\])*/g;
+// Code examples remain literal; their citation syntax is not a source reference.
+const CITE_GROUP_RE = /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\1[ \t]*(?=\n|$)|(`+)[\s\S]*?\2(?!`)|\[cite:[^\]]*\](?:\s*\[\s*¶[^\]]*\])*/gm;
 const BRACKET_RE = /\[(?:cite:)?\s*([^\]]*?)\s*\]/g;
-const SPAN_RE = /(?:([^\s,;¶]+)\s*)?¶\s*(\d+)(?:\s*-\s*(\d+))?/g;
+const SPAN_RE = /(?:([^\s,;¶]+)\s*)?¶\s*(\d+)(?:\s*[-–—]\s*(\d+))?/g;
 const BARE_SID_RE = /[^\s,;¶\]]+/g;
 
 interface CiteRef {
@@ -39,6 +40,7 @@ function parseGroup(group: string): CiteRef[] {
       currentSid = sourceId;
       const from = Number(span[2]);
       const to = span[3] ? Number(span[3]) : from;
+      if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || to < from) return [];
       refs.push({ handle: sourceId, from, to });
     }
     if (!sawSpan && first) {
@@ -71,6 +73,7 @@ export function prepareCitedMarkdown(
 ): PreparedCitedMarkdown {
   const citations: PreparedCitation[] = [];
   const markdown = text.replace(CITE_GROUP_RE, (raw) => {
+    if (!raw.startsWith("[cite:")) return raw;
     const resolved = parseGroup(raw)
       .map((ref) => ({ ...ref, sourceId: resolveHandle(ref.handle, handles) }))
       .filter(

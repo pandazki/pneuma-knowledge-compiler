@@ -11,15 +11,14 @@
  */
 
 import { memo, useMemo } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { CitedAnswer } from "@/views/_shared/CitedAnswer";
 import { splitStreamingMarkdown } from "@/lib/streamingMarkdown";
 
 export const StewardMarkdown = memo(function StewardMarkdown({ text }: { text: string }) {
   const { body, pending } = useMemo(() => splitStreamingMarkdown(text), [text]);
   return (
     <div className="prose max-w-none text-14">
-      {body !== "" && <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>}
+      {body !== "" && <CitedAnswer text={body} />}
       {pending != null && (
         // A fence's own marker line is not shown — the finished render will not show it
         // either — so what stands here is what was typed inside the frame, and a table in
