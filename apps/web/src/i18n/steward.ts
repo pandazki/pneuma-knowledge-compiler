@@ -10,8 +10,21 @@ import { defineMessages } from "./define";
  */
 export const steward = defineMessages({
   zh: {
+    "steward.item.succeeded": "已完成",
+    "steward.item.failed": "执行失败",
+    "steward.item.stoppedShort": "已停止",
+    "steward.item.finished": "执行结束",
+    "steward.item.usageDetails": "本轮用量",
+    "steward.item.costLabel": "费用",
+    "steward.item.duration": "耗时",
+    "steward.usage.input": "输入 token",
+    "steward.usage.output": "输出 token",
+    "steward.usage.cached": "缓存命中",
+    "steward.usage.cacheWrite": "缓存写入",
+    "steward.usage.reasoning": "推理 token",
+    "steward.usage.total": "总 token",
     "steward.title": "管家 Steward",
-    "steward.description": "和编译这座知识库的编码代理对话。它跑的每一条命令都在这里，连同结果。",
+    "steward.description": "与知识库管家对话。",
 
     "steward.status.live": "会话进行中",
     "steward.status.idle": "尚未开始",
@@ -61,9 +74,22 @@ export const steward = defineMessages({
     "steward.moved": "库变了：版次、工序和来源已经刷新。",
   },
   en: {
+    "steward.item.succeeded": "Completed",
+    "steward.item.failed": "Command failed",
+    "steward.item.stoppedShort": "Stopped",
+    "steward.item.finished": "Finished",
+    "steward.item.usageDetails": "Turn usage",
+    "steward.item.costLabel": "Cost",
+    "steward.item.duration": "Duration",
+    "steward.usage.input": "Input tokens",
+    "steward.usage.output": "Output tokens",
+    "steward.usage.cached": "Cache read",
+    "steward.usage.cacheWrite": "Cache write",
+    "steward.usage.reasoning": "Reasoning tokens",
+    "steward.usage.total": "Total tokens",
     "steward.title": "Steward",
     "steward.description":
-      "A conversation with the coding agent that compiles this library. Every command it runs is here, with its result.",
+      "Talk with your library’s Steward.",
 
     "steward.status.live": "session running",
     "steward.status.idle": "not started",

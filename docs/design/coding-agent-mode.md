@@ -801,6 +801,8 @@ not do, and hides nothing it did. A disconnected tab leaves the harness session 
 `STEWARD_SESSION_IDLE` and resumes it on reconnect; a killed harness is reported as such,
 never silently restarted into a fresh session.
 
+Steward prose uses the same numbered source footnotes as retrieval answers; clicking one opens the cited source span. The original transcript is unchanged, and this rendering does not validate the claim. Command rows keep verbatim commands and expandable output. A small status icon discloses exit code and duration on hover, keyboard focus or tap; per-turn usage uses the same disclosure with labelled metrics. Errors remain visible in the conversation.
+
 **What the build settled, beside what §5.6 already said.**
 
 - **A second attach JOINS the session; it is not refused.** Two tabs on one library are one
