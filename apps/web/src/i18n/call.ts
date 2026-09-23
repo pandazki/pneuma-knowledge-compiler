@@ -10,6 +10,13 @@ import { defineMessages } from "./define";
  */
 export const call = defineMessages({
   zh: {
+    "call.details": "通话详情",
+    "call.readyToTalk": "已接通，可以说话了。",
+    "call.micOn": "麦克风已开启",
+    "call.cancel": "取消",
+    "call.error.micDenied": "请在浏览器中允许麦克风访问，然后重试。",
+    "call.error.noMicrophone": "没有找到麦克风，请连接后重试。",
+
     "call.trace.title": "委托时间线与回写原文",
     "call.trace.first": "首段局部发现（保留原文）",
     "call.trace.note": "时间以收到委托为零点。回执仅表示估计的上下文注入，不代表已经播报。",
@@ -24,9 +31,10 @@ export const call = defineMessages({
 
     "call.open": "通话",
     "call.open.unavailable": "现在不能通话。",
-    "call.back": "回到文字会话",
+    "call.back": "返回管家",
+    "call.leave": "结束并返回",
     "call.title": "和知识库通话",
-    "call.description": "你说话，它听；需要查库时由引擎去查，查到什么都列在右边。",
+    "call.description": "直接提问，一起查阅你的知识库。",
 
     "call.phase.idle": "未开始",
     "call.phase.askingMic": "等待麦克风授权…",
@@ -37,7 +45,7 @@ export const call = defineMessages({
     "call.phase.failed": "没能接通",
 
     "call.start": "开始通话",
-    "call.start.note": "需要麦克风权限；通话按分钟计费（约 $0.05/分钟），挂断即停。",
+    "call.start.note": "约 $0.05/分钟 · 开始后请求麦克风权限",
     "call.again": "再打一次",
     "call.end": "挂断",
     "call.mute": "静音",
@@ -61,16 +69,23 @@ export const call = defineMessages({
     "call.captions.unlinkedHint": "这段转写未按时间关联到本次查库回写；这不能证明它没有使用此前的知识库内容。",
 
     "call.cards.title": "知识库的回答",
-    "call.cards.empty": "问一个库里答得上来的问题，它查到什么都会列在这里。",
+    "call.cards.empty": "查到的资料与出处会显示在这里。",
     "call.cards.hearing": "在听问题…",
     "call.cards.searching": "在库里查…",
     "call.cards.answering": "正在回答…",
-    "call.cards.done": "首段回写 {seconds} 秒",
+    "call.cards.done": "已查到资料",
     "call.cards.unspoken": "已被新问题取代，未播报",
     "call.cards.claims": "依据断言（{count}）",
     "call.cards.said": "已交给语音的内容",
   },
   en: {
+    "call.details": "Call details",
+    "call.readyToTalk": "Connected. You can speak now.",
+    "call.micOn": "Microphone on",
+    "call.cancel": "Cancel",
+    "call.error.micDenied": "Allow microphone access in your browser, then try again.",
+    "call.error.noMicrophone": "Connect a microphone, then try again.",
+
     "call.trace.title": "Delegation timeline and exact updates",
     "call.trace.first": "Preliminary finding (preserved)",
     "call.trace.note": "Times start at delegation receipt. Acknowledgment estimates context injection, not playback.",
@@ -85,10 +100,11 @@ export const call = defineMessages({
 
     "call.open": "Call",
     "call.open.unavailable": "Calling is not available right now.",
-    "call.back": "Back to the text session",
+    "call.back": "Back to Steward",
+    "call.leave": "End and return",
     "call.title": "Call the library",
     "call.description":
-      "You speak, it listens; when a question needs the library the engine looks it up, and whatever it found is listed on the right.",
+      "Ask out loud. Explore what your library knows.",
 
     "call.phase.idle": "not started",
     "call.phase.askingMic": "waiting for microphone access…",
@@ -100,7 +116,7 @@ export const call = defineMessages({
 
     "call.start": "Start call",
     "call.start.note":
-      "Needs microphone access; billed per minute (about $0.05/min) until you hang up.",
+      "About $0.05/min · Microphone access requested on start",
     "call.again": "Call again",
     "call.end": "Hang up",
     "call.mute": "Mute",
@@ -126,11 +142,11 @@ export const call = defineMessages({
 
     "call.cards.title": "What the library answered",
     "call.cards.empty":
-      "Ask something the library can answer, and whatever it found is listed here.",
+      "Retrieved information and sources will appear here.",
     "call.cards.hearing": "hearing the question…",
     "call.cards.searching": "searching the library…",
     "call.cards.answering": "answering…",
-    "call.cards.done": "First result sent in {seconds}s",
+    "call.cards.done": "Retrieved from the library",
     "call.cards.unspoken": "Superseded by a newer question; not spoken",
     "call.cards.claims": "Claims used ({count})",
     "call.cards.said": "handed to the voice",
