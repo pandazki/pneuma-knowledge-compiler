@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, Mic, MicOff, Phone, PhoneOff, Volume2 } from "lucide-react";
+import { ArrowLeft, AudioLines, BookOpen, ChevronDown, Info, LoaderCircle, Mic, MicOff, Phone, PhoneOff, Volume2 } from "lucide-react";
 import {
   captionMarks,
   emptyCall,
@@ -35,7 +35,6 @@ import { useApp } from "@/lib/store";
 import { useLocale, useT } from "@/lib/useT";
 import type { MessageKey } from "@/lib/i18n";
 import type { CitationEntry } from "@/components/CitationList";
-import { Badge } from "@/ui/Badge";
 import { Button } from "@/ui/Button";
 import { Callout } from "@/ui/Callout";
 import { IconButton } from "@/ui/IconButton";
@@ -45,6 +44,7 @@ import { Tooltip } from "@/ui/Tooltip";
 import { cn } from "@/ui/cn";
 import { useSourceTitles } from "../_shared/useSourceTitles";
 import { CallAnswerCard, asRecallAnswer } from "./CallAnswerCard";
+import { StewardDetails } from "./StewardDetails";
 
 const PHASE_KEYS: Record<CallState["status"], MessageKey> = {
   idle: "call.phase.idle",
@@ -176,130 +176,118 @@ export function CallSurface({
     document.getElementById(`call-card-${id}`)?.scrollIntoView({ block: "nearest" });
   }, []);
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      {/* ---------------------------------------------------------------- the status strip */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line pb-3">
-        <Button size="sm" variant="ghost" onClick={onBack}>
-          <ArrowLeft size={14} aria-hidden />
-          {t("call.back")}
-        </Button>
-        <span className="text-13 text-ink" aria-live="polite">
-          {t(PHASE_KEYS[call.status])}
-        </span>
-        {(live || elapsed > 0) && (
-          <>
-            {/* The billed clock. Its reading is part of the status sentence above, which is
-                the live region — a second one for a number that changes every second would
-                talk over it. */}
-            <Mono className="text-13 text-ink-2">{formatElapsed(elapsed)}</Mono>
-            <span className="sr-only">{t("call.elapsed", { time: formatElapsed(elapsed) })}</span>
-            <span className="text-12 text-ink-3">{t("call.cost", { cost: formatCost(elapsed) })}</span>
-          </>
-        )}
-        {call.contextRatio != null && call.contextRatio > CONTEXT_VISIBLE_AT && (
-          <Badge tone="warn">
-            {t("call.context", { percent: Math.round(call.contextRatio * 100) })}
-          </Badge>
-        )}
-        <Badge>{t("call.model", { model: status.model, voice: status.voice })}</Badge>
-        <span className="flex-1" />
+  const negotiating = call.status === "asking-mic" || call.status === "connecting";
+  const hasTranscript = call.rows.length > 0 || call.delegations.length > 0;
+  const retry = call.status === "ended" || call.status === "failed";
+  const cancel = () => sessionRef.current?.hangUpNow();
+  const phase = call.muted && live ? t("call.muted") : t(PHASE_KEYS[call.status]);
+  const errorHint = call.errorCode === "mic_denied" ? t("call.error.micDenied")
+    : call.errorCode === "no_microphone" ? t("call.error.noMicrophone") : call.error;
+
+  const controls = (
+    <div className={cn("flex shrink-0 flex-col items-center gap-3 py-6", hasTranscript && "border-t border-line")}>
         {audioBlocked && (
-          <Button size="sm" onClick={() => void audioRef.current?.play().then(() => setAudioBlocked(false))}>
-            <Volume2 size={14} aria-hidden />
-            {t("call.audioBlocked")}
+          <Button onClick={() => void audioRef.current?.play().then(() => setAudioBlocked(false))}>
+            <Volume2 size={16} aria-hidden />{t("call.audioBlocked")}
           </Button>
         )}
-        {live && (
-          <>
-            <Tooltip content={call.muted ? t("call.unmute") : t("call.mute")}>
-              <IconButton
-                size="sm"
-                aria-label={call.muted ? t("call.unmute") : t("call.mute")}
-                aria-pressed={call.muted}
-                onClick={() => sessionRef.current?.setMuted(!call.muted)}
-                className={cn(call.muted && "text-warn")}
-              >
-                {call.muted ? <MicOff size={15} aria-hidden /> : <Mic size={15} aria-hidden />}
-              </IconButton>
-            </Tooltip>
-            <Button size="sm" variant="danger" onClick={hangUp}>
-              <PhoneOff size={14} aria-hidden />
-              {t("call.end")}
+        <div className="flex items-center justify-center gap-4">
+          {live ? (
+            <>
+              <Tooltip content={call.muted ? t("call.unmute") : t("call.mute")}>
+                <IconButton aria-label={call.muted ? t("call.unmute") : t("call.mute")}
+                  aria-pressed={call.muted} disabled={call.status === "ending"}
+                  onClick={() => sessionRef.current?.setMuted(!call.muted)}
+                  className={cn("size-12 rounded-full border border-line-2", call.muted && "bg-warn-soft text-warn")}>
+                  {call.muted ? <MicOff size={20} aria-hidden /> : <Mic size={20} aria-hidden />}
+                </IconButton>
+              </Tooltip>
+              <Button variant="danger" className="h-12 rounded-full px-6" onClick={hangUp} loading={call.status === "ending"}>
+                <PhoneOff size={18} aria-hidden />{t("call.end")}
+              </Button>
+            </>
+          ) : negotiating ? (
+            <Button className="h-12 px-6" onClick={cancel}>{t("call.cancel")}</Button>
+          ) : (
+            <Button ref={startRef} variant="primary" className="h-12 gap-3 px-6" onClick={begin}>
+              <Phone size={18} aria-hidden />{retry ? t("call.again") : t("call.start")}
             </Button>
-          </>
-        )}
+          )}
+        </div>
+        {!live && !negotiating && <p className="max-w-sm text-center text-12 text-ink-2">{t("call.start.note")}</p>}
+        {live && <p className="text-12 text-ink-2" aria-live="polite">{call.muted ? t("call.muted") : t("call.micOn")}</p>}
+      </div>
+  );
+
+  return (
+    <div className="flex h-[calc(100dvh-6rem)] min-h-0 flex-col lg:h-full">
+      <div className="flex shrink-0 items-center justify-between gap-3 pb-4">
+        <Button size="sm" variant="ghost" onClick={onBack}>
+          <ArrowLeft size={14} aria-hidden />{t(live || negotiating ? "call.leave" : "call.back")}
+        </Button>
+        <StewardDetails label={t("call.details")} icon={<Info size={16} aria-hidden />}>
+          <div className="flex max-w-64 flex-col gap-2">
+            <p>{t("call.model", { model: status.model, voice: status.voice })}</p>
+            {elapsed > 0 && <p>{t("call.cost", { cost: formatCost(elapsed) })}</p>}
+            {call.contextRatio != null && <p>{t("call.context", { percent: Math.round(call.contextRatio * 100) })}</p>}
+            {call.errorCode && <Mono>{call.errorCode}</Mono>}
+            {call.closedReason && <p>{t("call.closed", { reason: call.closedReason })}</p>}
+          </div>
+        </StewardDetails>
       </div>
 
-      {call.muted && (
-        <p className="mt-2 text-12 text-warn" aria-live="polite">
-          {t("call.muted")}
-        </p>
-      )}
-
-      {call.error !== "" && (
-        <Callout tone="danger" className="mt-3">
-          <p>{t("call.error", { detail: call.error })}</p>
-          {call.errorCode !== "" && <Mono className="text-12 text-ink-3">{call.errorCode}</Mono>}
-        </Callout>
-      )}
-
-      {call.status === "ended" && call.closedReason !== "" && (
-        <p className="mt-2 text-12 text-ink-3">{t("call.closed", { reason: call.closedReason })}</p>
-      )}
-
-      {/* --------------------------------------------- before a call: the one thing to know */}
-      {!live && (
-        <div className="mt-4 flex flex-col items-start gap-2">
-          {call.rows.length === 0 && (
-            <>
-              <h2 className="font-serif text-20 text-ink">{t("call.title")}</h2>
-              <p className="max-w-measure text-13 text-ink-2">{t("call.description")}</p>
-            </>
-          )}
-          <Button
-            ref={startRef}
-            variant="primary"
-            onClick={begin}
-            // The negotiation is its own wait, and starting a second one during it would
-            // open a second billed session.
-            loading={call.status === "asking-mic" || call.status === "connecting"}
-          >
-            <Phone size={15} aria-hidden />
-            {call.rows.length > 0 || call.status === "failed" ? t("call.again") : t("call.start")}
-          </Button>
-          {/* What a click is about to cost, said before the click and not after it. */}
-          <p className="max-w-measure text-12 text-ink-2">{t("call.start.note")}</p>
+      {hasTranscript ? (
+        <div className="flex shrink-0 flex-wrap items-baseline justify-between gap-2 border-b border-line pb-4">
+          <h1 className="font-serif text-24 text-ink">{t("call.title")}</h1>
+          <div className="flex items-center gap-3 text-13 text-ink-2">
+            <span aria-live="polite">{phase}</span>
+            <span className="tabular-nums" aria-label={t("call.elapsed", { time: formatElapsed(elapsed) })}>{formatElapsed(elapsed)}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex min-h-64 flex-1 flex-col items-center justify-center px-4 py-8 text-center">
+          <div className={cn("mb-6 flex size-20 items-center justify-center rounded-full border border-line-2", live && "border-accent-line text-accent", !live && "text-ink-2")}>
+            {negotiating ? <LoaderCircle size={30} aria-hidden className="animate-spin" />
+              : live ? <AudioLines size={32} aria-hidden /> : <BookOpen size={32} strokeWidth={1.5} aria-hidden />}
+          </div>
+          <h1 className="font-serif text-30 text-ink">{t("call.title")}</h1>
+          <p className="mt-3 max-w-sm text-14 text-ink-2" aria-live="polite">
+            {call.status === "idle" ? t("call.description") : live && !call.muted ? t("call.readyToTalk") : phase}
+          </p>
+          {(live || elapsed > 0) && <p className="mt-4 text-20 tabular-nums text-ink-2">{formatElapsed(elapsed)}</p>}
+          {call.error !== "" && <Callout tone="danger" className="mt-5 w-full max-w-sm text-left"><p>{errorHint}</p></Callout>}
+          {!live && !negotiating && <div className="mt-3">{controls}</div>}
         </div>
       )}
 
-      {/* ------------------------------------------- the transcript, and what the library said */}
-      <div className="mt-4 grid min-h-0 flex-1 gap-6 lg:grid-cols-2">
-        <CaptionColumn call={call} marks={marks} onOpenCard={openTheCard} />
+      {hasTranscript && call.error !== "" && (
+        <Callout tone="danger" className="mx-auto my-4 w-full max-w-lg">
+          <p>{errorHint}</p>
+        </Callout>
+      )}
+      {call.contextRatio != null && call.contextRatio > CONTEXT_VISIBLE_AT && (
+        <p className="my-2 text-center text-12 text-warn">{t("call.context", { percent: Math.round(call.contextRatio * 100) })}</p>
+      )}
 
-        <section className="flex min-h-0 flex-col">
-          <h2 className="text-12 text-ink-3">{t("call.cards.title")}</h2>
-          <ScrollRegion className="mt-2 min-h-0 flex-1">
-            {call.delegations.length === 0 ? (
-              <p className="max-w-measure text-13 text-ink-3">{t("call.cards.empty")}</p>
-            ) : (
-              call.delegations.map((delegation, index) => (
-                <CallAnswerCard
-                  key={delegation.id}
-                  delegation={delegation}
-                  ordinal={index + 1}
-                  titles={titles}
-                  onJump={jumpToCitation}
-                  highlighted={openCard === delegation.id}
-                />
-              ))
-            )}
-          </ScrollRegion>
-        </section>
-      </div>
+      {hasTranscript && (
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] gap-6 py-5 lg:grid-rows-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          <CaptionColumn call={call} marks={marks} onOpenCard={openTheCard} />
+          <section className="flex min-h-0 flex-col border-t border-line pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6">
+            <h2 className="text-13 font-medium text-ink-2">{t("call.cards.title")}</h2>
+            <ScrollRegion className="mt-3 min-h-0 flex-1">
+              {call.delegations.length === 0 ? (
+                <p className="max-w-measure text-13 text-ink-2">{t("call.cards.empty")}</p>
+              ) : call.delegations.map((delegation, index) => (
+                <CallAnswerCard key={delegation.id} delegation={delegation} ordinal={index + 1}
+                  titles={titles} onJump={jumpToCitation} highlighted={openCard === delegation.id} />
+              ))}
+            </ScrollRegion>
+          </section>
+        </div>
+      )}
 
-      {/* The voice's own audio. Muted-by-default autoplay would defeat the point, so the
-          element is plain and the refusal is handled above. */}
+      {(hasTranscript || live || negotiating) && controls}
+
       <audio ref={audioRef} autoPlay className="sr-only" />
     </div>
   );
@@ -340,7 +328,7 @@ function CaptionColumn({
 
   return (
     <section className="relative flex min-h-0 flex-col">
-      <h2 className="text-12 text-ink-3">{t("call.captions.title")}</h2>
+      <h2 className="text-13 font-medium text-ink-2">{t("call.captions.title")}</h2>
       <ScrollRegion ref={scrollerRef} onScroll={onScroll} className="mt-2 min-h-0 flex-1">
         {call.rows.length === 0 ? (
           <p className="max-w-measure text-13 text-ink-3">{t("call.captions.empty")}</p>

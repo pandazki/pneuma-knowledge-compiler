@@ -12,6 +12,7 @@
  * dressing it as one would be the exact confusion this column exists to prevent.
  */
 
+import { Activity } from "lucide-react";
 import { ordinalBadge, type Delegation } from "@/lib/call";
 import { formatDelegationSeconds } from "@/lib/call";
 import type { RecallAnswer } from "@/lib/api";
@@ -108,8 +109,43 @@ export function CallAnswerCard({
           <p className="prose mt-2 text-ink-2">{delegation.preliminary}</p>
         </details>
       )}
-      <details className="mt-2 pl-6 text-13" open={highlighted || undefined}>
-        <summary className="cursor-pointer text-ink-3">{t("call.trace.title")}</summary>
+
+
+      {answer != null ? (
+        <>
+          <div className="prose mt-2 max-w-measure pl-6 text-14">
+            <CitedAnswer text={answer.answer} handles={answer.citation_handles} />
+          </div>
+          {claims.length > 0 && (
+            <div className="mt-2 pl-6">
+              <p className="text-12 text-ink-3">
+                {t("call.cards.claims", { count: claims.length })}
+              </p>
+              <div className="border-t border-line">
+                {claims.map((claim) => (
+                  <UsedClaimRow
+                    key={claim.anchor}
+                    claim={claim}
+                    titles={titles}
+                    onJump={onJump}
+                    showScore={false}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        delegation.said !== "" && (
+          <div className="mt-2 pl-6">
+            <p className="text-12 text-ink-3">{t("call.cards.said")}</p>
+            <p className="prose max-w-measure text-14 text-ink-2">{delegation.said}</p>
+          </div>
+        )
+      )}
+
+      <details className="mt-2 pl-6 text-13">
+        <summary aria-label={t("call.trace.title")} title={t("call.trace.title")} className="inline-flex size-7 cursor-pointer list-none items-center justify-center rounded-1 text-ink-2 hover:bg-hover [&::-webkit-details-marker]:hidden"><Activity size={14} aria-hidden /><span className="sr-only">{t("call.trace.title")}</span></summary>
         <p className="mt-2 text-12 text-ink-3">{t("call.trace.note")}</p>
         <Mono className="mt-2 block break-all text-12">{delegation.provider_id || delegation.id}</Mono>
         <ol className="mt-2 space-y-1 text-12 text-ink-3">
@@ -146,39 +182,6 @@ export function CallAnswerCard({
           setTimeout(() => URL.revokeObjectURL(url), 1000);
         }}>{t("call.trace.export")}</button>
       </details>
-
-      {answer != null ? (
-        <>
-          <div className="prose mt-2 max-w-measure pl-6 text-14">
-            <CitedAnswer text={answer.answer} handles={answer.citation_handles} />
-          </div>
-          {claims.length > 0 && (
-            <div className="mt-2 pl-6">
-              <p className="text-12 text-ink-3">
-                {t("call.cards.claims", { count: claims.length })}
-              </p>
-              <div className="border-t border-line">
-                {claims.map((claim) => (
-                  <UsedClaimRow
-                    key={claim.anchor}
-                    claim={claim}
-                    titles={titles}
-                    onJump={onJump}
-                    showScore={false}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </>
-      ) : (
-        delegation.said !== "" && (
-          <div className="mt-2 pl-6">
-            <p className="text-12 text-ink-3">{t("call.cards.said")}</p>
-            <p className="prose max-w-measure text-14 text-ink-2">{delegation.said}</p>
-          </div>
-        )
-      )}
 
       {delegation.state === "done" && answer == null && delegation.said === "" && (
         <Mono className="mt-2 block pl-6 text-12 text-ink-3">{delegation.detail}</Mono>

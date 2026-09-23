@@ -73,6 +73,12 @@ There is one call per owner. A replacement closes the old call. Idle, maximum-du
 orphan limits bound open sessions. The tray opens the browser console, where microphone
 permissions and a sustained conversation can be handled.
 
+### Browser interaction
+
+The global bar has one Steward entry. Its internal Call action opens a dedicated call surface, with no text-session status or controls. Before dialing, show one centered start action and the per-minute rate; neither navigation nor a tray/deep link requests the microphone or starts billing. Captions and library answers appear once the conversation has content, with mute/hangup controls pinned below the reading panes on desktop and mobile. Model/voice and diagnostic details are disclosed on demand. Ended calls retain their transcript until a new call starts or the Owner returns to text.
+
+Cancel is available while awaiting microphone permission or negotiating. A late microphone stream is stopped, and a late server-created call is explicitly closed; cancelled work must never reconnect the UI. Microphone refusal gives an actionable retry message.
+
 ## 4. Conversation state
 
 The delegation event contains an ID and timestamp, **no question**. The engine retains both

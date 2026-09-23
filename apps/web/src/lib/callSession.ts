@@ -69,7 +69,7 @@ export class CallSession {
    * engine socket — which is what makes delegation work.
    */
   async start(): Promise<void> {
-    if (this.pc) return;
+    if (this.pc || this.finished) return;
     this.handlers.onEvent({ type: "start" });
 
     const pc = new RTCPeerConnection();
@@ -85,6 +85,7 @@ export class CallSession {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     } catch (e) {
+      if (this.finished) return;
       // The two refusals a person can act on are told apart; anything else keeps its own name.
       const name = (e as Error)?.name ?? "";
       const code =
@@ -94,6 +95,11 @@ export class CallSession {
             ? "no_microphone"
             : "mic_failed";
       this.fail(code, (e as Error)?.message ?? name);
+      return;
+    }
+    // Permission may resolve after Cancel or navigation. Never revive the old call.
+    if (this.finished) {
+      for (const track of mic.getTracks()) track.stop();
       return;
     }
     this.mic = mic;
@@ -107,12 +113,24 @@ export class CallSession {
     // lands must not find nobody listening.
     channel.onmessage = (e) => this.onChannelMessage(e.data);
 
+    let openedCallId: string | null = null;
     try {
       const offer = await pc.createOffer();
+      if (this.finished) return;
       await pc.setLocalDescription(offer);
       await iceComplete(pc);
+      if (this.finished) return;
       const started = await startCall(this.userId, pc.localDescription?.sdp ?? "", this.locale);
+      openedCallId = started.call_id;
+      if (this.finished) {
+        closeCancelledCall(this.userId, openedCallId);
+        return;
+      }
       await pc.setRemoteDescription({ type: "answer", sdp: started.sdp });
+      if (this.finished) {
+        closeCancelledCall(this.userId, openedCallId);
+        return;
+      }
       this.socket = new CallSocket(
         this.userId,
         started.call_id,
@@ -127,6 +145,8 @@ export class CallSession {
         session_id: started.session_id,
       });
     } catch (e) {
+      if (openedCallId) closeCancelledCall(this.userId, openedCallId);
+      if (this.finished) return;
       this.fail("connect_failed", (e as Error)?.message ?? "");
     }
   }
@@ -320,5 +340,18 @@ function iceComplete(pc: RTCPeerConnection): Promise<void> {
     };
     const timer = setTimeout(settle, ICE_TIMEOUT_MS);
     pc.addEventListener("icegatheringstatechange", check);
+  });
+}
+
+/** A cancelled negotiation can still return a billed session. Close it once its socket opens. */
+function closeCancelledCall(userId: string, callId: string): void {
+  let socket: CallSocket | null = null;
+  const timer = setTimeout(() => socket?.close(), CLOSE_TIMEOUT_MS);
+  const close = () => { clearTimeout(timer); socket?.close(); };
+  socket = new CallSocket(userId, callId, (frame) => {
+    if (frame.type === "closed") close();
+  }, (status) => {
+    if (status === "open") socket?.end();
+    if (status === "closed") clearTimeout(timer);
   });
 }
