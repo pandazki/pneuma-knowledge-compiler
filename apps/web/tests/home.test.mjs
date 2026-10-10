@@ -360,3 +360,46 @@ test("failures are counted by kind and successes are read when the engine says t
   assert.deepEqual(doc.libraries[0].queue.failed_by_kind, { evolve: 40 });
   assert.equal(doc.libraries[0].queue.succeeded, 135);
 });
+
+/* ---------------------------------------------------- optional collection observations */
+
+const { getHomeSourceCollection, ApiError } = await import(await load(path.join(SRC, "lib/api.ts")));
+
+test("optional source context tolerates a missing route and a standalone SPA's HTML fallback", async () => {
+  const before = globalThis.fetch;
+  try {
+    for (const response of [new Response("missing", { status: 404 }),
+      new Response("<!doctype html>", { headers: { "content-type": "text/html" } }),
+      Response.json({ unsupported: true })]) {
+      globalThis.fetch = async () => response;
+      assert.equal(await getHomeSourceCollection("tenant-a", "source-test"), null);
+    }
+  } finally { globalThis.fetch = before; }
+});
+
+test("source context explicitly binds its request to the tenant and ignores cached responses", async () => {
+  const before = globalThis.fetch;
+  const controller = new AbortController();
+  try {
+    globalThis.fetch = async (url, init) => {
+      const address = new URL(url, "http://localhost");
+      assert.equal(address.pathname, "/home/collection/sources/session%2Fone");
+      assert.equal(address.searchParams.get("user_id"), "owner & team");
+      assert.equal(init.signal, controller.signal);
+      assert.equal(init.cache, "no-store");
+      return Response.json({ user_id: "owner & team", source_id: "session/one", relation: "session_observation", observations: [] });
+    };
+    assert.deepEqual((await getHomeSourceCollection("owner & team", "session/one", controller.signal)).observations, []);
+  } finally { globalThis.fetch = before; }
+});
+
+test("an unavailable personal endpoint remains an error the reader can retry", async () => {
+  const before = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => Response.json({ detail: "temporarily unavailable" }, { status: 503 });
+    await assert.rejects(getHomeSourceCollection("tenant-a", "source-test"),
+      (error) => error instanceof ApiError && error.status === 503);
+    globalThis.fetch = async () => Response.json({ user_id: "tenant-a", source_id: "source-test", relation: "session_observation", observations: [] });
+    assert.deepEqual((await getHomeSourceCollection("tenant-a", "source-test")).observations, []);
+  } finally { globalThis.fetch = before; }
+});

@@ -41,6 +41,7 @@ import { ArchiveProposalDialog } from "@/views/archive/ArchiveProposalDialog";
 import { cn } from "@/ui/cn";
 import { SourceFilterBar } from "./SourceFilterBar";
 import { SourceKindName, SourceKindSummary, SourceReader } from "./SourceReaders";
+import { SourceCollectionProvenance } from "./SourceCollectionProvenance";
 
 /** The block range to highlight on the galley page (inclusive). */
 interface BlockRange {
@@ -139,6 +140,7 @@ export default function SourcesView() {
   // A user switch is a different catalogue, so it is also a different question.
   useEffect(() => {
     setFilter(EMPTY_SOURCE_FILTER);
+    setSelectedId(null);
   }, [currentUser]);
 
   // Narrowing hands the reader a new list; it must start at its own top.
@@ -294,7 +296,7 @@ export default function SourcesView() {
         {selectedId && (
           <div className="p-5">
             <SourceGalley
-              key={selectedId}
+              key={`${currentUser}\0${selectedId}`}
               userId={currentUser}
               sourceId={selectedId}
               highlight={highlight}
@@ -486,6 +488,8 @@ function SourceGalley({
   const [activeTab, setActiveTab] = useState("source");
   const [archiveOpen, setArchiveOpen] = useState(false);
   const blockRefs = useRef<Map<number, HTMLElement>>(new Map());
+  const detailRequest = useRef<AbortController | null>(null);
+  const spanRequest = useRef<AbortController | null>(null);
   const lens = useApp((s) => s.lens);
   const archived = (detail?.archived_at ?? null) != null;
   const archiveSeeds = useMemo(
@@ -494,18 +498,28 @@ function SourceGalley({
   );
 
   const load = useCallback(async () => {
+    detailRequest.current?.abort();
+    spanRequest.current?.abort();
+    const controller = new AbortController();
+    detailRequest.current = controller;
     setError(null);
     setDetail(null);
     setExact(null);
+    setFetching(false);
     try {
-      setDetail(await getSource(userId, sourceId));
+      const next = await getSource(userId, sourceId, controller.signal);
+      if (!controller.signal.aborted) setDetail(next);
     } catch (e) {
-      setError((e as Error).message);
+      if (!controller.signal.aborted) setError((e as Error).message);
     }
   }, [userId, sourceId]);
 
   useEffect(() => {
     void load();
+    return () => {
+      detailRequest.current?.abort();
+      spanRequest.current?.abort();
+    };
   }, [load]);
 
   // Span landing: once the detail is in, scroll the target block range into view.
@@ -529,17 +543,20 @@ function SourceGalley({
 
   // Clicking a block: fetchLocator returns that block's exact span (shown in a Callout).
   async function onFetchBlock(index: number) {
+    spanRequest.current?.abort();
+    const controller = new AbortController();
+    spanRequest.current = controller;
     setFetching(true);
     try {
-      const res = await fetchLocator(userId, sourceId, { blocks: [index, index] });
-      setExact({ block: index, text: res.text });
+      const res = await fetchLocator(userId, sourceId, { blocks: [index, index] }, controller.signal);
+      if (!controller.signal.aborted) setExact({ block: index, text: res.text });
     } catch (e) {
-      setExact({
+      if (!controller.signal.aborted) setExact({
         block: index,
         text: t("common.sourceSpan.fetchFailed", { detail: (e as Error).message }),
       });
     } finally {
-      setFetching(false);
+      if (!controller.signal.aborted) setFetching(false);
     }
   }
 
@@ -571,11 +588,10 @@ function SourceGalley({
               <SourceKindSummary detail={detail} />
             </p>
           </div>
-          {/* An unlabelled `08/27 21:49` beside a title carrying the material's own date
-              (2026-07-29) reads as a second corpus date. It is neither: it is when this was
-              filed. Both facts are now said — the caption, and the year. */}
+          {/* The normalised source timestamp can be the original session's first turn.
+              Name the source's time without presenting it as an ingest receipt. */}
           <p className="flex shrink-0 flex-col items-start gap-0.5 text-12 text-ink-3 sm:items-end">
-            <span>{t("sources.detail.ingestedAt")}</span>
+            <span>{t("sources.detail.sourceTime")}</span>
             <Mono title={detail.created_at}>{fmtDateTime(detail.created_at)}</Mono>
             <span>{detail.mime}</span>
             {archived && (
@@ -611,6 +627,8 @@ function SourceGalley({
           seeds={archiveSeeds}
         />
       </header>
+
+      <SourceCollectionProvenance userId={userId} sourceId={detail.source_id} />
 
       {exact && (
         <Callout

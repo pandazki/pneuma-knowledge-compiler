@@ -127,7 +127,7 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：每个视图名加 selec
 
 顶栏贯穿所有视图：字标、移动端目录按钮，右侧是 StewardEntry、UserPicker（租户）、SnapshotPicker（当前 HEAD / 可问答的冻结快照 / canonical 提交仅浏览）、LocaleToggle 与 ThemeToggle。**管家不是一章**，也不在目录里：它是你**关于**这座库要找的人，站在哪里都可以找，所以它与全局控件为伍——就在「哪座库在台上」的左边——可见性沿用目录本来要读的那条 `VIEW_LENSES.steward` 声明。通话从管家内部进入，全局顶栏不再放重复电话按钮。通话界面独立承载自己的控件，不显示文字代理的状态；托盘或深链仍可打开 `#/steward?call=1`，但不会自动拨号。选中快照期间，内容栏顶部出现档案戳横幅，所有写操作控件禁用（§4.3）。
 
-**本机面**只是一个可选端点，此外别无他物。`lib/store.ts` 在启动时探测一次 `GET /home/status`（`lib/home.ts` 负责解析，`lib/useHome.ts` 在标签页可见时每 30 秒复探）；返回 404——也就是今天的每一个项目部署——会被记住且不再追问，控制台逐字节保持原样。当单机版引擎作答时（docs/design/single-machine-edition.zh-CN.md §4.12、§10），只有三处变化：租户选择器变成按**名字**列出本机知识库的切换器（`components/LibraryPicker.tsx`——切换是一次导航，跳到那个知识库自己的引擎端口并带上当前 hash 路由，因为每个引擎都提供同一份控制台），控制台的当前租户跟随该引擎所服务的知识库、而不是任何持久化的 id，目录栏在全书之上多出一条不带编号的 `home`：仅所有者可见的只读健康页（Docker、四项服务，以及每个知识库的引擎、队列、密钥、skill 包新鲜度与五步冷启动）。机器不是这本书的一章，所以那一条不带 § 编号。
+**本机面**通过一个可选端点发现。`lib/store.ts` 在启动时探测一次 `GET /home/status`（`lib/home.ts` 负责解析，`lib/useHome.ts` 在标签页可见时每 30 秒复探）；返回 404——也就是今天的每一个项目部署——会被记住且不再追问，控制台逐字节保持原样。当单机版引擎作答时（docs/design/single-machine-edition.zh-CN.md §4.12、§10），租户选择器变成按**名字**列出本机知识库的切换器（`components/LibraryPicker.tsx`——切换是一次导航，跳到那个知识库自己的引擎端口并带上当前 hash 路由，因为每个引擎都提供同一份控制台），控制台的当前租户跟随该引擎所服务的知识库、而不是任何持久化的 id，目录栏在全书之上多出一条不带编号的 `home`：仅所有者可见、包含数据接入配置与只读健康状态的本机页（Docker、四项服务，以及每个知识库的引擎、队列、密钥、skill 包新鲜度与五步冷启动）。机器不是这本书的一章，所以那一条不带 § 编号。
 
 **模型通道是台架，密钥是它的开关。** 单机版里知识库自己不带模型——一切判断都是代理做的——所以检索、问答、即时上下文是架在 API 模型通道之上的质检工具，而不是日常取用知识的地方；日常检索是一次代理会话，也就是 `steward` 那一页。这些通道需要 API 密钥，`lib/modelLanes.ts` 是这两件事的唯一声明：哪三个视图，以及关闭它们的唯一条件（本机作答了，且当前知识库报告 `key: false`）。闸口在**路由**上（`App.tsx`），深链因此与点目录栏走同一条路落到提示页，那三个视图文件则始终不知道有这回事；提示页本身（`views/_shared/ModelLaneNotice.tsx`）保留该页自己的标题，只说三句话——这一页是什么、为什么跑不了（附 `pkchome credentials set OPENROUTER_API_KEY`）、日常检索去了哪里，并且只对看得见管家的身份视角给出那个入口。目录栏保留这三条，只给它们打上一枚小小的 `key` 标记：一个密钥不该改写全书目录。没有本机时——也就是每一个项目部署——什么都不会被关闭，每一页逐字节保持原样。
 
@@ -164,6 +164,7 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：每个视图名加 selec
 其中带设计决定的几个：
 
 - **SourceSpanSheet** — 引用的落点：右侧 Drawer，原文（mono 块号 + serif 正文）、目标 span 以 accent-soft 高亮、附「fetch 精确段」的 locator 调用。recall / ask / live_context / library 共用，所以引用永远以同一种方式落地。
+- **采集记录** — 单机版的可选来源上下文，由完整来源详情和 SourceSpanSheet 共用 `views/sources/SourceCollectionProvenance.tsx`。设备名称与项目目录直接显示；展开详情可看设备／项目 ID、Git 远端和首次／最近记录时间。这些记录表示某段会话曾在设备上被观察到，与原始元信息、带块号的证据正文分别展示。没有记录不代表本机采集。两类固定快照都隐藏这份当前上下文；即使冻结知识库尚无 canonical 提交，采集配置也保持只读。
 - **CitationList** — 脚注体：块首一条发丝线，行间不再分线；`[n]` 用 mono ink-3，因为 accent 只属于正文里的 `Footnote` 标记；标题 12px ink-2，span 与 id 12px ink-3，行距收紧到 1.45。弱化只在视觉——整行仍可 hover / 点击回到 source span，hover 时标题抬回 ink。
 - **ClaimRow** — serif 正文 + `Footnote` 序列 + mono 锚点；flags（disputed / open_question）在 ≥md 时以右侧页边注呈现，窄屏落到正文下。
 - **GateLedger** — 五个丢弃计数（`unparsed / repeat / uncited / low_confidence / capped`）排成账页；只有真实状态上色（uncited 为 danger，其余 warn，0 为 ink-3）。门禁吃掉的内容**只**以计数出现：门禁的严肃性由「消失」表达。
@@ -212,7 +213,7 @@ hash 路由就是 deep link 契约（`lib/hash.ts`）：每个视图名加 selec
 - **history** — snapshot / job / patch 三类记录的统一账页（mono ref、时间、changed paths、sources consumed、lineage）。patch 展开为 escalations、flag counts 与 claims trace；snapshot 行可经 SnapshotPicker 以只读态打开。
 - **evolve** — 三个面：演化时间线（状态即站点的形状与语义色）、任务详情（proposal 依据、pack 草案全文、会消失的 anchors、changed-file diff、adopt/drop）、schema 轴（族与 path template 随时间累积）。409 单飞冲突以 `Callout` 呈现。`#/evolve/evolve-task/<id>` 落在详情上。
 - **profile** — 当前租户的画像：身份加一张编译契约会读的字段定义表，以及全部由 primitives 搭的编辑表单。AI 生成只属于「新建画像」onboarding（一句话 → 草稿 → 用户确认）；已有画像不显示生成入口。
-- **home**（`#/home`，仅在探测到本机时进入目录）— 讲的是机器而不是知识：Docker 与本机只跑一份的四项服务，然后每个知识库一段发丝线分隔的区块（引擎运行 / 端口 / pid / 已运行时长，队列待处理与失败数，最近编译，密钥，skill 包新鲜度，五步冷启动，最近使用），末尾一行是本机位置与版本。只读；动作是 `/home/actions/*` 背后的 `pkchome` 命令，在端点还不存在时先摆出按钮并不诚实。
+- **home**（`#/home`，仅在探测到本机时进入目录）— 先呈现数据接入，再呈现机器健康。`/home/collection` 提供本机范围、共享会话处理器、远程设备与项目归属。主流程在明确采集范围后生成一次性邀请，提供真实的目标机 AI 指令与直接执行命令；兑换、过期和设备活动状态均来自服务。密钥仅留在组件内存，不进入浏览器持久存储。高级配置收纳云端连接、本机采集设置、处理阈值与项目来源信息。固定快照时禁用全部修改操作。Docker、服务与各知识库的引擎和安装状态继续以只读发丝线分区列在下方。
 - **components**（隐藏 `#/components`）— 全部 primitives 的默认 / hover / focus / disabled / error / loading / empty 矩阵，用于验收截图与回归。
 
 ---

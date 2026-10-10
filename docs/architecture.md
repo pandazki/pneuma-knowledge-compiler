@@ -68,6 +68,13 @@ An `IntakePlan` is two knobs — `canonical_treatment` (full / distill / card / 
 
 The official input boundary is six versioned provider-neutral contracts: `meeting/v1`, `document-library/v1`, `im/v1`, `email/v1`, `owner-dialogue/v1`, and `agent-session/v1` ([source contracts](reference/source-contracts.md)).
 
+The personal application's local and remote material feeds sit upstream of that boundary.
+Their shared processor owns scanning, incremental cursors and transport observations;
+the optional Cloudflare/R2 collector delivers normalized session snapshots to the same
+host. Storage location does not change the source contract or create another canonical
+writer. Project identity is contributed by an application component over kept collection
+observations. See [material sources and shared processors](design/material-sources.md).
+
 ## 4. Authoritative vs derived
 
 Source structure is part of evidence. The compile HumanMessage retains each block's

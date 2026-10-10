@@ -989,9 +989,19 @@ skill 包的 sha256 盖进 agent 执行器产生的每一次正本提交，作�
 | 无头启动 | `codex exec --skip-git-repo-check --color never --json --sandbox workspace-write -c sandbox_workspace_write.network_access=true [-c model_reasoning_effort=<e>] [-m <model>] --output-last-message <f> -` | `claude -p --output-format json --tools "Bash,Read" --permission-mode bypassPermissions [--model <m>] --add-dir <project> --system-prompt-file <f>` |
 | system 文本 | 前置到 stdin（无 system 通道） | `--system-prompt-file`，替换 harness 自己的前言 |
 | 用量 | `--json` 事件里的 token 数；无价格 | `result.usage` 与 `total_cost_usd` |
-| 会话 | 每轮新线程；修复轮是每作业 `CODEX_HOME` 下的 `codex exec resume --last`，不支持则新进程喂违规 | 每作业独立 `CLAUDE_CONFIG_DIR` 下 `--resume <session>`（取自 `result.session_id`），随 draft 删除 |
+| 会话 | 首轮新线程；修复轮在同一作业的 `CODEX_HOME` 下执行 `codex exec <exec-options> resume <session-id>`，不支持则新进程喂违规 | 每作业独立 `CLAUDE_CONFIG_DIR` 下 `--resume <session>`（取自 `result.session_id`），随 draft 删除 |
 | owner 自己敲的：交互会话 | `codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true` | `claude` —— 无需额外参数；它问的时候放行 Bash |
 | owner 自己敲的：一条指令 | `codex exec --skip-git-repo-check --sandbox workspace-write -c sandbox_workspace_write.network_access=true "…"` | `claude -p --permission-mode bypassPermissions "…"` |
+
+Codex 的 `--color` 和 `--sandbox` 必须放在 `resume` 子命令之前。修复轮使用首轮返回的明确线程 id：
+每次启动都有新的工作目录，按当前目录筛选的 `--last` 可能找不到本该续接的会话。网络配置
+`-c sandbox_workspace_write.network_access=true` 必须与模型、环境覆盖项一起传给续跑子命令；
+留在父命令上可能导致续跑时失去连接本地数据库的权限。
+
+框架启动的 Codex 会话还会显式声明 shell 环境变量白名单。即使所有者的全局策略是 `inherit = "core"`，
+部署连接变量和 `PKC_DRAFT_EXECUTOR` 也必须到达 shell 子命令；否则 `pkc` 会连接错误的部署，或无法
+以持有草稿的 worker 身份操作。变量值只通过子进程环境传递，argv 只携带变量名与策略选项。全局配置、
+沙箱和草稿身份校验都保持原样。
 
 最后两行之所以落在 manifest 上，是因为端到端验收发现它是这个特性最大的一个缺口：**宿主以默认姿态
 启动时，连不上项目自己的 Postgres**，于是 `pkc` 在抵达知识库之前就失败，§3 的那个头号体验——owner

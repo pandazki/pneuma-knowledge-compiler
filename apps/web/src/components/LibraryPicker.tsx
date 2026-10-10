@@ -68,7 +68,7 @@ export function LibraryPicker({ home }: { home: HomeStatus }) {
       trigger={
         <span className="flex items-center gap-1.5">
           <Library size={14} aria-hidden className="shrink-0 text-ink-3" />
-          <span className="max-w-28 truncate">{active?.name ?? t("home.picker.choose")}</span>
+          <span className="max-w-14 truncate sm:max-w-28">{active?.name ?? t("home.picker.choose")}</span>
         </span>
       }
       triggerAriaLabel={t("home.picker.switchAria")}

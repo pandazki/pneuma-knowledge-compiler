@@ -21,6 +21,15 @@ import {
   type LensReading,
 } from "./lensReport";
 import type { StewardImage } from "./steward";
+import { parseSourceCollection, type SourceCollection } from "./sourceCollection";
+import type {
+  CollectionDevice,
+  CollectionInvitationRequest,
+  CollectionInvitationSecret,
+  CollectionProcessor,
+  CollectionScope,
+  HomeCollection,
+} from "./collection";
 
 const BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/+$/, "");
 
@@ -367,16 +376,18 @@ export async function crawlSources(
   return items;
 }
 
-export function getSource(userId: string, sourceId: string): Promise<SourceDetail> {
-  return req<SourceDetail>(`/v1/users/${u(userId)}/sources/${u(sourceId)}`);
+export function getSource(userId: string, sourceId: string, signal?: AbortSignal): Promise<SourceDetail> {
+  return req<SourceDetail>(`/v1/users/${u(userId)}/sources/${u(sourceId)}`, { signal });
 }
 
 export function fetchLocator(
   userId: string,
   sourceId: string,
   locator: Locator,
+  signal?: AbortSignal,
 ): Promise<{ text: string }> {
   return req<{ text: string }>(`/v1/users/${u(userId)}/sources/${u(sourceId)}/fetch`, {
+    signal,
     method: "POST",
     body: JSON.stringify({ locator }),
   });
@@ -2606,4 +2617,70 @@ export async function getHomeStatus(): Promise<HomeStatus | null> {
   } catch {
     return null;
   }
+}
+
+/** The served personal engine selects the library; callers cannot substitute a tenant. */
+export function getHomeCollection(signal?: AbortSignal): Promise<HomeCollection> {
+  return req("/home/collection", { signal });
+}
+
+/** Optional personal-edition context; a standalone SPA may answer this path with HTML. */
+export async function getHomeSourceCollection(
+  userId: string,
+  sourceId: string,
+  signal?: AbortSignal,
+): Promise<SourceCollection | null> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `${BASE}/home/collection/sources/${u(sourceId)}?${new URLSearchParams({ user_id: userId })}`,
+      { signal, cache: "no-store", headers: { accept: "application/json" } },
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    throw new ApiError(tx("service.unreachable", { detail: (error as Error).message }), 0);
+  }
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const body = await response.json();
+      if (body?.detail != null) detail = String(body.detail);
+    } catch { /* An optional route can fail without a JSON error body. */ }
+    throw new ApiError(detail, response.status);
+  }
+  if (!response.headers.get("content-type")?.includes("json")) return null;
+  try {
+    return parseSourceCollection(await response.json(), userId, sourceId);
+  } catch {
+    return null;
+  }
+}
+
+export function setHomeCollectionCloud(body: { url: string; host_token: string }): Promise<HomeCollection["cloud"]> {
+  return req("/home/collection/cloud", { method: "PUT", body: JSON.stringify(body) });
+}
+
+export function createHomeCollectionInvitation(body: CollectionInvitationRequest): Promise<CollectionInvitationSecret> {
+  return req("/home/collection/invitations", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function revokeHomeCollectionInvitation(id: string): Promise<unknown> {
+  return req(`/home/collection/invitations/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function updateHomeCollectionDevice(id: string, status: CollectionDevice["status"]): Promise<unknown> {
+  return req(`/home/collection/devices/${encodeURIComponent(id)}`, {
+    method: "PATCH", body: JSON.stringify({ status }),
+  });
+}
+
+export function updateHomeCollectionProcessor(id: string, body: Omit<CollectionProcessor, "id" | "material_type">): Promise<unknown> {
+  return req(`/home/collection/processors/${encodeURIComponent(id)}`, {
+    method: "PUT", body: JSON.stringify(body),
+  });
+}
+
+export function updateHomeLocalCollection(body: { enabled: boolean; scope?: CollectionScope }): Promise<unknown> {
+  return req("/home/collection/local", { method: "PUT", body: JSON.stringify(body) });
 }

@@ -30,7 +30,7 @@ export const home = defineMessages({
     "home.picker.engineDown": "引擎未运行",
 
     "home.title": "本机",
-    "home.description": "这台机器上的中间件、引擎与知识库——只读的一眼。",
+    "home.description": "管理数据接入，查看这台机器上的引擎与知识库。",
     "home.absent": "这个控制台不是由单机版引擎提供的，没有可看的本机状态。",
 
     "home.section.machine": "机器",
@@ -112,7 +112,7 @@ export const home = defineMessages({
 
     "home.title": "This machine",
     "home.description":
-      "The middleware, the engines and the libraries on this machine — a read-only glance.",
+      "Manage collection and check the engines and libraries on this machine.",
     "home.absent": "This console is not served by a personal-edition engine; there is no home to show.",
 
     "home.section.machine": "Machine",

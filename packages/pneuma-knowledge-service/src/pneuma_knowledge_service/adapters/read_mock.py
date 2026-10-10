@@ -14,6 +14,7 @@ let a test pass that the real store would fail.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +24,7 @@ from pneuma_knowledge_core.domain.ids import SourceId
 from pneuma_knowledge_core.domain.source import NormalizedSource
 
 from .draft_mock import InMemoryJobQueue
+from ..source_receipt import SourceImportBatchReceipt, SourceImportReceipt
 
 
 class InMemoryLibraryStore(InMemoryJobQueue):
@@ -35,6 +37,7 @@ class InMemoryLibraryStore(InMemoryJobQueue):
 
     def __init__(self) -> None:
         super().__init__()
+        self._import_lock = asyncio.Lock()
         self._sources: dict[tuple[str, str], NormalizedSource] = {}
         #: Ledger rows a test seeds directly — `pkc history` and `pkc brief` read the same
         #: ledger, and deriving one from the queue here would be inventing a projection the
@@ -62,6 +65,44 @@ class InMemoryLibraryStore(InMemoryJobQueue):
         return dict(stored) if stored is not None else None
 
     # ---------------------------------------------------------------- L0 (ContentStore)
+
+    async def add_sources_with_jobs(self, user_id, sources, jobs):  # noqa: ANN001
+        """The atomic official-intake face, including rollback in fault-injection tests."""
+        requested = {str(source.raw.source_id) for source in sources}
+        if any(str(job.source_id) not in requested for job in jobs):
+            raise ValueError("an import job must name a source in its bundle")
+        async with self._import_lock:
+            before = (dict(self._sources), list(self.jobs), self._seq, self._last_created)
+            receipt = SourceImportBatchReceipt()
+            inserted = set()
+            try:
+                for source in sources:
+                    raw = source.raw
+                    key = (str(user_id), str(raw.source_id))
+                    existing = self._sources.get(key)
+                    if existing is not None and existing.raw.checksum != raw.checksum:
+                        raise RuntimeError(f"source identity collision for {raw.source_id}: checksum differs")
+                    if existing is None:
+                        existing = next((saved for (uid, _), saved in self._sources.items()
+                                         if uid == str(user_id) and saved.raw.checksum == raw.checksum), None)
+                    if existing is not None:
+                        receipt.sources.append(SourceImportReceipt(existing.raw.source_id, True, existing.raw.intake_plan))
+                    else:
+                        self._sources[key] = source
+                        inserted.add(str(raw.source_id))
+                        receipt.sources.append(SourceImportReceipt(raw.source_id, False, raw.intake_plan))
+                enqueued = set()
+                for job in jobs:
+                    identity = (str(job.source_id), job.kind)
+                    if identity[0] in inserted and identity not in enqueued:
+                        job_id = await self.enqueue(user_id, job.kind, job.payload)
+                        receipt.jobs.append((job.kind, job_id))
+                        enqueued.add(identity)
+                return receipt
+            except BaseException:
+                self._sources, old_jobs, self._seq, self._last_created = before
+                self.jobs[:] = old_jobs
+                raise
 
     async def add(self, user_id, source: NormalizedSource) -> SourceId:  # noqa: ANN001
         key = (str(user_id), str(source.raw.source_id))

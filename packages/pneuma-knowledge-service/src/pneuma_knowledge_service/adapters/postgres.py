@@ -63,6 +63,7 @@ from ..job_lanes import (
     same_lane_sql,
 )
 from ..snapshot_tenant import RESERVED_PREFIX
+from ..source_receipt import SourceImportBatchReceipt, SourceImportJob, SourceImportReceipt
 
 
 def schema_sql() -> str:
@@ -354,6 +355,94 @@ class PostgresStore:
         await self._pool.close()
 
     # --- ContentStore ---------------------------------------------------------
+
+    async def add_sources_with_jobs(
+        self,
+        user_id: UserId,
+        sources: Sequence[NormalizedSource],
+        jobs: Sequence[SourceImportJob],
+    ) -> SourceImportBatchReceipt:
+        """Commit one official import's L0 and its processing jobs together.
+
+        A successful receipt promises both halves. A failed queue INSERT rolls the source
+        and its blocks back too, so a retry cannot deduplicate material whose processing was
+        never queued. Conflict handling happens at INSERT, under the tenant's unique keys:
+        concurrent identical imports get one source and one set of jobs.
+
+        Insert sources in identity order to avoid deadlocks between overlapping bundles;
+        return receipts and enqueue jobs in the caller's original order. All index jobs are
+        supplied before compile jobs by the intake service. Explicit increasing creation
+        instants preserve that order inside a transaction (Postgres now() is transaction-
+        stable and would otherwise make every new job tie).
+        """
+        requested = {str(source.raw.source_id) for source in sources}
+        if any(str(job.source_id) not in requested for job in jobs):
+            raise ValueError("an import job must name a source in its bundle")
+        receipts: dict[int, SourceImportReceipt] = {}
+        inserted: set[str] = set()
+        result = SourceImportBatchReceipt()
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                for position, source in sorted(enumerate(sources), key=lambda pair: str(pair[1].raw.source_id)):
+                    raw = source.raw
+                    row = await (await conn.execute(
+                        "INSERT INTO sources (user_id, source_id, kind, source_class, title, "
+                        "mime, checksum, created_at, meta, intake_plan, structure_map, origin) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                        "ON CONFLICT DO NOTHING RETURNING source_id",
+                        (str(user_id), str(raw.source_id), raw.kind, raw.source_class, raw.title,
+                         raw.mime, raw.checksum, raw.created_at, Json(raw.meta),
+                         Json(raw.intake_plan) if raw.intake_plan is not None else None,
+                         Json(source.structure.model_dump()), raw.origin),
+                    )).fetchone()
+                    if row is None:
+                        # A source-id collision must not be disguised as content dedup.
+                        existing = await (await conn.execute(
+                            "SELECT source_id, checksum, intake_plan FROM sources "
+                            "WHERE user_id = %s AND source_id = %s",
+                            (str(user_id), str(raw.source_id)),
+                        )).fetchone()
+                        if existing is not None and existing[1] != raw.checksum:
+                            raise RuntimeError(f"source identity collision for {raw.source_id}: checksum differs")
+                        if existing is None:
+                            existing = await (await conn.execute(
+                                "SELECT source_id, checksum, intake_plan FROM sources "
+                                "WHERE user_id = %s AND checksum = %s",
+                                (str(user_id), raw.checksum),
+                            )).fetchone()
+                        if existing is None:
+                            raise RuntimeError("source deduplication conflict has no surviving source")
+                        receipts[position] = SourceImportReceipt(SourceId(existing[0]), True, existing[2])
+                        continue
+                    async with conn.cursor() as cur:
+                        await cur.executemany(
+                            "INSERT INTO blocks (user_id, source_id, block_index, text, section_path, images) "
+                            "VALUES (%s, %s, %s, %s, %s, %s)",
+                            [(str(user_id), str(raw.source_id), block.index, block.text,
+                              Json(block.section_path), Json([image.model_dump(mode="json") for image in block.images]))
+                             for block in source.blocks],
+                        )
+                    inserted.add(str(raw.source_id))
+                    receipts[position] = SourceImportReceipt(raw.source_id, False, raw.intake_plan)
+                enqueued: set[tuple[str, str]] = set()
+                previous_created: datetime | None = None
+                for job in jobs:
+                    identity = (str(job.source_id), job.kind)
+                    if identity[0] not in inserted or identity in enqueued:
+                        continue
+                    job_id = uuid.uuid4().hex
+                    created = await (await conn.execute(
+                        "INSERT INTO compile_jobs (id, user_id, kind, payload, created_at) "
+                        "VALUES (%s, %s, %s, %s, GREATEST(clock_timestamp(), "
+                        "COALESCE(%s::timestamptz + INTERVAL '1 microsecond', '-infinity'::timestamptz))) "
+                        "RETURNING created_at",
+                        (job_id, str(user_id), job.kind, Json(job.payload), previous_created),
+                    )).fetchone()
+                    previous_created = created[0]
+                    enqueued.add(identity)
+                    result.jobs.append((job.kind, job_id))
+        result.sources = [receipts[position] for position in range(len(sources))]
+        return result
 
     async def add(self, user_id: UserId, source: NormalizedSource) -> SourceId:
         raw = source.raw

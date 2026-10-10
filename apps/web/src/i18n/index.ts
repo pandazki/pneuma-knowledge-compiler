@@ -13,6 +13,7 @@ import { archive } from "./archive";
 import { ask } from "./ask";
 import { call } from "./call";
 import { common } from "./common";
+import { collection } from "./collection";
 import { consultations } from "./consultations";
 import { engineConsole } from "./engineConsole";
 import { enums } from "./enums";
@@ -41,6 +42,7 @@ export { LOCALES, defineMessages } from "./define";
 /** Every bundle, for the runtime duplicate-key check. Order is irrelevant to lookup. */
 export const BUNDLES = [
   common,
+  collection,
   archive,
   nav,
   enums,
@@ -70,6 +72,7 @@ export const BUNDLES = [
 export const MESSAGES = {
   zh: {
     ...common.zh,
+    ...collection.zh,
     ...archive.zh,
     ...nav.zh,
     ...enums.zh,
@@ -97,6 +100,7 @@ export const MESSAGES = {
   },
   en: {
     ...common.en,
+    ...collection.en,
     ...archive.en,
     ...nav.en,
     ...enums.en,

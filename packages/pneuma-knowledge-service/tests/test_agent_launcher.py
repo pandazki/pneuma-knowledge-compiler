@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import sys
 import time
 from pathlib import Path
 
@@ -212,16 +213,17 @@ def test_a_named_reasoning_effort_rides_both_the_launch_and_the_repair_round(tmp
         request(CODEX, tmp_path, reasoning_effort="medium", resume_session="anything"),
         tmp_path / "wd",
     )
-    assert resumed[:3] == ["codex", "exec", "resume"]
+    assert resumed[:2] == ["codex", "exec"]
+    assert "resume" in resumed
     assert "model_reasoning_effort=medium" in resumed
 
 
 def test_an_unnamed_effort_drops_its_flag_and_leaves_no_dangling_one(tmp_path):
     """The same one substitution rule the model pair rides: an empty placeholder takes the
-    flag before it, so the sandbox's own `-c` is the only one left."""
+    flag before it, leaving only the sandbox and shell-environment overrides."""
     without = build_argv(request(CODEX, tmp_path), tmp_path / "wd")
     assert not [argument for argument in without if "model_reasoning_effort" in argument]
-    assert without.count("-c") == 1
+    assert without.count("-c") == 2
     assert without[without.index("-c") + 1] == "sandbox_workspace_write.network_access=true"
     assert "" not in without
 
@@ -347,7 +349,7 @@ def test_a_codex_round_sees_only_its_library_s_skill_package(tmp_path, monkeypat
     assert sorted(path.name for path in round_home.iterdir()) == ["auth.json"]
     assert harness_env(CODEX, config_home=str(round_home))["CODEX_HOME"] == str(round_home)
 
-    # Nothing foreign, nothing stated: the flag pair drops and the sandbox `-c` stands alone.
+    # Nothing foreign, nothing stated: only the sandbox and shell-environment overrides.
     (shared / "pkc-steward" / "SKILL.md").unlink()
     assert foreign_skill_copies(CODEX, str(project)) == ()
     plain = build_argv(request(CODEX, tmp_path, project_dir=str(project)), tmp_path / "wd")
@@ -404,10 +406,109 @@ def test_a_repair_round_resumes_the_session_where_the_manifest_can(tmp_path):
         request(CLAUDE_CODE, tmp_path, resume_session="sess-1"), tmp_path / "wd"
     )
     assert resumed[resumed.index("--resume") + 1] == "sess-1"
-    # Codex resumes by position under its own per-job home, so no session id is needed.
-    codex = build_argv(request(CODEX, tmp_path, resume_session="anything"), tmp_path / "wd")
-    assert codex[:3] == ["codex", "exec", "resume"]
-    assert "--last" in codex
+    # Every round has a new working directory, so a cwd-filtered `--last` cannot find it.
+    codex = build_argv(request(CODEX, tmp_path, resume_session="thread-1"), tmp_path / "wd")
+    assert codex[:2] == ["codex", "exec"]
+    assert "resume" in codex
+    assert codex[-2:] == ["thread-1", "-"]
+    assert "--last" not in codex
+
+
+async def test_codex_repair_preserves_exec_options_and_resumes_the_first_thread(fake_path, tmp_path):
+    """The real CLI rejected exec-only flags after resume; the scoped fake does too.
+
+    An explicit thread id also survives the fresh workdir assigned to the repair round.
+    """
+    first = await launch_round(request(CODEX, tmp_path))
+    assert first.ok, first.stderr
+    assert first.session_id
+    repaired = await launch_round(request(
+        CODEX, tmp_path, resume_session=first.session_id,
+        model="gpt-x", reasoning_effort="medium", hidden_skills=("/foreign/SKILL.md",),
+    ))
+    assert repaired.ok, repaired.stderr
+    initial, repair = invocations(fake_path)
+    assert initial["cwd"] != repair["cwd"]
+    assert initial["sandbox_network_access"] is True
+    assert repair["sandbox_network_access"] is True
+    argv = repair["argv"]
+    resume_at = argv.index("resume")
+    assert argv.index("--color") < resume_at
+    assert argv[argv.index("--color") + 1] == "never"
+    assert argv.index("--sandbox") < resume_at
+    assert argv[argv.index("--sandbox") + 1] == "workspace-write"
+    assert argv.index("sandbox_workspace_write.network_access=true") > resume_at
+    assert "--dangerously-bypass-approvals-and-sandbox" not in argv
+    assert argv[-2:] == [first.session_id, "-"]
+    assert "--last" not in argv
+    assert argv[argv.index("-m") + 1] == "gpt-x"
+    assert "model_reasoning_effort=medium" in argv
+    assert any("/foreign/SKILL.md" in arg for arg in argv if arg.startswith("skills.config="))
+    assert "--json" in argv
+    assert "--output-last-message" in argv
+    assert TASK_TEXT in repair["stdin"]
+
+
+@pytest.mark.parametrize("resume_session", ["", "thread-first"])
+@pytest.mark.parametrize("filters", [False, True], ids=["legacy-policy", "keyed-filters"])
+async def test_codex_shell_keeps_the_library_executor_and_credentials_only(
+    fake_path, tmp_path, monkeypatch, resume_session, filters
+):
+    """A real subprocess must retain ownership and connections past the harness's filter.
+
+    A config inherited from the Owner cannot drop or replace that identity. Credentials
+    needed by `pkc` travel in the environment, while unrelated credentials stay outside it.
+    """
+    config_home = tmp_path / "home"
+    config_home.mkdir()
+    owner_policy = (
+        '[shell_environment_policy]\ninherit="core"\nignore_default_excludes=false\n'
+        'set={PKC_DRAFT_EXECUTOR="wrong-executor"}\n'
+        + ('[shell_environment_policy.filters]\n"PKC_*"="exclude"\n"PATH"="include"\n'
+           if filters else 'exclude=["PKC_*"]\ninclude_only=["PATH"]\n')
+    )
+    config = config_home / "config.toml"
+    config.write_text(owner_policy)
+    required = {
+        "PKC_DRAFT_EXECUTOR": "worker:codex:synthetic-owner",
+        "PNEUMA_KNOWLEDGE_TENANT": "synthetic-tenant",
+        "PNEUMA_KNOWLEDGE_PG_DSN": "postgresql://synthetic:synthetic-db-secret@127.0.0.1/library",
+        "PNEUMA_KNOWLEDGE_MEILI_KEY": "synthetic-meili-secret",
+        "PNEUMA_APP_FRAMEWORK_REPO": "/synthetic/framework",
+        "OPENAI_API_KEY": "synthetic-openai-secret",
+        "OPENROUTER_API_KEY": "synthetic-openrouter-secret",
+        "LANGFUSE_SECRET_KEY": "synthetic-trace-secret",
+        "https_proxy": "http://127.0.0.1:45678",
+    }
+    observed = tmp_path / "observed.json"
+    script = tmp_path / "check_env.py"
+    script.write_text(
+        "import json, os, sys\nfrom pathlib import Path\n"
+        f"expected = {required!r}\n"
+        "checks = {name: os.environ.get(name) == value for name, value in expected.items()}\n"
+        f"checks['steward_session'] = os.environ.get('PKC_STEWARD_SESSION') == {str(config_home)!r}\n"
+        "checks['path'] = bool(os.environ.get('PATH'))\n"
+        "checks['unrelated_absent'] = 'UNRELATED_PROBE_SECRET' not in os.environ\n"
+        "Path(sys.argv[1]).write_text(json.dumps(checks))\n"
+        "assert all(checks.values()), checks\n"
+    )
+    commands = tmp_path / "commands.json"
+    commands.write_text(json.dumps([[sys.executable, str(script), str(observed)]]))
+    monkeypatch.setenv("PKC_FAKE_SCRIPT", str(commands))
+    result = await launch_round(request(
+        CODEX, tmp_path, resume_session=resume_session,
+        env={**required, "UNRELATED_PROBE_SECRET": "synthetic-unrelated-secret"},
+    ))
+    assert result.ok, result.stderr
+    assert all(json.loads(observed.read_text()).values())
+    assert config.read_text() == owner_policy
+    (record,) = invocations(fake_path)
+    argv = " ".join(record["argv"])
+    assert all(value not in argv for value in required.values())
+    assert "synthetic-unrelated-secret" not in argv
+    # Both framework-started Codex surfaces apply this same shell boundary.
+    policy = next(arg for arg in record["argv"] if arg.startswith("shell_environment_policy="))
+    assert policy in CODEX.interactive_command
 
 
 # ─────────────────────────────────────────────────────────────────── a real launched round

@@ -94,7 +94,7 @@ def _attempt() -> int:
     return n + 1
 
 
-def _log(argv: list[str], stdin_text: str) -> None:
+def _log(argv: list[str], stdin_text: str, *, network_access: bool | None = None) -> None:
     target = os.environ.get("PKC_FAKE_LOG", "")
     if not target:
         return
@@ -115,6 +115,8 @@ def _log(argv: list[str], stdin_text: str) -> None:
         },
         "workdir_entries": sorted(p.name for p in Path.cwd().iterdir()),
     }
+    if network_access is not None:
+        record["sandbox_network_access"] = network_access
     with open(target, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")
 
@@ -135,13 +137,13 @@ def _output_file(argv: list[str]) -> Path | None:
     return None
 
 
-def _run_script() -> int:
+def _run_script(*, env: dict[str, str] | None = None) -> int:
     """Replay the `pkc draft …` sequence a real Steward would type. 0 when all of them did."""
     script = os.environ.get("PKC_FAKE_SCRIPT", "")
     if not script:
         return 0
     for command in json.loads(Path(script).read_text(encoding="utf-8")):
-        completed = subprocess.run([str(part) for part in command])
+        completed = subprocess.run([str(part) for part in command], env=env)
         if completed.returncode != 0:
             print(
                 f"fake harness: `{' '.join(str(p) for p in command)}` exited "
@@ -382,14 +384,17 @@ def _is_interactive(family: str, argv: list[str]) -> bool:
     return "--input-format" in argv
 
 
-def main(family: str) -> int:
+def main(
+    family: str, *, shell_env: dict[str, str] | None = None,
+    network_access: bool | None = None,
+) -> int:
     argv = sys.argv[1:]
     mode = os.environ.get("PKC_FAKE_MODE", "ok")
 
     # The interactive posture reads stdin a LINE at a time for the life of the process, so
     # the round's `read()` of the whole of it must not happen first.
     if _is_interactive(family, argv):
-        _log(argv, "")
+        _log(argv, "", network_access=network_access)
         if mode == "fail":
             # A harness that dies on its own. The bridge must report it, never restart it.
             print("fake harness: refusing to start", file=sys.stderr)
@@ -400,7 +405,7 @@ def main(family: str) -> int:
         return _interactive_claude() if family == "claude" else _interactive_codex()
 
     stdin_text = "" if sys.stdin.isatty() else sys.stdin.read()
-    _log(argv, stdin_text)
+    _log(argv, stdin_text, network_access=network_access)
     attempt = _attempt()
 
     if mode == "hang":
@@ -425,7 +430,7 @@ def main(family: str) -> int:
         print(json.dumps({"type": "thread.started", "thread_id": CODEX_THREAD}))
         return int(os.environ.get("PKC_FAKE_EXIT", "1"))
 
-    script_code = _run_script()
+    script_code = _run_script(env=shell_env)
 
     if family == "claude":
         payload = {

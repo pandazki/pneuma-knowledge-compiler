@@ -1,0 +1,2 @@
+# Generate a distinct high-entropy owner token and keep the real file untracked.
+HOST_TOKEN=replace-with-a-random-owner-token-of-at-least-32-characters

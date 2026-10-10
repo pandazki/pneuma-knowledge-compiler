@@ -133,6 +133,7 @@ export function Combobox({
             type="button"
             disabled={disabled}
             aria-label={triggerAriaLabel}
+            aria-describedby={disabled && disabledNote ? `${baseId}-disabled-note` : undefined}
             aria-haspopup="listbox"
             aria-expanded={open}
             className={cn(
@@ -145,7 +146,7 @@ export function Combobox({
             <ChevronDown size={13} aria-hidden className="shrink-0 text-ink-3" />
           </button>
         </PopoverPrimitive.Trigger>
-        {disabled && disabledNote && <span className="text-12 text-ink-3">{disabledNote}</span>}
+        {disabled && disabledNote && <span id={`${baseId}-disabled-note`} className="sr-only text-12 text-ink-3 sm:not-sr-only">{disabledNote}</span>}
       </div>
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content

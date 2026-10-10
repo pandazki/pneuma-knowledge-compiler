@@ -20,6 +20,7 @@ export default defineConfig({
       // HTTP response and the socket never opens (the ContextStream view's WS transport dies).
       "/v1": { target: API_TARGET, changeOrigin: true, ws: true },
       "/healthz": { target: API_TARGET, changeOrigin: true },
+      "/home": { target: API_TARGET, changeOrigin: false },
     },
   },
   resolve: {

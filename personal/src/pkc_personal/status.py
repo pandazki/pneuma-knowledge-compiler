@@ -213,7 +213,8 @@ def skill_fresh(home: Home, library: Library) -> bool | None:
             # directory (the project a harness stands in here), so the router block in its
             # instructions file is part of the question — a skill whose files are current
             # but which nothing points at is present, not installed.
-            [pkc_script(), "skill", "verify", "--project", str(library.path),
+            [str(library.path / "bin" / "pkc") if (library.path / "bin" / "pkc").is_file() else pkc_script(),
+             "skill", "verify", "--project", str(library.path),
              "--backend", library.skill_backend],
             env=home_environment(home, library), cwd=library.path, capture_output=True, timeout=30,
         )

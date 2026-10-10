@@ -1262,9 +1262,23 @@ One manifest per harness, data first:
 | headless launch | `codex exec --skip-git-repo-check --color never --json --sandbox workspace-write -c sandbox_workspace_write.network_access=true [-c model_reasoning_effort=<e>] [-m <model>] --output-last-message <f> -` | `claude -p --output-format json --tools "Bash,Read" --permission-mode bypassPermissions [--model <m>] --add-dir <project> --system-prompt-file <f>` |
 | system text | prepended to stdin (no system channel) | `--system-prompt-file`, replacing the harness's own preamble |
 | usage | token counts from `--json` events; no cost | `result.usage` and `total_cost_usd` |
-| session | new thread per round; the repair round is `codex exec resume --last` under a per-job `CODEX_HOME`, else a fresh process fed the violations | `--resume <session>` (from `result.session_id`) under a per-job `CLAUDE_CONFIG_DIR`, deleted with the draft |
+| session | new thread for the first round; repair uses `codex exec <exec-options> resume <session-id>` under the same per-job `CODEX_HOME`, else a fresh process fed the violations | `--resume <session>` (from `result.session_id`) under a per-job `CLAUDE_CONFIG_DIR`, deleted with the draft |
 | what the OWNER types, interactive | `codex --sandbox workspace-write -c sandbox_workspace_write.network_access=true` | `claude` — nothing special; allow Bash when it asks |
 | what the OWNER types, one instruction | `codex exec --skip-git-repo-check --sandbox workspace-write -c sandbox_workspace_write.network_access=true "…"` | `claude -p --permission-mode bypassPermissions "…"` |
+
+Codex's `--color` and `--sandbox` options belong before the `resume` subcommand. A repair
+resumes the first round's explicit thread id: each launch has a fresh working directory,
+so the cwd-filtered `--last` can miss the very session it should continue. The network
+`-c sandbox_workspace_write.network_access=true` override belongs to the resumed command,
+alongside its model and environment overrides; leaving it on the parent command can lose
+the local database connection permission when the session resumes.
+
+Framework-launched Codex sessions also declare a shell environment allowlist. The deployment's
+connection variables and `PKC_DRAFT_EXECUTOR` must reach shell commands even when the
+Owner's global policy is `inherit = "core"`; otherwise `pkc` reaches the wrong deployment
+or cannot act as the worker that owns its draft. Values stay in the child environment;
+only variable names and policy choices travel in argv. The global configuration, sandbox
+and draft ownership checks remain unchanged.
 
 The last two rows are on the manifest because the end-to-end acceptance run found them to be
 the single biggest gap in the feature: **a harness started in its default posture cannot open

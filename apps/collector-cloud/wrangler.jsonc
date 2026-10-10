@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "pneuma-collector",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "secrets": { "required": ["HOST_TOKEN"] },
+  "durable_objects": {
+    "bindings": [{ "name": "REGISTRY", "class_name": "CollectorRegistry" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CollectorRegistry"] }],
+  "r2_buckets": [{ "binding": "MATERIALS", "bucket_name": "pneuma-collector-materials" }],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "vars": { "MAX_SNAPSHOT_BYTES": "8388608" }
+}

@@ -68,6 +68,10 @@
 
 官方输入边界是六种版本化、provider 中立的契约：`meeting/v1`、`document-library/v1`、`im/v1`、`email/v1`、`owner-dialogue/v1` 与 `agent-session/v1`（见[输入契约](reference/source-contracts.zh-CN.md)）。
 
+个人应用的本机与远程材料 feed 位于这个边界上游。共享处理器负责扫描、增量游标和传输观察；可选的
+Cloudflare/R2 采集服务把规范化会话快照送到同一宿主机。存储位置不改变来源合同，也不产生另一个
+canonical 写入者。项目身份由应用组件从保留的采集观察中提供，见[材料来源与共享处理器](design/material-sources.zh-CN.md)。
+
 ## 4. 权威与派生
 
 来源结构也是证据。编译 HumanMessage 保留每个 block 的章节路径；官方 IM、邮件和会议来源

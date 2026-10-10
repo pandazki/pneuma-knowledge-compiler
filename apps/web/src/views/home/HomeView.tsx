@@ -17,15 +17,14 @@ import { useT, type TFunction } from "@/lib/useT";
 import { EmptyState } from "@/ui/EmptyState";
 import { Mono } from "@/ui/Mono";
 import { cn } from "@/ui/cn";
+import { CollectionPanel } from "./CollectionPanel";
 
 /**
  * The machine, at a glance: Docker, the four services it runs once, and every library on it
  * with the state of its engine, its queue and its cold start.
  *
- * Read-only, and deliberately so for now. Every action this page will grow — start an
- * engine, set a key, re-render a skill — is a `pkchome` verb behind `/home/actions/*`, and a
- * health page that reported a state it could not change is honest; one that offered buttons
- * over an endpoint that does not exist yet would not be.
+ * Machine health stays read-only. Collection configuration uses the personal engine's
+ * /home/collection endpoints; no project deployment grows those controls.
  *
  * No cards and no number wall (DESIGN.md §6.5): each library is a hairline-separated block
  * whose facts read as a line of prose-shaped labels, which is how the rest of this console
@@ -55,6 +54,7 @@ function HomeAbsent({ t }: { t: TFunction }) {
 function HomeBody({ home, t }: { home: HomeStatus; t: TFunction }) {
   return (
     <>
+      <CollectionPanel />
       <section className="flex flex-col gap-4">
         <Heading title={t("home.section.machine")} />
         <dl className="flex flex-col">
