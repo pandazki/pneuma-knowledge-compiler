@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from contextlib import nullcontext
 from functools import lru_cache
 import importlib.util
 from pathlib import Path
@@ -34,17 +35,40 @@ HARNESS_ALIASES = {"claude-code": "claude"}
 
 def run(home: Home, library: Library, *, dry_run: bool = False, rewritten: str = "report") -> dict:
     from pkc_personal.engine_app import pkchome_command
+    from pkc_personal import collection
 
     config = home.config.sync
     script = converter()
-    return script.sync_pass(
-        library.show(), [item.model_dump() for item in library.state.watch],
+    selected = collection.processor(home, library)
+    source_config = collection.read_config(library)
+    # Downloaded snapshots are retained for held/retry passes; this cursor is never an
+    # acknowledgement that evidence was ingested. Serialize cache writes independently of
+    # the processor's existing lock, which still owns every ingest cursor.
+    cloud_error = None
+    with nullcontext() if dry_run else collection.locked(library):
+        try:
+            snapshots = collection.download_snapshots(library, persist=not dry_run, stream=True)
+        except (OSError, ValueError) as exc:
+            cloud_error = str(exc)
+            snapshots = collection.cached_snapshots(library, stream=True)
+    watches = [item.model_dump() for item in library.state.watch] if source_config.get("local_enabled", True) else []
+    report = script.sync_pass(
+        library.show(), watches,
         dry_run=dry_run, rewritten=rewritten, pkchome=pkchome_command(home),
         claude_roots=script.claude_session_roots(config.roots.claude),
         codex_roots=script.codex_session_roots(config.roots.codex),
         exclude=list(config.exclude), home=str(home.path),
-        options={key: getattr(config, key) for key in THRESHOLDS},
-        max_part_chars=config.max_part_chars)
+        options={key: getattr(selected, key) for key in THRESHOLDS},
+        max_part_chars=selected.max_part_chars, snapshots=snapshots,
+        on_material=collection.observer(library))
+    if not dry_run:
+        collection.observe(library, report.get("sessions", []))
+        collection.acknowledge_snapshots(library, report)
+    if cloud_error:
+        report["skipped"] += 1
+        report["sessions"].append({"provider": "cloud", "file": "remote source",
+                                   "status": "error", "error": cloud_error})
+    return report
 
 
 def harness(name: str) -> str:
@@ -90,10 +114,15 @@ def set_root(home: Home, name: str, directory: str, *, remove: bool = False) -> 
 
 
 def status(home: Home, library: Library) -> dict:
+    from pkc_personal import collection
     script = converter()
     state = script.read_sync_state(library.path / "sync-state.json")
     config = home.config.sync
-    watching = [item.path for item in library.state.watch]
+    collection_config = collection.read_config(library)
+    watching = ([item.path for item in library.state.watch]
+                if collection_config.get("local_enabled", True) else [])
+    if collection_config.get("cloud"):
+        watching.append("cloud")
     last = state.get("last_run_at")
     next_due = None
     if watching and config.enabled:

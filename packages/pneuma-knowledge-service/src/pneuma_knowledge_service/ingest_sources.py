@@ -20,6 +20,7 @@ from pneuma_knowledge_core.ingest.source_contracts import SourceContract
 from .ingest import IngestResult, subject_time_context
 from .media_ingest import materialize_contract_images
 from .snapshot_tenant import assert_writable
+from .source_receipt import SourceImportJob
 from .wiring import AppContext
 
 
@@ -99,8 +100,7 @@ async def ingest_source_contract(
         time=time,
         materialized_images=materialized_images,
     )
-    results: list[IngestResult] = []
-    new_sources: list[tuple[str, IntakePlan]] = []
+    plans: list[IntakePlan] = []
     for normalized in normalized_sources:
         raw = normalized.raw
         char_count = sum(len(block.text) for block in normalized.blocks)
@@ -119,52 +119,15 @@ async def ingest_source_contract(
             plan, getattr(ctx.settings, "semantic_retrieval", "on") == "on"
         )
         raw.intake_plan = plan.model_dump()
-
-        # Official source ids are content-stable. The legacy ingest flows use a fresh
-        # random id and detect dedup when ContentStore.add returns a *different* id;
-        # here an exact replay returns the same id, so check it before add.
-        try:
-            existing_by_id = await ctx.store.get(user_id, raw.source_id)
-        except KeyError:
-            existing_by_id = None
-        if existing_by_id is not None:
-            if existing_by_id.raw.checksum != raw.checksum:
-                raise RuntimeError(
-                    f"source identity collision for {raw.source_id}: checksum differs"
-                )
-            existing_plan = (
-                IntakePlan.model_validate(existing_by_id.raw.intake_plan)
-                if existing_by_id.raw.intake_plan
-                else plan
-            )
-            results.append(
-                IngestResult(raw.source_id, existing_plan, deduplicated=True)
-            )
-            continue
-
-        stored_id = await ctx.store.add(user_id, normalized)
-        if stored_id != raw.source_id:
-            existing = await ctx.store.get(user_id, stored_id)
-            existing_plan = (
-                IntakePlan.model_validate(existing.raw.intake_plan)
-                if existing.raw.intake_plan
-                else plan
-            )
-            results.append(
-                IngestResult(stored_id, existing_plan, deduplicated=True)
-            )
-            continue
-
-        new_sources.append((str(raw.source_id), plan))
-        results.append(IngestResult(raw.source_id, plan, deduplicated=False))
+        plans.append(plan)
 
     # Bundle order is deliberate: make every natural unit searchable before any of
     # them enters L3 compilation. This also keeps bulk import progress intuitive.
-    for source_id, _ in new_sources:
-        await ctx.store.enqueue(user_id, "index", {"source_id": source_id})
-    compile_jobs: list[str] = []
+    jobs = [SourceImportJob(source.raw.source_id, "index", {"source_id": str(source.raw.source_id)})
+            for source in normalized_sources]
     about = [str(path).strip() for path in about_paths if str(path).strip()]
-    for source_id, plan in new_sources:
+    for source, plan in zip(normalized_sources, plans, strict=True):
+        source_id = str(source.raw.source_id)
         if plan.canonical_treatment != "none":
             payload: dict = {
                 "source_ids": [source_id],
@@ -172,12 +135,19 @@ async def ingest_source_contract(
             }
             if about:
                 payload["about_paths"] = about
-            job_id = await ctx.store.enqueue(user_id, "compile", payload)
-            if job_id:
-                compile_jobs.append(str(job_id))
+            jobs.append(SourceImportJob(source.raw.source_id, "compile", payload))
+
+    # The store decides new-vs-replay inside the same transaction that persists L0 and
+    # every required job. A caller may acknowledge this receipt without leaving a crash
+    # window where a replay would find the source but never enqueue its processing.
+    receipt = await ctx.store.add_sources_with_jobs(user_id, normalized_sources, jobs)
+    results = [IngestResult(item.source_id,
+                            IntakePlan.model_validate(item.intake_plan) if item.intake_plan else plan,
+                            deduplicated=item.deduplicated)
+               for item, plan in zip(receipt.sources, plans, strict=True)]
 
     return OfficialIngestResult(
         contract_schema=contract.contract_schema,
         sources=results,
-        compile_jobs=compile_jobs,
+        compile_jobs=[job_id for kind, job_id in receipt.jobs if kind == "compile"],
     )

@@ -84,6 +84,11 @@ def home_environment(home: Home, library: Library) -> dict[str, str]:
     env.update(home.credentials())
     env[prefix + "ENV_FILE"] = ""
     env.update(os.environ)
+    # The generated skill shim delegates to `pkc` on PATH. The application's own entry
+    # registers its component just as the engine does, without a service→application import.
+    entry_dir = library.path / "bin"
+    if (entry_dir / "pkc").is_file():
+        env["PATH"] = str(entry_dir) + os.pathsep + env.get("PATH", os.defpath)
     return env
 
 

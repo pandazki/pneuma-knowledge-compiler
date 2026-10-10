@@ -86,7 +86,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-bg text-ink">
       <header className="sticky top-0 z-40 flex h-12 items-center justify-between gap-2 border-b border-line bg-surface px-2 sm:px-4">
-        <div className="flex min-w-0 items-center gap-1">
+        <div className="flex min-w-8 items-center gap-1">
           <IconButton
             aria-label={t("nav.toc.open")}
             className="lg:hidden"

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import fnmatch
 import hashlib
+from itertools import chain
 import json
 import os
 from pathlib import Path
@@ -18,8 +19,10 @@ import shlex
 import subprocess
 import sys
 import tempfile
+from urllib.parse import urlsplit
 
 SCHEMA = "pneuma.source.agent-session/v1"
+MATERIAL_SCHEMA = "pneuma.material.agent-session/v1"
 #: 3: harness-injected context is no longer the Owner's words (`INJECTED_TURNS`), and the
 #: triage record counts the blocks it removed. Payload bytes changed, so a session ingested
 #: by an older converter is a different source if it is ever converted again.
@@ -961,6 +964,212 @@ def read_session(provider: str, path: Path, project: Path, data: bytes) -> Sessi
     return (read_claude if provider == "claude-code" else read_codex)(path, project, data)
 
 
+def material_id(session: Session) -> str:
+    """The harness's logical conversation, independent of collector and storage location."""
+    return digest(encoded_json([session.provider, session.session_id]).encode())
+
+
+def normalize_git_remote(value: str) -> str | None:
+    """A credential-free repository address; never infer identity from its short name."""
+    value = value.strip()
+    if not value:
+        return None
+    if "://" not in value:
+        match = re.fullmatch(r"(?:[^/@:]+@)?([^/:]+):(.+)", value)
+        if not match:
+            return None  # A local filesystem remote is not a cross-device identity.
+        host, path = match.groups()
+    else:
+        try:
+            parsed = urlsplit(value)
+            if parsed.scheme not in {"ssh", "https", "http", "git"} or not parsed.hostname:
+                return None
+            host = parsed.hostname
+            if parsed.port and parsed.port != {"ssh": 22, "https": 443, "http": 80, "git": 9418}[parsed.scheme]:
+                host += f":{parsed.port}"
+            path = parsed.path
+        except ValueError:
+            return None
+    path = path.strip("/").removesuffix(".git")
+    return f"https://{host.lower()}/{path}" if path else None
+
+
+def git_origin(project: Path | None) -> str | None:
+    """Read local git configuration only. No network and no credential-bearing output."""
+    if project is None:
+        return None
+    try:
+        with subprocess.Popen(["git", "-C", str(project), "config", "--local", "--get", "remote.origin.url"],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as process:
+            try:
+                output, _ = process.communicate(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.communicate()
+                return None
+            return normalize_git_remote(output.decode("utf-8", errors="replace")) if not process.returncode else None
+    except OSError:
+        return None
+
+
+def session_snapshot(session: Session, *, origin: dict | None = None) -> dict:
+    """Complete retained material, with acquisition observations outside its identity.
+
+    This is not an ingest contract: there is no Owner assignment, triage or continuation.
+    Raw harness JSON, reasoning and tool payloads never enter the wire format.
+    """
+    body = {
+        "schema": MATERIAL_SCHEMA, "converter_version": CONVERTER_VERSION,
+        "session": {
+            "provider": session.provider, "session_id": session.session_id,
+            "project_path": str(session.project) if session.project is not None else None,
+            "model": session.model, "is_subagent": session.is_subagent,
+            "project_conflict": session.project_conflict, "turns": session.turns,
+            "last_at": session.last_at.isoformat() if session.last_at else None,
+            "timestamp_repairs": session.timestamp_repairs, "injected_blocks": session.injected_blocks,
+        },
+    }
+    return {**body, "material_id": material_id(session),
+            "snapshot_id": digest(encoded_json(body).encode()),
+            "origin": {**(origin or {}), "file": str(session.path)}}
+
+
+def decode_snapshot(value: dict) -> Session:
+    """Validate a material envelope without touching any path named by its publisher."""
+    try:
+        if value["schema"] != MATERIAL_SCHEMA or value["converter_version"] != CONVERTER_VERSION:
+            raise ValueError("unsupported material schema or converter version")
+        item, origin = value["session"], value["origin"]
+        if not isinstance(item, dict) or not isinstance(origin, dict):
+            raise ValueError("material session and origin must be objects")
+        if item["provider"] not in {"codex", "claude-code"}:
+            raise ValueError("unsupported material provider")
+        for name, field_value in (("session_id", item["session_id"]), ("origin.file", origin["file"])):
+            if not isinstance(field_value, str) or not field_value.strip():
+                raise ValueError(f"material {name} must be non-blank")
+        project = item["project_path"]
+        if project is not None and (not isinstance(project, str) or not project.strip()):
+            raise ValueError("invalid material project_path")
+        if item["model"] is not None and not isinstance(item["model"], str):
+            raise ValueError("invalid material model")
+        for name in ("is_subagent", "project_conflict"):
+            if not isinstance(item[name], bool):
+                raise ValueError(f"invalid material {name}")
+        for name in ("timestamp_repairs", "injected_blocks"):
+            if type(item[name]) is not int or item[name] < 0:
+                raise ValueError(f"invalid material {name}")
+        if not isinstance(item["turns"], list):
+            raise ValueError("material turns must be a list")
+        previous, ids = None, set()
+        for turn in item["turns"]:
+            if not isinstance(turn, dict) or set(turn) != {"turn_id", "role", "kind", "at", "text"}:
+                raise ValueError("invalid material turn fields")
+            if not isinstance(turn["turn_id"], str) or not turn["turn_id"].strip() or turn["turn_id"] in ids:
+                raise ValueError("invalid or duplicate material turn_id")
+            ids.add(turn["turn_id"])
+            if (turn["role"], turn["kind"]) not in {("owner", "say"), ("agent", "narrative"), ("agent", "action")}:
+                raise ValueError("invalid material turn role/kind")
+            if not isinstance(turn["text"], str) or not turn["text"].strip():
+                raise ValueError("invalid material turn text")
+            at = timestamp(turn["at"])
+            if previous is not None and at < previous:
+                raise ValueError("material turns are not chronological")
+            previous = at
+            if turn["kind"] == "action" and (len(turn["text"]) > 200 or any(
+                    c in turn["text"] for c in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")):
+                raise ValueError("invalid material action stub")
+        session = Session(item["provider"], item["session_id"], Path(origin["file"]),
+                          Path(project) if project is not None else None,
+                          model=item["model"], is_subagent=item["is_subagent"],
+                          project_conflict=item["project_conflict"], turns=item["turns"],
+                          last_at=timestamp(item["last_at"]) if item["last_at"] else None,
+                          timestamp_repairs=item["timestamp_repairs"], injected_blocks=item["injected_blocks"])
+        expected = session_snapshot(session, origin=origin)
+        if value["snapshot_id"] != expected["snapshot_id"] or value["material_id"] != expected["material_id"]:
+            raise ValueError("material identity checksum mismatch")
+        if item != expected["session"]:
+            raise ValueError("noncanonical material session")
+        return session
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ValueError("invalid material snapshot") from exc
+
+
+def capture_snapshot(provider: str, path: Path, project: Path, *, origin: dict | None = None) -> dict:
+    session = read_session(provider, Path(path), Path(project), complete_jsonl(Path(path).read_bytes()))
+    return session_snapshot(session, origin={"git_remote": git_origin(session.project), **(origin or {})})
+
+
+@dataclass
+class FeedItem:
+    provider: str
+    path: Path
+    project: Path | None
+    watch: dict
+    snapshot: dict | None = None
+    transported: bool = False
+
+
+class LocalFeed:
+    """The filesystem implementation; all paths and raw bytes stay at this boundary."""
+
+    def __init__(self, watches, claude_roots, codex_roots, *, roots=(), exclude=()):
+        targets, self.project_missing = watch_targets(watches, claude_roots, codex_roots,
+                                                      roots=roots, patterns=exclude)
+        self.roots = root_counts(claude_roots, codex_roots, targets)
+        self.items = [FeedItem(provider, path, project, watch) for watch, project, provider, path in targets]
+
+    def __iter__(self):
+        return iter(self.items)
+
+
+class SnapshotFeed:
+    """Already captured material; origin paths are labels and are never opened locally."""
+
+    def __init__(self, snapshots):
+        self.snapshots = snapshots
+
+    def __iter__(self):
+        for value in self.snapshots:
+            item = value.get("session", {}) if isinstance(value, dict) else {}
+            origin = value.get("origin", {}) if isinstance(value, dict) else {}
+            item = item if isinstance(item, dict) else {}
+            origin = origin if isinstance(origin, dict) else {}
+            yield FeedItem(str(item.get("provider", "unknown")), Path(str(origin.get("file", "unknown"))),
+                           None, {}, value, True)
+
+
+def iter_snapshots(watches, *, claude_roots=None, codex_roots=None, exclude=(), home=None,
+                   origin=None, diagnostics=None):
+    """Yield one complete snapshot at a time; never retain a machine's entire history."""
+    feed = LocalFeed(watches, claude_roots or claude_session_roots(), codex_roots or codex_session_roots(),
+                     roots=[Path(home).expanduser().resolve()] if home else (), exclude=exclude)
+    remotes = {}
+    for item in feed:
+        try:
+            session = read_session(item.provider, item.path, item.project, complete_jsonl(item.path.read_bytes()))
+            if session.is_subagent or session.project_conflict or engine_round(item.project):
+                continue
+            since = timestamp(item.watch["since"]) if item.watch.get("since") else None
+            if since and (not session.turns or timestamp(session.turns[-1]["at"]) < since):
+                continue
+            if session.project not in remotes:
+                remotes[session.project] = git_origin(session.project)
+            yield session_snapshot(session, origin={"git_remote": remotes[session.project], **(origin or {})})
+        except (OSError, ValueError) as exc:
+            error = {"provider": item.provider, "file": str(item.path), "status": "error", "error": str(exc)}
+            if diagnostics is None:
+                print(json.dumps({"scan_error": error}, ensure_ascii=False), file=sys.stderr)
+            else:
+                diagnostics.append(error)
+
+
+def scan_snapshots(watches, *, claude_roots=None, codex_roots=None, exclude=(), home=None,
+                   origin=None, diagnostics=None) -> list[dict]:
+    """Materialize a small scan; background publishers use the streaming face above."""
+    return list(iter_snapshots(watches, claude_roots=claude_roots, codex_roots=codex_roots,
+                               exclude=exclude, home=home, origin=origin, diagnostics=diagnostics))
+
+
 def complete_jsonl(data: bytes) -> bytes:
     """Keep a valid final record even without a newline; defer a partial write."""
     boundary = data.rfind(b"\n") + 1
@@ -972,7 +1181,14 @@ def complete_jsonl(data: bytes) -> bytes:
     return data
 
 
-def stale_verdict(entry: dict) -> bool:
+def judgment_key(options: dict, since: datetime | None) -> str:
+    """Rules and watch admission are inputs to an observation, never evidence identity."""
+    effective = {"min_owner_turns": 3, "min_owner_chars": 200, "ack_max_words": 1,
+                 "purpose": "project", **options}
+    return digest(encoded_json({"options": effective, "since": since.isoformat() if since else None}).encode())
+
+
+def stale_verdict(entry: dict, judgment: str | None = None) -> bool:
     """True when a file observed at exactly this size must be read and judged again anyway.
 
     The byte-identity shortcut means "nothing new here", and that holds only where the pass
@@ -980,16 +1196,19 @@ def stale_verdict(entry: dict) -> bool:
     the pass DECLINED exported nothing, so when a selection rule narrows the shortcut is the
     only thing between the Owner and a session never read again.
 
-    Two marks answer that, because a rule narrows in two ways. `judged` is the version of the
+    `judged` is the version of the
     RULES the cursor was judged under (`TRIAGE_VERSION`): a cursor judged by an older version
     is read again once, whatever it was judged to be, and re-recorded at today's version.
     `steward` is the version's blind spot — whether this session was declined as the engine's
     own work, which turns on the Owner's own home and library directories and so may change
     with no version behind it; a cursor carrying it is read on every pass until it stops
-    carrying it. An entry written before either mark existed says nothing either way, so it
+    carrying it. `judgment` fingerprints the effective thresholds and watch's since bound;
+    changing either reconsiders only material not yet acknowledged. An entry written before
+    a mark existed says nothing either way, so it
     is judged once — and from then on it carries the answer.
     """
-    return bool(entry.get("steward", True)) or int(entry.get("judged") or 0) < TRIAGE_VERSION
+    return (bool(entry.get("steward", True)) or int(entry.get("judged") or 0) < TRIAGE_VERSION
+            or (judgment is not None and entry.get("judgment") != judgment))
 
 
 def empty_cursor(session: Session) -> dict:
@@ -1051,7 +1270,7 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
               owner_id: str | None = None, session_ids: list[str] | None = None,
               pkchome: str = "pkchome", owner_name: str | None = None,
               exclude: list[str] | None = None, home: str | None = None,
-              max_part_chars: int = MAX_PART_CHARS) -> dict:
+              max_part_chars: int = MAX_PART_CHARS, snapshots=(), on_material=None) -> dict:
     """One edition-owned pass. Ingest is its only library write door."""
     directory = Path(library["path"])
     state_path = directory / "sync-state.json"
@@ -1063,21 +1282,102 @@ def sync_pass(library: dict, watches: list[dict], *, dry_run: bool = False,
                           options=options or {}, owner_id=owner_id or library["tenant"],
                           owner_name=owner_name or library.get("owner_name") or None,
                           session_ids=session_ids, pkchome=pkchome,
-                          exclude=exclude or (), home=home, max_part_chars=max_part_chars)
+                          exclude=exclude or (), home=home, max_part_chars=max_part_chars,
+                          snapshots=snapshots, on_material=on_material)
 
 
 def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots, codex_roots,
                options, owner_id, owner_name, session_ids, pkchome, exclude, home,
-               max_part_chars=MAX_PART_CHARS):
+               max_part_chars=MAX_PART_CHARS, snapshots=(), on_material=None):
     if max_part_chars < MIN_PART_CHARS:
         raise ValueError(f"max-part-chars must be >= {MIN_PART_CHARS}")
     state = read_sync_state(state_path)
     report = {**dict.fromkeys(SYNC_COUNTS, 0), "sessions": [], "roots": [], "dry_run": dry_run}
     state.setdefault("legacy", {})
+    loaded_materials = {}
 
     def save():
         if not dry_run:
             atomic_json(state_path, state)
+
+    def observe_material(line):
+        if not dry_run and on_material is not None and line.get("material_id"):
+            on_material(dict(line))
+
+    def keep_material(snapshot):
+        reference = snapshot["snapshot_id"]
+        path = state_path.parent / "sync-materials" / f"{reference}.json"
+        if not dry_run and not path.exists():
+            atomic_json(path, snapshot)
+        return reference
+
+    def keep_split_turns(turns):
+        # A part is an exact ACK operand, not another complete material snapshot. Keep it
+        # separately so delayed timestamp inserts never turn a positional cursor into loss.
+        reference = digest(encoded_json(turns).encode())
+        path = state_path.parent / "sync-materials" / "parts" / f"{reference}.json"
+        if not dry_run and not path.exists():
+            atomic_json(path, turns)
+        return reference
+
+    def split_turns(reference):
+        if not isinstance(reference, str) or not re.fullmatch(r"[a-f0-9]{64}", reference):
+            raise ValueError("invalid acknowledged split reference")
+        path = state_path.parent / "sync-materials" / "parts" / f"{reference}.json"
+        turns = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(turns, list) or digest(encoded_json(turns).encode()) != reference:
+            raise ValueError("acknowledged split checksum mismatch")
+        return turns
+
+    def kept_material(reference):
+        if not isinstance(reference, str) or not re.fullmatch(r"[a-f0-9]{64}", reference):
+            raise ValueError("material baseline unavailable; run the local source sync before accepting its remote copy")
+        path = state_path.parent / "sync-materials" / f"{reference}.json"
+        if reference not in loaded_materials:
+            snapshot = json.loads(path.read_text(encoding="utf-8"))
+            if snapshot.get("snapshot_id") != reference:
+                raise ValueError("material baseline checksum mismatch")
+            loaded_materials[reference] = decode_snapshot(snapshot)
+        return loaded_materials[reference]
+
+    def observation_key(snapshot):
+        return digest(encoded_json([snapshot["material_id"], snapshot["origin"].get("device_id") or "local"]).encode())
+
+    def observation_path(snapshot):
+        return (state_path.parent / "sync-materials" / "observed" / observation_key(snapshot)
+                / f"{snapshot['snapshot_id']}.json")
+
+    def remember_observation(snapshot):
+        # An immutable revision can reappear after a lost host ACK. Remember that it was
+        # already a valid observation independently of whether every part was ingested.
+        path = observation_path(snapshot)
+        if not dry_run and not path.exists():
+            atomic_json(path, {"snapshot_id": snapshot["snapshot_id"]})
+
+    def material_relation(session, entry, snapshot):
+        if not entry.get("material_seen"):
+            return "intact" if not entry["file_size"] and not entry["exported_turns"] else "rewritten"
+        identity = observation_key(snapshot)
+        origins = entry.get("material_origins", {})
+        previous = origins.get(identity)
+        if not previous:
+            old_origin = entry.get("origin", {})
+            if (old_origin.get("device_id") or "local") == (snapshot["origin"].get("device_id") or "local"):
+                previous = entry["material_seen"]
+        known_revision = observation_path(snapshot).is_file()
+        if previous and not known_revision:
+            # A device may only extend its own observed history. A new device carrying an
+            # older copy has made no such regression; compare it to the shared history below.
+            pending_turns(session, kept_material(previous), 0)
+        observed = kept_material(entry["material_seen"])
+        try:
+            pending_turns(session, observed, 0)
+        except ValueError:
+            # Only a provable retained subset is stale. Two independently diverged copies
+            # must not be flattened into one invented conversation.
+            pending_turns(observed, session, 0)
+            return "stale"
+        return "intact" if session.session_id == entry["session_id"] else "rewritten"
 
     def ingest(key, payload, cursor, line, *, migration=False):
         # Journal the exact payload before the external call. A crash after ingest but
@@ -1136,11 +1436,21 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
     for key, entry in list(state["sessions"].items()):
         if "pending" not in entry:
             continue
+        loaded_materials.clear()
         line = {"provider": entry["provider"], "session_id": entry["session_id"],
                 "file": entry["file"], "status": "retry"}
+        line.update({name: entry[name] for name in ("origin", "material_id", "material_seen", "source_ids") if name in entry})
         recovered.add((entry["provider"], entry["file"]))
         report["scanned"] += 1
         try:
+            pending_cursor = entry["pending"]["cursor"]
+            reference = pending_cursor.get("material_seen")
+            if reference:
+                session = kept_material(reference)
+                line.update(material_id=material_id(session), snapshot_id=reference,
+                            project_path=str(session.project) if session.project else None,
+                            origin=pending_cursor.get("origin", {"file": str(session.path)}))
+                observe_material(line)
             if not dry_run:
                 ingest(key, None, entry, line)
                 # A replayed part of a SPLIT increment leaves parts still owed; the file stays
@@ -1153,25 +1463,36 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
         report["sessions"].append(line)
 
     seen = set(recovered)
-    by_file = {(entry["provider"], entry["file"]): (key, entry)
-               for key, entry in state["sessions"].items()}
     roots = steward_roots(library, home)
-    targets, report["project_missing"] = watch_targets(
-        watches, claude_roots, codex_roots, roots=roots, patterns=exclude)
-    report["roots"] = root_counts(claude_roots, codex_roots, targets)
-    for watch, project, provider, path in targets:
-        if (provider, str(path)) in seen:
+    local_feed = LocalFeed(watches, claude_roots, codex_roots, roots=roots, exclude=exclude)
+    report["project_missing"], report["roots"] = local_feed.project_missing, local_feed.roots
+    remotes = {}
+    for item in chain(local_feed, SnapshotFeed(snapshots)):
+        loaded_materials.clear()  # Cache one session's baselines, never a whole library's text.
+        watch, project, provider, path = item.watch, item.project, item.provider, item.path
+        remote = item.transported
+        descriptor = item.snapshot if isinstance(item.snapshot, dict) else {}
+        described_origin = descriptor.get("origin", {})
+        described_origin = described_origin if isinstance(described_origin, dict) else {}
+        seen_key = (provider, str(path)) if not remote else (
+            "snapshot", str(descriptor.get("snapshot_id")), str(described_origin.get("device_id")))
+        if seen_key in seen or (provider, str(path)) in recovered:
             continue
-        seen.add((provider, str(path)))
+        seen.add(seen_key)
         since = timestamp(watch["since"]) if watch.get("since") else None
+        judgment = judgment_key(options, since)
         line = {"provider": provider, "file": str(path)}
         report["scanned"] += 1
         try:
             # Read one byte snapshot, deferring an in-flight final JSONL record.
             # Neither selection nor progress uses mtime.
-            data = complete_jsonl(path.read_bytes())
+            data = None if remote else complete_jsonl(path.read_bytes())
+            by_file = {(entry["provider"], entry["file"]): (key, entry)
+                       for key, entry in state["sessions"].items()}
             previous = by_file.get((provider, str(path)))
-            if previous:
+            if remote and previous and previous[1].get("origin", {}).get("device_id") != described_origin.get("device_id"):
+                previous = None
+            if previous and not remote:
                 _, observed = previous
                 line["session_id"] = observed["session_id"]
                 if session_ids and observed["session_id"] not in session_ids:
@@ -1185,7 +1506,15 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                     line["status"] = "rewritten"
                     report["sessions"].append(line)
                     continue
-                if intact and len(data) == observed["file_size"] and not stale_verdict(observed):
+                if (intact and len(data) == observed["file_size"] and not stale_verdict(observed, judgment)
+                        and observed.get("material_seen") and not observed.get("split_turns")):
+                    local_reference = observed.get("local_snapshot") or observed["material_seen"]
+                    prior_session = kept_material(local_reference)
+                    line.update(material_id=material_id(prior_session), snapshot_id=local_reference,
+                                project_path=str(prior_session.project) if prior_session.project else None,
+                                origin=observed.get("local_origin") or {"file": str(path)},
+                                source_ids=observed["source_ids"])
+                    observe_material(line)
                     report["unchanged"] += 1
                     line["status"] = "unchanged"
                     if observed["held"]:
@@ -1193,21 +1522,41 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                         line["held"] = observed["held"]
                     report["sessions"].append(line)
                     continue
-            session = read_session(provider, path, project, data)
+            session = decode_snapshot(item.snapshot) if remote else read_session(provider, path, project, data)
+            if remote:
+                snapshot = item.snapshot
+            else:
+                if session.project not in remotes:
+                    remotes[session.project] = git_origin(session.project)
+                snapshot = session_snapshot(session, origin={"git_remote": remotes[session.project]})
+            line.update(material_id=snapshot["material_id"], snapshot_id=snapshot["snapshot_id"],
+                        project_path=str(session.project) if session.project else None,
+                        origin=snapshot["origin"])
             if session_ids and session.session_id not in session_ids:
                 report["scanned"] -= 1
                 continue
             line["session_id"] = session.session_id
             key = session_key(session)
             entry = state["sessions"].get(key)
+            if entry is None:
+                candidates = [(candidate_key, candidate) for candidate_key, candidate in state["sessions"].items()
+                              if candidate["provider"] == session.provider and candidate["session_id"] == session.session_id
+                              and (remote or candidate.get("transported"))]
+                if len(candidates) > 1:
+                    raise ValueError("ambiguous_material: several local sessions share this provider/session identity")
+                if candidates:
+                    key, entry = candidates[0]
             # Locate rewrites that changed provider identity/project attribution too.
             if entry is None:
                 if previous:
                     key, entry = previous
+            if entry:
+                line["source_ids"] = list(entry["source_ids"])
+            observe_material(line)
             legacy = state["legacy"].get(key)
             forced_rewrite = False
             if legacy and entry is None:
-                recovered_prefix = legacy_prefix(session, data, legacy, owner_id, options)
+                recovered_prefix = legacy_prefix(session, data, legacy, owner_id, options) if data is not None else None
                 if recovered_prefix is None:
                     forced_rewrite = True
                 elif dry_run:
@@ -1217,10 +1566,39 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                     payload, entry = recovered_prefix
                     ingest(key, payload, entry, line, migration=True)
                     entry = state["sessions"][key]
-            was_rewritten = forced_rewrite or bool(entry and (
-                len(data) < entry["file_size"]
-                or digest(data[:entry["file_size"]]) != entry["prefix_hash"]
-                or session.session_id != entry["session_id"]))
+            if remote and entry and not entry.get("material_seen") and (entry["file_size"] or entry["exported_turns"]):
+                raise ValueError("material baseline unavailable; run the local source sync before accepting its remote copy")
+            try:
+                relation = material_relation(session, entry, snapshot) if remote and entry else "intact"
+                was_rewritten = forced_rewrite or bool(entry and (
+                    relation == "rewritten" if remote else (
+                        len(data) < entry["file_size"]
+                        or digest(data[:entry["file_size"]]) != entry["prefix_hash"]
+                        or session.session_id != entry["session_id"])))
+            except ValueError as exc:
+                if not str(exc).startswith("rewritten:"):
+                    raise
+                was_rewritten = True
+                relation = "rewritten"
+            if relation == "stale" and not was_rewritten:
+                reference = keep_material(snapshot)
+                remember_observation(snapshot)
+                origins = dict(entry.get("material_origins", {}))
+                identity = observation_key(snapshot)
+                prior = origins.get(identity)
+                try:
+                    if prior:
+                        pending_turns(session, kept_material(prior), 0)
+                    origins[identity] = reference
+                except ValueError:
+                    pass  # A known immutable replay never rolls a device's observation back.
+                if not dry_run:
+                    state["sessions"][key] = {**entry, "material_origins": origins}
+                    save()
+                line.update(status="stale", stale=True)
+                report["unchanged"] += 1
+                report["sessions"].append(line)
+                continue
             if was_rewritten:
                 report["rewritten"] += 1
                 line["status"] = "rewritten"
@@ -1232,29 +1610,63 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                 old_ids = entry["source_ids"] if entry else []
                 entry = empty_cursor(session)
                 entry["source_ids"] = old_ids
-            if (entry and not was_rewritten and len(data) == entry["file_size"]
-                    and not stale_verdict(entry)):
+            same = bool(entry and (snapshot["snapshot_id"] == entry.get("material_seen") if remote
+                                  else len(data) == entry["file_size"] and entry.get("material_seen")))
+            if (same and not was_rewritten and not entry.get("split_turns") and not stale_verdict(entry, judgment)):
                 # The same shortcut as above, past the point where identity is known, and the
                 # same exception to it.
                 report["unchanged"] += 1
                 line["status"] = "unchanged"
+                remember_observation(snapshot)
+                origins = {**entry.get("material_origins", {}), observation_key(snapshot): snapshot["snapshot_id"]}
+                if not dry_run and origins != entry.get("material_origins"):
+                    state["sessions"][key] = {**entry, "material_origins": origins}
+                    save()
                 if entry["held"]:
                     report["held"] += 1
                     line["held"] = entry["held"]
                 report["sessions"].append(line)
                 continue
             entry = entry or empty_cursor(session)
-            earlier = read_session(provider, path, project, data[:entry["exported_bytes"]])
-            # A split increment stops its cursor between parts: `split_turns` of the turns
-            # past `exported_bytes` are already in the library. They are numbered from the
-            # boundary exactly as the first pass numbered them, then dropped, so a resumed
-            # pass emits the NEXT part and never a part twice.
+            line["source_ids"] = list(entry["source_ids"])
+            if entry["exported_turns"] and entry.get("material_exported"):
+                earlier = kept_material(entry["material_exported"])
+            elif remote:
+                earlier = replace(session, turns=[], injected_blocks=0)
+            else:
+                earlier = read_session(provider, path, project, data[:entry["exported_bytes"]])
+            earlier_reference = keep_material(session_snapshot(earlier)) if earlier.turns else None
+            # A split advances only by acknowledged parts. Their retained turns, not a
+            # position in today's timestamp-sorted snapshot, are the subtraction operand:
+            # a delayed Owner turn can have appeared BEFORE the old positional boundary.
             beyond = int(entry.get("split_turns") or 0)
+            split_refs = list(entry.get("split_turn_refs") or [])
             try:
                 # `whole` is the increment the split was cut from — the one its verdict is
                 # judged on, so a resumed part inherits the same verdict its siblings carried.
                 whole = pending_turns(session, earlier, entry["exported_turns"] - beyond)
-                increment = replace(whole, turns=whole.turns[beyond:]) if beyond else whole
+                if beyond:
+                    if split_refs:
+                        acknowledged_parts = [turn for reference in split_refs for turn in split_turns(reference)]
+                    elif entry.get("material_seen"):
+                        # Older material cursors kept the ORIGINAL complete snapshot and a
+                        # split count. Recover that snapshot's prefix once, never today's.
+                        original = pending_turns(kept_material(entry["material_seen"]), earlier,
+                                                 entry["exported_turns"] - beyond)
+                        acknowledged_parts = original.turns[:beyond]
+                        if (len(acknowledged_parts) != beyond
+                                or acknowledged_parts[-1]["at"] != entry["last_at"]):
+                            raise ValueError("split_baseline_missing: the original split snapshot does not match its receipt")
+                        split_refs = [keep_split_turns(acknowledged_parts)]
+                    else:
+                        raise ValueError("split_baseline_missing: an older partial split needs its exact acknowledged material")
+                    if len(acknowledged_parts) != beyond:
+                        raise ValueError("acknowledged split count mismatch")
+                    acknowledged = replace(earlier, turns=[*earlier.turns, *acknowledged_parts])
+                    remaining = pending_turns(session, acknowledged, entry["exported_turns"])
+                    increment = replace(whole, turns=remaining.turns)
+                else:
+                    increment = whole
             except ValueError:
                 if rewritten != "reingest":
                     raise
@@ -1265,16 +1677,29 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                 entry["source_ids"] = old_ids
                 increment = whole = session
                 beyond = 0
-            steward = steward_work(session, roots)
+                split_refs = []
+            steward = engine_round(session.project) if remote and session.project else steward_work(session, roots)
             verdict = triage(whole, **options, steward=steward)
-            cursor = {**entry, "file": str(path), "file_size": len(data), "prefix_hash": digest(data),
+            reference = keep_material(snapshot)
+            remember_observation(snapshot)
+            origins = {**entry.get("material_origins", {}), observation_key(snapshot): reference}
+            cursor = {**entry, "file": entry.get("local_file", str(path)) if remote else str(path),
+                      "file_size": len(data) if data is not None else entry["file_size"],
+                      "prefix_hash": digest(data) if data is not None else entry["prefix_hash"],
+                      "material_seen": reference, "material_exported": earlier_reference,
+                      "material_id": snapshot["material_id"], "origin": snapshot["origin"],
+                      "material_origins": origins,
+                      "split_turn_refs": split_refs,
+                      "transported": remote,
                       # Stated on the cursor either way, so a session skipped under a wider
                       # rule is read again under a narrower one rather than staying unchanged
                       # bytes forever, and one no longer skipped stops carrying the mark.
                       "steward": steward,
                       # And the version those rules were read from, so the next narrowing
                       # needs no mark of its own to reach what this pass declined.
-                      "judged": TRIAGE_VERSION}
+                      "judged": TRIAGE_VERSION, "judgment": judgment}
+            if not remote:
+                cursor.update(local_file=str(path), local_snapshot=reference, local_origin=snapshot["origin"])
             line["triage"] = verdict
             if steward:
                 # The engine's own round, or a session standing in the home or the library.
@@ -1328,12 +1753,19 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                         payload["metadata"]["rewritten"] = True
                     exported = entry["exported_turns"] + len(part.turns)
                     if last:
-                        step = {**cursor, "exported_bytes": len(data), "split_turns": 0}
+                        step = {**cursor, "exported_bytes": len(data) if data is not None else entry["exported_bytes"],
+                                "material_exported": reference, "split_turns": 0, "split_turn_refs": []}
                     else:
                         # Between parts the byte boundary and the file identity stay where
                         # they were: the pass must not read this file as unchanged while
                         # parts of it are still owed.
-                        step = {**entry, "file": str(path), "judged": TRIAGE_VERSION,
+                        step = {**entry, "file": cursor["file"], "judged": TRIAGE_VERSION, "judgment": judgment,
+                                "material_exported": earlier_reference,
+                                "material_seen": reference,
+                                "material_id": snapshot["material_id"], "origin": snapshot["origin"],
+                                "material_origins": origins,
+                                "transported": remote,
+                                "split_turn_refs": [*split_refs, keep_split_turns(part.turns)],
                                 "split_turns": int(entry.get("split_turns") or 0) + len(part.turns)}
                     step.update(exported_turns=exported, last_turn_id=part.turns[-1]["turn_id"],
                                 last_at=part.turns[-1]["at"], held=None,
@@ -1348,6 +1780,7 @@ def _sync_pass(library, watches, state_path, *, dry_run, rewritten, claude_roots
                     ingest(key, payload, step, part_line)
                     report["sessions"].append(part_line)
                     entry = state["sessions"][key]
+                    split_refs = list(entry.get("split_turn_refs") or [])
                 continue
             # Observation advances the file fingerprint, never the export cursor.
             if not was_rewritten:

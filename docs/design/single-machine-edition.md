@@ -403,7 +403,9 @@ edition never needs a private path:
 
 ## 14. Boundaries
 
-- One machine. Sharing a home between machines, or a stack between machines, is not designed.
+- One authoritative host. Other computers may publish sessions through the
+  [material-source protocol](material-sources.md); sharing a home or running competing
+  canonical writers across machines is not supported.
 - The home is not a backup: `pkchome down` keeps data, but nothing here copies it elsewhere.
 - Docker stays a requirement; a Docker-free stack of lighter adapters is a later page.
 - An AI that cannot run a command line (a chat app) has no face here; a read-only MCP face
@@ -490,6 +492,10 @@ new immutable source material, and failed imports remain retryable. `ingest --dr
 changes neither sources nor that state. No converter operation writes canonical.
 
 ## 16. Application-owned increments and resident sync
+
+Local and remote collection now use the shared feed/processor boundary in
+[Material sources and shared processors](material-sources.md). The cursor and citation
+rules below remain in force; remote observation and download cursors are separate.
 
 The Owner's ruling is that growing external material is the personal edition's problem.
 A long-running coding session must enter from its previous result plus its pending

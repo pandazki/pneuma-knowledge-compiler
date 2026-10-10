@@ -12,6 +12,7 @@ import { Mono } from "@/ui/Mono";
 import { SkeletonText } from "@/ui/Skeleton";
 import { cn } from "@/ui/cn";
 import { SourceImageGallery } from "@/views/sources/SourceReaders";
+import { SourceCollectionProvenance } from "@/views/sources/SourceCollectionProvenance";
 
 export interface SourceSpanSheetProps {
   open: boolean;
@@ -102,7 +103,13 @@ function sourceMetadata(detail: SourceDetail): SourceMetadataItem[] {
  * the target range highlighted accent-soft, plus a fetch-locator exact-span button. Shared by
  * recall / ask / suggestion / library.
  */
-export function SourceSpanSheet({
+export function SourceSpanSheet(props: SourceSpanSheetProps) {
+  const currentUser = useApp((state) => state.currentUser);
+  // A different source or tenant owns a different set of original text and observations.
+  return <SourceSpanContent key={`${currentUser}\0${props.sourceId}`} {...props} />;
+}
+
+function SourceSpanContent({
   open,
   onOpenChange,
   sourceId,
@@ -119,42 +126,59 @@ export function SourceSpanSheet({
   const [detail, setDetail] = useState<SourceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [exactText, setExactText] = useState<string | null>(null);
+  const [exact, setExact] = useState<{ start: number; end: number; text: string } | null>(null);
   const [fetching, setFetching] = useState(false);
+  const detailRequest = useRef<AbortController | null>(null);
+  const spanRequest = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
     if (!currentUser || !sourceId) return;
+    detailRequest.current?.abort();
+    const controller = new AbortController();
+    detailRequest.current = controller;
     setLoading(true);
     setError(null);
     try {
-      setDetail(await getSource(currentUser, sourceId));
+      const next = await getSource(currentUser, sourceId, controller.signal);
+      if (!controller.signal.aborted) setDetail(next);
     } catch (e) {
-      setError((e as Error).message);
+      if (!controller.signal.aborted) setError((e as Error).message);
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [currentUser, sourceId]);
 
   useEffect(() => {
     if (open) {
       setDetail(null);
-      setExactText(null);
       void load();
     }
+    return () => detailRequest.current?.abort();
   }, [open, load]);
+
+  useEffect(() => {
+    setExact(null);
+    setFetching(false);
+    return () => spanRequest.current?.abort();
+  }, [open, blockStart, blockEnd]);
 
   const fetchExact = async () => {
     if (!currentUser || !sourceId || blockStart == null) return;
+    spanRequest.current?.abort();
+    const controller = new AbortController();
+    spanRequest.current = controller;
+    const end = blockEnd ?? blockStart;
     setFetching(true);
     try {
       const res = await fetchLocator(currentUser, sourceId, {
-        blocks: [blockStart, blockEnd ?? blockStart],
-      });
-      setExactText(res.text);
+        blocks: [blockStart, end],
+      }, controller.signal);
+      if (!controller.signal.aborted) setExact({ start: blockStart, end, text: res.text });
     } catch (e) {
-      setExactText(t("common.sourceSpan.fetchFailed", { detail: (e as Error).message }));
+      if (!controller.signal.aborted) setExact({ start: blockStart, end,
+        text: t("common.sourceSpan.fetchFailed", { detail: (e as Error).message }) });
     } finally {
-      setFetching(false);
+      if (!controller.signal.aborted) setFetching(false);
     }
   };
 
@@ -162,6 +186,8 @@ export function SourceSpanSheet({
     blockStart != null && index >= blockStart && index <= (blockEnd ?? blockStart);
 
   const metadata = detail ? sourceMetadata(detail) : [];
+  const exactText = exact?.start === blockStart && exact?.end === (blockEnd ?? blockStart)
+    ? exact.text : null;
 
   // The landing IS the feature: once the galley is in, carry the reader to the cited span
   // (smooth unless reduced-motion) instead of leaving them at the top of a long source.
@@ -239,6 +265,7 @@ export function SourceSpanSheet({
                 ))}
               </dl>
             )}
+            {currentUser && <SourceCollectionProvenance userId={currentUser} sourceId={detail.source_id} />}
             {exactText != null && (
               <div className="rounded-2 border border-accent-line bg-accent-soft p-3">
                 <p className="prose text-13 whitespace-pre-wrap">

@@ -375,6 +375,11 @@ BLOCK_END = "<!-- pkc:end -->"
 _CODEX_SANDBOX: tuple[str, ...] = (
     "--sandbox",
     "workspace-write",
+)
+# `resume` has its own config overrides. Passing this before the subcommand parses but
+# does not enable network access in the resumed turn, so it belongs to the common round
+# options below rather than the exec-only sandbox flag.
+_CODEX_NETWORK: tuple[str, ...] = (
     "-c",
     "sandbox_workspace_write.network_access=true",
 )
@@ -400,19 +405,54 @@ def codex_hidden_skills(paths: Sequence[str]) -> str:
     return "[" + ", ".join(f"{{path={json.dumps(path)}, enabled=false}}" for path in paths) + "]"
 
 
-_CODEX_COMMON: tuple[str, ...] = (
-    "--skip-git-repo-check",  # the working directory is a fresh mkdtemp, not a repo
+# A harness inherits the worker's environment, but its shell has a second environment
+# policy. An Owner's `inherit = "core"` drops the executor identity and connection settings
+# before `pkc` runs. Replace that policy for this launch only: retain the application and
+# its providers while excluding unrelated credentials. The argv contains NAMES, never
+# values. Replacing the whole table also clears inherited `filters`/`exclude`/`set`; mixing
+# modern filters with legacy include_only is rejected by Codex.
+_CODEX_SHELL_ENV_NAMES: tuple[str, ...] = (
+    "PATH", "HOME", "USER", "LOGNAME", "USERNAME", "SHELL",
+    "LANG", "LANGUAGE", "LC_*", "TZ", "TMPDIR", "TMP", "TEMP",
+    "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT",
+    "USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH",
+    "VIRTUAL_ENV", "PYTHONPATH", "UV_CACHE_DIR", "CODEX_HOME",
+    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+    "PKC_*", "PNEUMA_KNOWLEDGE_*", "PNEUMA_APP_*",
+    "OPENROUTER_API_KEY", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_API_BASE",
+    "OPENAI_ORG_ID", "OPENAI_ORGANIZATION", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+    "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_BASE_URL",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+)
+_CODEX_SHELL_ENV: tuple[str, ...] = (
+    "-c",
+    # `include_only` cannot restore values removed by core inheritance or the default
+    # KEY/SECRET/TOKEN exclusion. Retain first, then apply the explicit allowlist.
+    'shell_environment_policy={inherit="all",ignore_default_excludes=true,include_only='
+    + json.dumps(_CODEX_SHELL_ENV_NAMES)
+    + "}",
+)
+
+# `--color` and `--sandbox` belong to `exec`, not its `resume` subcommand. Keep them
+# before the subcommand so both rounds use the same restricted execution policy.
+_CODEX_EXEC_OPTIONS: tuple[str, ...] = (
     "--color",
     "never",
-    "--json",  # the token counts ride these events; there is no other channel
     *_CODEX_SANDBOX,
+)
+
+_CODEX_COMMON: tuple[str, ...] = (
+    "--skip-git-repo-check",  # the working directory is a fresh mkdtemp, not a repo
+    "--json",  # the token counts ride these events; there is no other channel
+    *_CODEX_NETWORK,
+    *_CODEX_SHELL_ENV,
     *_CODEX_EFFORT,
     *_CODEX_HIDDEN_SKILLS,
     "-m",
     MODEL,
     "--output-last-message",
     OUTPUT_FILE,
-    "-",  # the prompt comes from stdin, never from argv
 )
 
 # What a Claude round may hold. NOT `--tools ""` as the single-shot leaf uses: this round's
@@ -445,16 +485,16 @@ CODEX = BackendManifest(
     workflows_dir=None,
     display_label="Codex",
     probe_command=("login", "status"),
-    launch_command=("exec", *_CODEX_COMMON),
-    # `--last` under a per-JOB `CODEX_HOME` is unambiguous: the only session that home holds
-    # is this job's first round.
-    resume_command=("exec", "resume", "--last", *_CODEX_COMMON),
+    launch_command=("exec", *_CODEX_EXEC_OPTIONS, *_CODEX_COMMON, "-"),
+    # Each round has a fresh working directory, while `--last` filters by cwd. Resume the
+    # first round's explicit session id; the trailing dash still reads the prompt on stdin.
+    resume_command=("exec", *_CODEX_EXEC_OPTIONS, "resume", *_CODEX_COMMON, SESSION, "-"),
     resume_probe_command=("exec", "resume", "--help"),
     system_text_channel=STDIN_PREFIX,
     # The interactive posture: `app-server` is a long-lived JSON-RPC process, and the
     # thread it holds is the conversation. No model flag here — Codex picks the model per
     # turn, and the adapter puts it on `thread/start` / `turn/start` where it belongs.
-    interactive_command=("app-server",),
+    interactive_command=("app-server", *_CODEX_SHELL_ENV),
     wire_protocol="jsonrpc",
     interactive_adapter=CodexJsonRpcAdapter,
     config_home_env="CODEX_HOME",

@@ -165,6 +165,9 @@ def _exec(home: Home, explicit: str | None, argv: list[str]) -> None:
                        or os.environ.get("CLAUDE_SESSION_ID") or f"{os.getppid()}@{socket.gethostname()}")
         os.environ.update(env)
         os.chdir(library.path)
+        from pneuma_knowledge_core.components import register_component
+        from pkc_personal.project_component import ProjectComponent
+        register_component(ProjectComponent(library))
         from pneuma_knowledge_service.cli import main as pkc_main
 
         raise SystemExit(pkc_main(argv[1:]))

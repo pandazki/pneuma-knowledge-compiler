@@ -1,10 +1,93 @@
 #!/usr/bin/env python3
 """A fake `codex` for the keyless suite. See `_harness.py`."""
+import argparse
+import fnmatch
+import os
 import sys
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _harness import main  # noqa: E402
 
+
+def validate_resume(argv: list[str]) -> None:
+    """Model the CLI's exec/resume option scopes before accepting a repair round.
+
+    The generic fake accepts arbitrary flags, which hid a real repair failure: `resume`
+    rejects `--color` and `--sandbox`, although its parent `exec` accepts both.
+    """
+    if not argv or argv[0] != "exec" or "resume" not in argv:
+        return
+    parser = argparse.ArgumentParser(prog="codex exec")
+    parser.add_argument("--color", choices=("always", "never", "auto"))
+    parser.add_argument("--sandbox", choices=("read-only", "workspace-write", "danger-full-access"))
+    parser.add_argument("-c", "--config", action="append")
+    resume = parser.add_subparsers(required=True).add_parser("resume")
+    resume.add_argument("--last", action="store_true")
+    resume.add_argument("--skip-git-repo-check", action="store_true")
+    resume.add_argument("--json", action="store_true")
+    resume.add_argument("-c", "--config", action="append")
+    resume.add_argument("-m", "--model")
+    resume.add_argument("--output-last-message")
+    resume.add_argument("session_id", nargs="?")
+    resume.add_argument("prompt", nargs="?")
+    parser.parse_args(argv[1:])
+
+
+def configuration(argv: list[str]) -> dict:
+    """Resolve config at the command's scope, including resume's separate overrides.
+
+    The real CLI accepts exec-parent `-c` before resume but does not apply those overrides
+    to its turn. Reading all argv indiscriminately hid a resumed network-disabled sandbox.
+    """
+    path = Path(os.environ.get("CODEX_HOME", "")) / "config.toml"
+    config = tomllib.loads(path.read_text()) if path.is_file() else {}
+    options = argv[argv.index("resume") + 1:] if argv and argv[0] == "exec" and "resume" in argv else argv
+    for index, arg in enumerate(options[:-1]):
+        if arg not in ("-c", "--config"):
+            continue
+        key, raw = options[index + 1].split("=", 1)
+        try:
+            value = tomllib.loads("value=" + raw)["value"]
+        except tomllib.TOMLDecodeError:
+            value = raw
+        target = config
+        parts = key.split(".")
+        for part in parts[:-1]:
+            target = target.setdefault(part, {})
+        target[parts[-1]] = value
+    return config
+
+
+def shell_environment(config: dict) -> dict[str, str]:
+    """Apply the documented Codex shell policy to the fake's actual subprocesses.
+
+    It is distinct from the harness environment. The old fake passed everything through,
+    hiding an Owner's core-only policy stripping `PKC_DRAFT_EXECUTOR` from `pkc` commands.
+    """
+    policy = config.get("shell_environment_policy", {})
+    if policy.get("filters") and ("exclude" in policy or "include_only" in policy):
+        raise ValueError("cannot mix filters with exclude or include_only")
+    inherit = policy.get("inherit", "all")
+    core = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR"}
+    env = {key: value for key, value in os.environ.items()
+           if inherit == "all" or (inherit == "core" and key in core)}
+    filters = policy.get("filters") or {}
+    excludes = list(policy.get("exclude") or []) + [key for key, value in filters.items() if value == "exclude"]
+    if not policy.get("ignore_default_excludes", True):
+        excludes += ["*KEY*", "*SECRET*", "*TOKEN*"]
+    matches = lambda key, patterns: any(fnmatch.fnmatchcase(key.upper(), p.upper()) for p in patterns)
+    env = {key: value for key, value in env.items() if not matches(key, excludes)}
+    env.update(policy.get("set") or {})
+    includes = list(policy.get("include_only") or []) + [key for key, value in filters.items() if value == "include"]
+    return {key: value for key, value in env.items() if not includes or matches(key, includes)}
+
+
 if __name__ == "__main__":
-    sys.exit(main("codex"))
+    validate_resume(sys.argv[1:])
+    config = configuration(sys.argv[1:])
+    sys.exit(main(
+        "codex", shell_env=shell_environment(config),
+        network_access=config.get("sandbox_workspace_write", {}).get("network_access", False),
+    ))

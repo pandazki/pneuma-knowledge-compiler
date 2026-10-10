@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -526,8 +527,15 @@ def render_library(home: Home, library: Library) -> None:
     """
     from pkc_personal.environment import home_environment
 
+    entry = library.path / "bin" / "pkc"
+    marker = "# PKC personal library entry"
+    if entry.exists() and marker not in entry.read_text():
+        raise ValueError("library bin/pkc is not a managed personal entry")
+    command = [sys.executable, "-m", "pkc_personal.library_cli", "--home", str(home.path),
+               "--library", library.state.name, "--"]
+    atomic_write(entry, "#!/bin/sh\n" + marker + "\nexec " + shlex.join(command) + ' "$@"\n', mode=0o700)
     result = subprocess.run(
-        [pkc_script(), "skill", "install", "--backend", library.skill_backend,
+        [str(entry), "skill", "install", "--backend", library.skill_backend,
          "--project", str(library.path)],
         env=home_environment(home, library), cwd=library.path, capture_output=True, text=True,
     )

@@ -187,11 +187,16 @@ def build_app(
     home: Home, library: Library, settings: Settings, static_dir: str | Path | None = None
 ) -> FastAPI:
     """The library's application with the home's routes added to it."""
+    from pneuma_knowledge_core.components import register_component
+    from pkc_personal.project_component import ProjectComponent
+    register_component(ProjectComponent(library))
     app = create_app(settings, static_dir=static_dir)
     cache = StatusCache(home, library)
     # After the console's SPA mount on purpose: the mount declines any path another route
     # claims, including routes added after it, so /home stays the edition's namespace.
     app.include_router(build_router(home, library, cache))
+    from pkc_personal.collection_routes import build_router as collection_router
+    app.include_router(collection_router(home, library))
     app.state.home_status_cache = cache
     return app
 

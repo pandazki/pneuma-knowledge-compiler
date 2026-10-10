@@ -219,7 +219,7 @@ export function SnapshotPicker() {
           ) : (
             <History size={13} aria-hidden className="text-ink-3" />
           )}
-          <Mono className="text-13">
+          <Mono className="max-w-14 truncate text-13 sm:max-w-40">
             {currentKb
               ? currentKb.label
               : currentSnapshot

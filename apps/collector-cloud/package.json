@@ -1,0 +1,23 @@
+{
+  "name": "@pneuma/collector-cloud",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "assets": "python3 ../../scripts/build_collector_assets.py",
+    "dev": "pnpm run assets && wrangler dev",
+    "types": "wrangler types",
+    "check": "pnpm run types && tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "dry-run": "pnpm run assets && wrangler deploy --dry-run",
+    "deploy": "pnpm run assets && wrangler deploy"
+  },
+  "packageManager": "pnpm@11.21.0+sha512.521705bce689924eac72f5a3587122f362689ef6571e55ba80076fd637c11132ecffada26fad4ea79c485bfddbfd3d5a2a5b05805a77e893de71ec8a6cca3bb1",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261009.1",
+    "@types/node": "^26.6.4",
+    "esbuild": "^0.28.2",
+    "miniflare": "5.20261006.1-alpha",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.149.0"
+  }
+}
