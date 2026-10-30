@@ -41,6 +41,7 @@ let live = null,
   settingsOpen = params.get("settings") === "1";
 let pending = false,
   message = "",
+  connectionNotice = "",
   playing = null,
   requestVersion = 0,
   disposeVisual = null,
@@ -215,6 +216,12 @@ function controlsHTML() {
         : ordered.findIndex((f) => f.id === selected);
   return `<footer class="time-machine"><div class="time-caption"><button id="previous" aria-label="${t("上一轮复盘", "Previous review")}" ${index <= 0 ? "disabled" : ""}>←</button><button id="play" ${ordered.length < 2 ? "disabled" : ""}>${playing ? t("暂停", "Pause") : t("回放", "Play")}</button><button id="next" aria-label="${t("下一轮复盘", "Next review")}" ${selected === null ? "disabled" : ""}>→</button><span><b>${t("已保存的复盘", "Saved reviews")}</b> · ${selected === null ? t(`最新 · ${ordered.length} 轮`, `Latest · ${ordered.length} reviews`) : `${Math.max(0, index) + 1}/${ordered.length} · ${date(frame.at)}`}</span><button id="latest" ${selected === null ? "disabled" : ""}>${t("回到现在", "Back to now")}</button><button id="earlier" ${!ordered.length || ordered[0].id === 1 ? "disabled" : ""}>${t("更早", "Earlier")}</button></div><label class="sr-only" for="timeline">${t("实际复盘的时光机", "Time machine of saved reviews")}</label><input id="timeline" type="range" min="0" max="${ordered.length}" value="${index}" aria-valuetext="${selected === null ? t("最新复盘", "Latest review") : date(frame.at)}" ${!ordered.length ? "disabled" : ""}></footer>`;
 }
+function renderConnectionNotice() {
+  const notice = document.querySelector("#connection-notice");
+  if (!notice) return;
+  notice.textContent = connectionNotice;
+  notice.hidden = !connectionNotice;
+}
 function render() {
   if (!live || !current()?.state) return;
   const focused = document.activeElement?.id;
@@ -230,7 +237,7 @@ function render() {
       : "";
   root.innerHTML = `<header class="board-header"><div class="brand"><b>fold</b><span>${esc(live.library)}</span></div><div class="header-actions"><span class="review-age">${current().at ? date(current().at) : t("尚无复盘", "No reviews yet")}</span><button id="settings" aria-expanded="${settingsOpen}">${t("设置", "Settings")}</button></div></header>${settingsOpen ? settingsHTML() : ""}
  <div class="view-tools"><label class="view-select"><span class="sr-only">${t("复盘视图", "Review view")}</span><select id="view">${forms.map(([id, cn, en]) => `<option value="${id}" ${id === f ? "selected" : ""}>${zh ? cn : en}</option>`).join("")}</select></label><span class="view-period">${esc(period)}</span>${f === "river" ? `<span class="view-measure">${current().landscape?.days?.length || live.preferences.horizon_days || 14} ${t("天", "days")}</span>` : `<span class="view-measure">${itemLayer.used} / 64 · ${t("留白", "free")} ${64 - itemLayer.used}</span>`}</div>
- ${message ? `<p class="notice" role="status">${esc(message)}</p>` : ""}${live.status.error ? `<p class="notice">${esc(live.status.error)}</p>` : ""}${selected !== null ? `<p class="historical-mark">${t("历史复盘", "Past review")} · ${date(frame.at)}</p>` : ""}
+ <p id="connection-notice" class="notice" role="status" hidden></p>${message ? `<p class="notice" role="status">${esc(message)}</p>` : ""}${live.status.error ? `<p class="notice">${esc(live.status.error)}</p>` : ""}${selected !== null ? `<p class="historical-mark">${t("历史复盘", "Past review")} · ${date(frame.at)}</p>` : ""}
  ${path.length ? `<nav class="zoom-path"><button id="zoom-out">← ${t("上一级", "Back")}</button><span>${path.map((id) => esc(flatten(current().state.root).find((i) => i.id === id)?.title || id)).join(" / ")}</span></nav>` : ""}
  <div id="visual" class="visual-surface" data-form="${f}"></div><div id="reader">${readerHTML()}</div>
  <div class="review-status"><span>${live.status.running ? t("复盘中…", "Reviewing…") : live.worker_alive ? (live.preferences.enabled ? t("自动复盘已开启", "Automatic review on") : t("自动复盘已关闭", "Automatic review off")) : t("复盘进程未连接", "Review worker disconnected")}</span><button id="review" ${pending || live.status.running ? "disabled" : ""}>${t("重新复盘", "Review again")}</button></div>${controlsHTML()}`;
@@ -255,6 +262,7 @@ function render() {
         frame: (id) => void choose(id),
       },
     ) || null;
+  renderConnectionNotice();
   wire();
   if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
   root.setAttribute("aria-busy", "false");
@@ -514,12 +522,20 @@ function paintKey(data) {
 async function refresh(force = false) {
   const next = await api("/state");
   if (!live || next.frames[0]?.id !== live.frames[0]?.id) {
-    const rows = await api("/history");
+    const newest = Math.max(0, ...history.map((f) => f.id));
+    let page = await api("/history");
+    const rows = [...page];
+    while (newest && page.length && Math.min(...page.map((f) => f.id)) > newest) {
+      page = await api("/history?before=" + Math.min(...page.map((f) => f.id)));
+      rows.push(...page);
+    }
     history = [
       ...new Map([...history, ...rows].map((f) => [f.id, f])).values(),
     ];
   }
   live = next;
+  connectionNotice = "";
+  renderConnectionNotice();
   if (force || lastPaint !== paintKey(next) || dirtyRender) {
     if (
       !force &&
@@ -580,10 +596,11 @@ refresh().catch((e) => {
 setInterval(() => {
   if (!document.hidden && !pending)
     void refresh().catch(() => {
-      message = t(
+      connectionNotice = t(
         "连接中断，保留当前复盘。",
         "Connection lost; keeping this review.",
       );
+      renderConnectionNotice();
     });
 }, 10000);
 window.addEventListener("pagehide", () => {

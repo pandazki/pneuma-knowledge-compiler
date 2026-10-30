@@ -50,7 +50,7 @@ function prepareColors(ctx) {
     ...projects.slice(8).map((p) => p.id),
     ...[...ids].sort(),
   ];
-  const used = new Set();
+  const used = new Set(identityColors.values());
   const extra = (index) => {
     const hue = (index * 137.508) % 360,
       saturation = 0.26,
@@ -68,7 +68,7 @@ function prepareColors(ctx) {
   };
   for (const id of [...new Set(priority)]) {
     let chosen = identityColors.get(id);
-    if (!chosen || used.has(chosen)) {
+    if (!chosen) {
       const start = hash(id) % PALETTE.length;
       chosen = null;
       for (let i = 0; i < PALETTE.length; i++) {
