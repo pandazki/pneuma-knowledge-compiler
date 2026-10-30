@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import Attention from './Attention';
 import { loginStatus, openConsole, runAction, setLogin, type Perform } from '../lib/commands';
 import { t, type Locale, type Message } from '../lib/i18n';
 import { consoleHome, consolePreferences, credentialName, currentLibrary, deepLibrary, keyReadout, loginReadout, timeLabel, type Backend, type KeyReadout, type LoginStatus, type Snapshot } from '../lib/state';
@@ -61,6 +62,8 @@ export default function Settings({ state, busy, perform, locale, preference, onL
         { value: 'system', label: t(locale, 'systemLanguage') }, { value: 'en', label: 'English', lang: 'en' }, { value: 'zh-CN', label: '简体中文', lang: 'zh-CN' },
       ]} />
     </SettingRow>
+
+    <Attention state={state} locale={locale} settings />
 
     <section className="setting-group" aria-labelledby="embedding-heading">
       <h2 id="embedding-heading" className="section-label small-caps">{t(locale, 'embeddingKey')}</h2>

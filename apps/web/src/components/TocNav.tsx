@@ -33,7 +33,7 @@ interface Chapter {
  */
 const HOME_GROUP: TocGroup = {
   group: "nav.group.machine",
-  items: [{ view: "home", no: "", label: "nav.view.home" }],
+  items: [{ view: "attention", no: "", label: "nav.view.attention" }, { view: "home", no: "", label: "nav.view.home" }],
 };
 
 /**

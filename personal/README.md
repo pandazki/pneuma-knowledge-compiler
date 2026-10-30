@@ -4,6 +4,13 @@
 
 One person's knowledge libraries on one machine. `pkchome` manages a home directory, shared Docker middleware and separate libraries. A coding-agent Steward imports material and maintains cited claims through the framework's draft gate. The browser console and optional desktop tray provide the reading and operating interfaces.
 
+The tray opens an experimental **Fold attention board**: Project river, Attention atlas, Living field, Review mosaics, Thread lines and Give & take,
+with shared settings and a read-only time machine in both tray and console. Its separate worker
+connects long-running themes and cited reflections, reads committed knowledge and original-date
+project activity (14 days by default), batches new versions (five minutes or five versions by default),
+and reviews quiet periods every six hours. Failures keep the previous board and do not enter
+the knowledge job queue. See [attention architecture](../docs/design/fold-attention.md).
+
 ## Install and open
 
 Paste this instruction into your coding agent:

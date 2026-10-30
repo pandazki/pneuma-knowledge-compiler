@@ -13,6 +13,11 @@ default or the Settings toggle — ends the app's say, so login the Owner turned
 a registration the system refuses records nothing, and Settings shows the switch off with the
 system's reason.
 
+The 920-point panel opens directly on Fold attention. Switch Project river / Attention atlas / Living field / Review mosaics / Thread lines / Give & take,
+leave notes or use the time machine; the engine serves the same board to the console.
+Settings are per library. Library health and sync controls remain under **Library & sync status**.
+This requires the matching personal engine version; a stopped engine retains the health controls.
+
 ## Development
 
 Use Node 22.13+ (Node 25 was used here), pnpm 11.21.0, Rust 1.95.0 (selected by `rust-toolchain.toml`), and the native

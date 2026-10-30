@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { listen } from '@tauri-apps/api/event';
 import Dashboard from './panes/Dashboard';
+import Attention from './panes/Attention';
 import Search from './panes/Search';
 import Settings from './panes/Settings';
 import Footer from './panes/Footer';
 import { fitPanel, frontendReady, getState, hidePanel, quit, revealPanel, type Perform } from './lib/commands';
 import { resolveLocale, t } from './lib/i18n';
-import type { Snapshot, Tab } from './lib/state';
+import { currentLibrary, type Snapshot, type Tab } from './lib/state';
 
 function languagePreference(): string {
   try { return localStorage.getItem('pkc-desktop.locale') ?? 'system'; } catch { return 'system'; }
@@ -150,7 +151,12 @@ export default function App({ initial, subscribe }: {
       <kbd aria-hidden="true">⌘K</kbd>
     </header>
     <main id="panel-body" ref={body} className={page === 'dashboard' ? 'dashboard-body' : undefined} aria-label={t(locale, page === 'dashboard' ? 'back' : page)}>
-      {page === 'dashboard' && <Dashboard state={state} busy={busy} perform={perform} now={now} locale={locale} />}
+      {page === 'dashboard' && <>
+        <Attention state={state} locale={locale} />
+        <details className="attention-health" open={!currentLibrary(state)?.engine.up || undefined}><summary>{locale === 'zh-CN' ? '知识库与同步状态' : 'Library & sync status'}</summary>
+          <Dashboard state={state} busy={busy} perform={perform} now={now} locale={locale} />
+        </details>
+      </>}
       {page === 'search' && <Search state={state} busy={busy} perform={perform} query={query} composing={composing} locale={locale} submitted={submitted} />}
       {page === 'settings' && <Settings state={state} busy={busy} perform={perform} locale={locale} preference={preference} onLanguage={value => {
         setPreference(value);
