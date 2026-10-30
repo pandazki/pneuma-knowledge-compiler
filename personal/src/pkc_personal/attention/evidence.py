@@ -51,6 +51,9 @@ def collect(repo: Path, pending: dict[str, str], *, limit: int = 16) -> list[dic
             content = git(repo, "show", f"{head}:{path}")
             deleted = False
         except subprocess.CalledProcessError:
+            paths = git(repo, "ls-tree", "-r", "--name-only", "-z", head).split("\0")
+            if path in paths:
+                raise
             content, deleted = "", True
         # Keep the full evidence in the record; the prompt explicitly marks its bounded excerpt.
         documents.append(

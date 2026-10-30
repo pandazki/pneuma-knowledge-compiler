@@ -533,3 +533,113 @@ def test_reflection_rejects_uncited_or_unknown_evidence_and_preserves_original_f
         ).status_code
         == 422
     )
+
+
+def test_rewritten_head_retargets_pending_evidence(setup):
+    library, store = setup
+    repo = library.canonical_dir
+    base = git(repo, "rev-parse", "HEAD")
+    (repo / "obsolete.md").write_text("obsolete-body")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "obsolete branch")
+    asyncio.run(Worker(library, None, store, executor).tick(NOW))
+    git(repo, "reset", "--hard", base)
+    (repo / "current.md").write_text("current-body")
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "replacement branch")
+    head = git(repo, "rev-parse", "HEAD")
+    history = git(repo, "log", "--format=%H")
+    asyncio.run(Worker(library, None, store, executor).tick(NOW + 300))
+    documents = store.frames()[0]["evidence"]
+    assert all(d["head"] == head for d in documents)
+    assert not any("obsolete-body" in d["text"] for d in documents)
+    assert next(d for d in documents if d["path"] == "obsolete.md")["deleted"]
+    assert next(d for d in documents if d["path"] == "current.md")["text"] == "current-body"
+    assert git(repo, "status", "--porcelain") == ""
+    assert git(repo, "log", "--format=%H") == history
+
+
+@pytest.mark.parametrize("answer", ["{invalid", "[]", '{"declarations":null,"acknowledges":[]}'])
+@pytest.mark.parametrize("exhaust", [False, True])
+def test_runner_output_gets_bounded_repair(setup, monkeypatch, answer, exhaust):
+    from pkc_personal.attention import runner
+
+    library, store = setup
+    library.state.choices = SimpleNamespace(backend="claude", model=None)
+    store.configure({"threshold": 1})
+    calls = []
+    history = git(library.canonical_dir, "log", "--format=%H")
+
+    async def output(argv, prompt, cwd, env):
+        packet = json.loads(prompt)
+        calls.append(packet)
+        return answer if exhaust or len(calls) == 1 else json.dumps(batch(packet["documents"][0]["ref"]))
+
+    monkeypatch.setattr(runner, "subprocess_text", output)
+    asyncio.run(Worker(library, None, store, runner.judge).tick(NOW))
+    assert len(calls) == (3 if exhaust else 2)
+    assert all(p["state"] == calls[0]["state"] for p in calls)
+    assert calls[1]["validation_error"]
+    state = store.read()
+    if exhaust:
+        assert not store.frames() and state["pending"]
+        assert state["snapshot"]["event_seq"] == 0
+        assert state["retry_at"] == NOW + 300
+    else:
+        assert len(store.frames()) == 1 and not state["pending"]
+    assert git(library.canonical_dir, "status", "--porcelain") == ""
+    assert git(library.canonical_dir, "log", "--format=%H") == history
+
+
+@pytest.mark.parametrize("failure", [ValueError, RuntimeError, asyncio.CancelledError])
+def test_executor_failures_are_not_validation_repairs(setup, monkeypatch, failure):
+    from pkc_personal.attention import runner
+
+    library, store = setup
+    library.state.choices = SimpleNamespace(backend="api")
+    store.configure({"threshold": 1})
+    calls = []
+
+    class Model:
+        async def ainvoke(self, messages):
+            calls.append(messages)
+            raise failure("synthetic failure")
+
+    monkeypatch.setattr(runner, "build_chat_model_for", lambda *args: Model())
+    if failure is asyncio.CancelledError:
+        with pytest.raises(asyncio.CancelledError):
+            asyncio.run(Worker(library, None, store, runner.judge).tick(NOW))
+    else:
+        asyncio.run(Worker(library, None, store, runner.judge).tick(NOW))
+    assert len(calls) == 1
+    assert not store.frames() and store.read()["pending"]
+    assert not store.read()["running"]
+
+
+def test_missing_blob_is_not_recorded_as_deletion(setup):
+    library, store = setup
+    repo = library.canonical_dir
+    store.configure({"threshold": 1})
+    head = git(repo, "rev-parse", "HEAD")
+    blob = git(repo, "rev-parse", "HEAD:work.md")
+    (repo / ".git" / "objects" / blob[:2] / blob[2:]).unlink()
+    asyncio.run(Worker(library, None, store, executor).tick(NOW))
+    assert not store.frames()
+    assert store.read()["pending"] == {"work.md": head}
+    assert store.read()["retry_at"] == NOW + 300
+
+
+def test_committed_deletion_supplies_tombstone(setup):
+    library, store = setup
+    repo = library.canonical_dir
+    worker = Worker(library, None, store, executor)
+    asyncio.run(worker.tick(NOW))
+    git(repo, "rm", "work.md")
+    git(repo, "commit", "-qm", "synthetic removal")
+    head = git(repo, "rev-parse", "HEAD")
+    asyncio.run(worker.tick(NOW + 300))
+    evidence = store.frames()[0]["evidence"]
+    assert len(evidence) == 1
+    assert evidence[0]["head"] == head
+    assert evidence[0]["deleted"] and evidence[0]["text"] == ""
+    assert git(repo, "status", "--porcelain") == ""

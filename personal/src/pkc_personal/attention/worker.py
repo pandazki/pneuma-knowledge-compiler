@@ -14,7 +14,7 @@ from pathlib import Path
 
 from . import kernel
 from .evidence import collect, observe, prompt_documents, validate_sources
-from .runner import judge
+from .runner import OutputValidationError, judge
 from .retrospective import read_landscape
 from .store import Preferences, Store, stamp
 
@@ -104,6 +104,8 @@ class Worker:
         with self.store.transaction() as (_, state):
             state["heartbeat"] = now
             if head != state["observed_head"]:
+                for path in state["pending"]:
+                    state["pending"][path] = head
                 for path in paths:
                     state["pending"][path] = head
                 if paths:
@@ -168,9 +170,16 @@ class Worker:
             }
             batch_id = "fold-" + uuid.uuid4().hex
             for attempt in range(3):
-                batch = await self.executor(self.library, self.settings, SYSTEM, packet)
-                batch["batch_id"] = batch_id
+                batch = None
+                output_error = None
                 try:
+                    batch = await self.executor(self.library, self.settings, SYSTEM, packet)
+                except OutputValidationError as error:
+                    output_error = error
+                try:
+                    if output_error is not None:
+                        raise output_error
+                    batch["batch_id"] = batch_id
                     snapshot, receipt = kernel.commit(
                         before["snapshot"], batch, "fold", stamp(now)
                     )

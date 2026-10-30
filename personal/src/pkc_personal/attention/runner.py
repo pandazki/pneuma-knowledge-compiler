@@ -12,6 +12,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pneuma_knowledge_service.wiring import build_chat_model_for
 
 
+class OutputValidationError(ValueError):
+    """The executor returned content that cannot represent an attention batch."""
+
+
 async def subprocess_text(
     argv: list[str],
     prompt: str,
@@ -128,14 +132,17 @@ async def judge(library, settings, system: str, packet: dict) -> dict:
                 answer = await subprocess_text(argv, prompt, cwd, env)
     text = str(answer).strip()
     if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    result = json.loads(text)
+        text = text.partition("\n")[2].rsplit("```", 1)[0].strip()
+    try:
+        result = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise OutputValidationError("attention response must be valid JSON") from error
     if (
         not isinstance(result, dict)
         or not isinstance(result.get("declarations"), list)
         or not isinstance(result.get("acknowledges"), list)
     ):
-        raise ValueError(
+        raise OutputValidationError(
             "attention response must contain declarations and acknowledges arrays"
         )
     return {key: result[key] for key in ("declarations", "acknowledges")} | {

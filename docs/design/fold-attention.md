@@ -35,7 +35,9 @@ uses read-only sandboxing with shell, unified exec, JavaScript execution, apps a
 features disabled, web search disabled, and user config/rules ignored. Claude uses an empty
 tool set, empty strict MCP configuration and no local setting sources. No compile executor,
 `pkc draft`, canonical adapter write method or task-execution capability is provided. Calls
-have a 180-second deadline; a batch gets at most two validation repairs. This integration
+have a 180-second deadline; a batch gets at most two validation repairs against the same captured
+state. Malformed JSON and response-shape errors raise `OutputValidationError` and enter this
+repair limit. Provider failures, cancellation and executor runtime errors do not enter repair. This integration
 requires CLI support for these flags and fails closed if an installed CLI rejects them.
 
 Attention's user ID is the library bound to the serving engine, never a request-selected tenant.
@@ -51,7 +53,9 @@ review and notes, respect the minimum interval. A quiet review is emitted only w
 no pending knowledge. Its signal states that external collection coverage is unknown.
 
 The durable observation cursor is separate from the pending document set. A restart retains
-both. A run consumes only its captured documents on acceptance; new commits arriving during
+both. Each newly observed HEAD retargets every pending path before collection. Paths absent
+from that HEAD supply deletion records; unreadable objects fail the round without consuming inputs.
+A run consumes only its captured documents on acceptance; new commits arriving during
 a call are observed next poll. Recent changes are considered first on bootstrap. At most 16 documents enter a packet, each
 carrying its last commit time (not a claim about when its underlying events happened). Each prompt excerpt is
 bounded to 16,000 characters and marked truncated when applicable; full supplied documents
