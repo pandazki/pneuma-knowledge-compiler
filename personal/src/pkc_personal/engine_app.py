@@ -20,6 +20,7 @@ import time
 import shutil
 import subprocess
 import os
+import sys
 from pathlib import Path
 
 from fastapi import APIRouter, FastAPI, HTTPException
@@ -197,8 +198,35 @@ def build_app(
     app.include_router(build_router(home, library, cache))
     from pkc_personal.collection_routes import build_router as collection_router
     app.include_router(collection_router(home, library))
+    from pkc_personal.attention.routes import build_router as attention_router
+    app.include_router(attention_router(library))
     app.state.home_status_cache = cache
     return app
+
+
+async def supervise_attention(home: Home, library: Library) -> None:
+    """A separate process and queue; its failure never fails the library engine."""
+    while True:
+        process = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "pkc_personal.attention.worker", "--library", library.state.name,
+                "--parent", str(os.getpid()), env={**os.environ, "PKC_HOME": str(home.path)},
+                stdin=asyncio.subprocess.DEVNULL,
+            )
+            await process.wait()
+        except asyncio.CancelledError:
+            if process is not None and process.returncode is None:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), 10)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+            raise
+        except Exception as error:
+            print(f"[engine] attention sidecar unavailable: {type(error).__name__}", flush=True)
+        await asyncio.sleep(60)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -220,6 +248,7 @@ def main(argv: list[str] | None = None) -> None:
 
     async def serve() -> None:
         refresher = asyncio.create_task(app.state.home_status_cache.run(), name="home-status")
+        attention = asyncio.create_task(supervise_attention(home, library), name="attention-sidecar")
         try:
             await run_engine(
                 settings, host=args.host, port=args.port,
@@ -229,6 +258,8 @@ def main(argv: list[str] | None = None) -> None:
             )
         finally:
             refresher.cancel()
+            attention.cancel()
+            await asyncio.gather(refresher, attention, return_exceptions=True)
 
     try:
         asyncio.run(serve())

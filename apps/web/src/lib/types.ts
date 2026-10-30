@@ -329,6 +329,7 @@ export type ViewName =
   | "live_context"
   // the Steward view: one conversation with the coding agent that compiles this library,
   // and every command it runs, as it runs it (docs/design/coding-agent-mode.md §5.6)
+  | "attention"
   | "steward"
   // the use side: every answer this library gave, and the ledger derived from them
   | "consultations"

@@ -13,6 +13,7 @@ import OverviewView from "./views/overview/OverviewView";
 
 // View-level code splitting: the main bundle keeps only the front matter; every other view
 // loads on first visit, with a Suspense skeleton covering the gap.
+const AttentionView = lazy(() => import("./views/home/AttentionView"));
 const HomeView = lazy(() => import("./views/home/HomeView"));
 const ProfileView = lazy(() => import("./views/profile/ProfileView"));
 const SourcesView = lazy(() => import("./views/sources/SourcesView"));
@@ -33,6 +34,7 @@ const ComponentsGallery = lazy(() => import("./views/components/ComponentsGaller
 
 const VIEWS: Record<ViewName, ComponentType> = {
   home: HomeView,
+  attention: AttentionView,
   overview: OverviewView,
   profile: ProfileView,
   sources: SourcesView,

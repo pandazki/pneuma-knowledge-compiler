@@ -266,7 +266,7 @@ pub fn update_icon(app: &tauri::AppHandle, health: Health) {
 #[tauri::command]
 pub fn fit_panel(app: tauri::AppHandle, height: f64) -> Result<(), String> {
     eprintln!("[panel] fit requested for content {height:.0}");
-    let height = height.clamp(280.0, 720.0);
+    let height = height.clamp(280.0, 820.0);
     #[cfg(target_os = "macos")]
     {
         use cocoa::foundation::{NSPoint, NSRect};
@@ -292,7 +292,7 @@ pub fn fit_panel(app: tauri::AppHandle, height: f64) -> Result<(), String> {
             let width = window
                 .outer_size()
                 .map(|s| s.width as f64 / window.scale_factor().unwrap_or(1.0))
-                .unwrap_or(380.0);
+                .unwrap_or(920.0);
             window
                 .set_size(tauri::LogicalSize::new(width, height))
                 .map_err(|e| e.to_string())?;

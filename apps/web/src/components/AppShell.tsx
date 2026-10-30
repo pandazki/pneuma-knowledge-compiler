@@ -50,7 +50,7 @@ const VIEWPORT_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>([
  * showing wraps every eight words. The Engine Console already sits outside the measure for
  * the same reason; this is that rule named rather than special-cased twice.
  */
-const WIDE_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>(["live_context"]);
+const WIDE_PANE_VIEWS: ReadonlySet<ViewName> = new Set<ViewName>(["live_context", "attention"]);
 
 /**
  * The app shell: top bar (wordmark + mobile contents button + StewardEntry / UserPicker /

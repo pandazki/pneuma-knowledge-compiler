@@ -46,6 +46,7 @@ export const VIEW_LENSES: Record<ViewName, readonly Lens[]> = {
   // The machine is the OWNER's: it is the install, not the knowledge. A visitor reading one
   // library has no business being told which other libraries share the machine with it.
   home: OWNER_ONLY,
+  attention: OWNER_ONLY,
   overview: OWNER_ONLY,
   profile: OWNER_ONLY,
   sources: OWNER_ONLY,
