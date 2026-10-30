@@ -20,6 +20,11 @@ def git(path, *args):
     return subprocess.check_output(["git", "-C", str(path), *args], text=True).strip()
 
 
+@pytest.fixture(autouse=True)
+def fixed_worker_clock(monkeypatch):
+    monkeypatch.setattr("pkc_personal.attention.worker.monotonic", lambda: 0.0)
+
+
 @pytest.fixture
 def setup(tmp_path):
     repo = tmp_path / "canonical"
@@ -167,7 +172,8 @@ def test_annotation_race_cannot_be_overwritten(setup):
     state = store.read()
     assert len(store.frames()) == 1
     assert len(state["snapshot"]["annotations"]) == 1
-    assert state["requested"] and not state["running"]
+    assert due(state, store.preferences(), NOW + 600) == "requested"
+    assert not state["running"]
 
 
 def test_budget_rejection_gets_bounded_repair(setup):
@@ -643,3 +649,67 @@ def test_committed_deletion_supplies_tombstone(setup):
     assert evidence[0]["head"] == head
     assert evidence[0]["deleted"] and evidence[0]["text"] == ""
     assert git(repo, "status", "--porcelain") == ""
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_request_during_judgment_survives_accept(setup, enabled):
+    library, store = setup
+    store.configure({"enabled": enabled})
+    store.request()
+
+    async def concurrent(lib, settings, system, packet):
+        store.configure({"horizon_days": 30})
+        store.request()
+        return await executor(lib, settings, system, packet)
+
+    asyncio.run(Worker(library, None, store, concurrent).tick(NOW))
+    assert len(store.frames()) == 1
+    assert due(store.read(), store.preferences(), NOW + 300) == "requested"
+    asyncio.run(Worker(library, None, store, executor).tick(NOW + 300))
+    assert len(store.frames()) == 2
+    assert due(store.read(), store.preferences(), NOW + 600) is None
+
+
+@pytest.mark.parametrize("explicit_now", [False, True])
+def test_slow_validation_failure_backoff_starts_at_completion(
+    setup, monkeypatch, explicit_now
+):
+    from pkc_personal.attention import worker
+
+    library, store = setup
+    store.request()
+    elapsed = [0.0]
+    monkeypatch.setattr(worker, "monotonic", lambda: elapsed[0])
+    monkeypatch.setattr(worker.time, "time", lambda: NOW)
+    calls = []
+
+    async def invalid(*args):
+        calls.append(True)
+        elapsed[0] += 180
+        raise worker.OutputValidationError("synthetic invalid output")
+
+    asyncio.run(Worker(library, None, store, invalid).tick(NOW if explicit_now else None))
+    assert len(calls) == 3
+    assert due(store.read(), store.preferences(), NOW + 839) is None
+    assert due(store.read(), store.preferences(), NOW + 840) == "requested"
+    assert store.read()["retry_at"] == NOW + 840
+
+
+@pytest.mark.parametrize("requested", [False, True])
+def test_legacy_request_state_loads_and_consumes_only_its_batch(setup, requested):
+    library, store = setup
+    legacy = initial()
+    legacy.pop("request_seq")
+    legacy.pop("completed_request_seq")
+    legacy["requested"] = requested
+    with store.connect() as db:
+        db.execute("UPDATE state SET body=? WHERE id=1", (json.dumps(legacy),))
+    store = Store(store.directory)
+    store.configure({"enabled": False})
+    assert due(store.read(), store.preferences(), NOW) == (
+        "requested" if requested else None
+    )
+    store.request()
+    asyncio.run(Worker(library, None, store, executor).tick(NOW))
+    assert len(store.frames()) == 1
+    assert due(store.read(), store.preferences(), NOW + 300) is None

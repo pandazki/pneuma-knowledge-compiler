@@ -45,9 +45,17 @@ def initial() -> dict:
         "error": None,
         "running": False,
         "heartbeat": None,
-        "requested": False,
+        "request_seq": 0,
+        "completed_request_seq": 0,
         "generation": 0,
     }
+
+
+def load_state(body: str) -> dict:
+    state = json.loads(body)
+    state.setdefault("request_seq", int(state.pop("requested", False)))
+    state.setdefault("completed_request_seq", 0)
+    return state
 
 
 class Store:
@@ -83,7 +91,7 @@ class Store:
     def transaction(self):
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            state = json.loads(
+            state = load_state(
                 db.execute("SELECT body FROM state WHERE id=1").fetchone()[0]
             )
             yield db, state
@@ -94,7 +102,7 @@ class Store:
 
     def read(self) -> dict:
         with self.connect() as db:
-            return json.loads(
+            return load_state(
                 db.execute("SELECT body FROM state WHERE id=1").fetchone()[0]
             )
 
@@ -118,7 +126,7 @@ class Store:
 
     def request(self):
         with self.transaction() as (_, state):
-            state["requested"] = True
+            state["request_seq"] += 1
 
     def frames(self, before: int | None = None, limit: int = 100) -> list[dict]:
         with self.connect() as db:
@@ -165,7 +173,7 @@ class Store:
             )
             state["snapshot"] = updated
             state["generation"] += 1
-            state["requested"] = True
+            state["request_seq"] += 1
             return receipt
 
     def accept(
@@ -201,7 +209,7 @@ class Store:
                 failures=0,
                 retry_at=0,
                 pending_count=state["pending_count"] if state["pending"] else 0,
-                requested=False,
+                completed_request_seq=before["request_seq"],
             )
             state["pending_since"] = now if state["pending"] else None
             frame = {

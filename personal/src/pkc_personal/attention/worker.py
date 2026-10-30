@@ -11,6 +11,7 @@ import signal
 import time
 import uuid
 from pathlib import Path
+from time import monotonic
 
 from . import kernel
 from .evidence import collect, observe, prompt_documents, validate_sources
@@ -61,8 +62,9 @@ def validate_reflection(value, before, documents, previous=None):
 
 
 def due(state: dict, preferences: Preferences, now: float) -> str | None:
+    requested = state["request_seq"] > state["completed_request_seq"]
     if (
-        (not preferences.enabled and not state["requested"])
+        (not preferences.enabled and not requested)
         or state["running"]
         or now < state["retry_at"]
     ):
@@ -70,7 +72,7 @@ def due(state: dict, preferences: Preferences, now: float) -> str | None:
     last = state["last_attempt"]
     if last is not None and now - last < preferences.min_interval_seconds:
         return None
-    if state["requested"]:
+    if requested:
         return "requested"
     if state["pending"]:
         if state["pending_count"] >= preferences.threshold:
@@ -96,6 +98,7 @@ class Worker:
         )
 
     async def tick(self, now: float | None = None):
+        started = monotonic()
         now = time.time() if now is None else now
         before = self.store.read()
         head, paths, count = await asyncio.to_thread(
@@ -117,7 +120,7 @@ class Worker:
             if not reason:
                 return
             state.update(running=True, last_attempt=now)
-        before = self.store.read()
+            before = dict(state)
         try:
             documents = await asyncio.to_thread(
                 collect, self.library.canonical_dir, before["pending"]
@@ -223,7 +226,9 @@ class Worker:
                 state["failures"] += 1
                 state.update(
                     running=False,
-                    retry_at=now + min(21600, 300 * 2 ** min(state["failures"] - 1, 7)),
+                    retry_at=now
+                    + (monotonic() - started)
+                    + min(21600, 300 * 2 ** min(state["failures"] - 1, 7)),
                     error=f"Attention review failed ({type(error).__name__}); retained previous board, retry scheduled.",
                 )
             log.warning("Attention review failed: %s", type(error).__name__)
