@@ -145,6 +145,8 @@ async def judge(library, settings, system: str, packet: dict) -> dict:
         raise OutputValidationError(
             "attention response must contain declarations and acknowledges arrays"
         )
+    if any(not isinstance(value, str) for value in result["acknowledges"]):
+        raise OutputValidationError("acknowledges must contain annotation ID strings")
     return {key: result[key] for key in ("declarations", "acknowledges")} | {
         "reflection": result.get("reflection")
     }
