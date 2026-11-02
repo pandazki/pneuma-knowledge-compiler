@@ -565,7 +565,16 @@ def test_rewritten_head_retargets_pending_evidence(setup):
     assert git(repo, "log", "--format=%H") == history
 
 
-@pytest.mark.parametrize("answer", ["{invalid", "[]", '{"declarations":null,"acknowledges":[]}'])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "{invalid",
+        "[]",
+        '{"declarations":null,"acknowledges":[]}',
+        '{"declarations":[],"acknowledges":[{}]}',
+        '{"declarations":[],"acknowledges":[[]]}',
+    ],
+)
 @pytest.mark.parametrize("exhaust", [False, True])
 def test_runner_output_gets_bounded_repair(setup, monkeypatch, answer, exhaust):
     from pkc_personal.attention import runner
@@ -595,6 +604,57 @@ def test_runner_output_gets_bounded_repair(setup, monkeypatch, answer, exhaust):
         assert len(store.frames()) == 1 and not state["pending"]
     assert git(library.canonical_dir, "status", "--porcelain") == ""
     assert git(library.canonical_dir, "log", "--format=%H") == history
+
+
+def test_malformed_acknowledgment_retains_previous_board(setup, monkeypatch):
+    from pkc_personal.attention import runner
+
+    library, store = setup
+    store.configure({"threshold": 1})
+    asyncio.run(Worker(library, None, store, executor).tick(NOW))
+    snapshot = store.read()["snapshot"]
+    frames = store.frames()
+    (library.canonical_dir / "work.md").write_text("Synthetic later release evidence")
+    git(library.canonical_dir, "add", "work.md")
+    git(library.canonical_dir, "commit", "-qm", "later release evidence")
+    library.state.choices = SimpleNamespace(backend="claude", model=None)
+    calls = []
+
+    async def output(argv, prompt, cwd, env):
+        calls.append(json.loads(prompt))
+        return '{"declarations":[],"acknowledges":[{}]}'
+
+    monkeypatch.setattr(runner, "subprocess_text", output)
+    asyncio.run(Worker(library, None, store, runner.judge).tick(NOW + 300))
+    assert len(calls) == 3
+    state = store.read()
+    assert state["snapshot"] == snapshot and store.frames() == frames
+    assert state["pending"] == {
+        "work.md": git(library.canonical_dir, "rev-parse", "HEAD")
+    }
+    assert state["failures"] == 1 and state["retry_at"] == NOW + 600
+    assert state["error"] and not state["running"]
+
+
+def test_string_acknowledgment_is_accepted_by_runner(setup, monkeypatch):
+    from pkc_personal.attention import runner
+
+    library, store = setup
+    store.configure({"threshold": 1})
+    asyncio.run(Worker(library, None, store, executor).tick(NOW))
+    annotation = store.annotate(
+        "launch", "Synthetic Owner correction", "owner-1", NOW + 1
+    )["annotation_id"]
+    library.state.choices = SimpleNamespace(backend="claude", model=None)
+
+    async def output(argv, prompt, cwd, env):
+        return json.dumps({"declarations": [], "acknowledges": [annotation]})
+
+    monkeypatch.setattr(runner, "subprocess_text", output)
+    asyncio.run(Worker(library, None, store, runner.judge).tick(NOW + 300))
+    state = store.read()
+    assert state["snapshot"]["annotations"][annotation]["status"] == "acknowledged"
+    assert len(store.frames()) == 2 and not state["error"]
 
 
 @pytest.mark.parametrize("failure", [ValueError, RuntimeError, asyncio.CancelledError])
