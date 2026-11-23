@@ -278,6 +278,7 @@ class SourceOut(BaseModel):
     # backfill of six months of capture all carries today's date. null = the source never
     # got one, and the reader is expected to say so rather than pretend.
     occurred_on: str | None = None
+    active_days: list[str] = Field(default_factory=list)
     intake_plan: dict[str, Any] | None
     block_count: int
     # M3b: null = not yet compiled into canonical; set once the worker digests it.
@@ -1119,6 +1120,10 @@ async def list_sources(
         include_archived=include_archived,
     )
     source_ids = [str(raw.source_id) for raw in raws]
+    dated_kinds = {"agent_session", "im", "email", "owner_dialogue", "meeting", "conversation"}
+    active_days = await ctx.store.source_section_days(
+        user, [str(raw.source_id) for raw in raws if raw.kind in dated_kinds]
+    )
     counts = await ctx.store.block_counts(user, source_ids)
     digested = await ctx.store.digested_map(user, source_ids)
     items = [
@@ -1130,6 +1135,7 @@ async def list_sources(
             title=r.title,
             created_at=r.created_at.isoformat(),
             occurred_on=_occurred_on(r.meta),
+            active_days=active_days.get(str(r.source_id), []),
             intake_plan=r.intake_plan,
             block_count=counts.get(str(r.source_id), 0),
             digested_at=digested.get(str(r.source_id)),

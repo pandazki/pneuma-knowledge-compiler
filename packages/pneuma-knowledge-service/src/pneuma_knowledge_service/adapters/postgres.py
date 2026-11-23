@@ -41,6 +41,7 @@ from psycopg.conninfo import conninfo_to_dict
 from psycopg.types.json import Json, Jsonb
 from psycopg_pool import AsyncConnectionPool
 
+from ..source_calendar import section_days
 from ..access_stats import RECALL_PROJECTION_JOB_KIND, RECALL_REBUILD_JOB_KIND
 from ..infra_faults import infrastructure_fault
 from ..job_retry import (
@@ -569,6 +570,16 @@ class PostgresStore:
             "documents": int(row[3]),
             "claims": int(row[4]),
         }
+
+    async def source_section_days(self, user_id: UserId, source_ids: list[str]) -> dict[str, list[str]]:
+        if not source_ids:
+            return {}
+        async with self._pool.connection() as conn:
+            rows = await (await conn.execute(
+                "SELECT source_id, structure_map FROM sources WHERE user_id = %s AND source_id = ANY(%s)",
+                (str(user_id), source_ids),
+            )).fetchall()
+        return {sid: section_days(StructureMap.model_validate(structure)) for sid, structure in rows}
 
     async def block_counts(
         self, user_id: UserId, source_ids: list[str] | None = None

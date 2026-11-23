@@ -31,6 +31,7 @@ export interface CatalogueSource {
   created_at: string;
   /** The day the material happened (`YYYY-MM-DD`), when the source carries one. */
   occurred_on?: string | null;
+  active_days?: string[];
   /**
    * When the owner moved this source into the archive; null/absent = live. Every row
    * carries it, including the ones a default listing returns, so a row can be labelled
@@ -138,6 +139,12 @@ export function sourceTimeline(
   return { date: dayKey(source.created_at, offsetMinutes), basis: "ingested" };
 }
 
+function calendarDays(source: CatalogueSource, offsetMinutes?: number): string[] {
+  if (source.active_days?.length) return source.active_days;
+  const { date } = sourceTimeline(source, offsetMinutes);
+  return date ? [date] : [];
+}
+
 /* --------------------------------------------------------------------- the filter */
 
 export function isSourceFilterActive(filter: SourceFilter): boolean {
@@ -212,7 +219,8 @@ export function matchesSourceFilter(
     matchesDimension(filter.kinds, source.kind) &&
     matchesDimension(filter.classes, source.source_class) &&
     matchesDimension(filter.origins, source.origin) &&
-    matchesRange(sourceTimeline(source, offsetMinutes).date, filter)
+    ((filter.from == null && filter.to == null) ||
+      calendarDays(source, offsetMinutes).some((day) => matchesRange(day, filter)))
   );
 }
 
@@ -333,15 +341,15 @@ export function sourceDensity(
 ): DensityDay[] {
   const byDate = new Map<string, DensityDay>();
   for (const source of sources) {
-    const { date } = sourceTimeline(source, offsetMinutes);
-    if (date == null) continue;
-    let day = byDate.get(date);
-    if (!day) {
-      day = { date, count: 0, kinds: {} };
-      byDate.set(date, day);
+    for (const date of calendarDays(source, offsetMinutes)) {
+      let day = byDate.get(date);
+      if (!day) {
+        day = { date, count: 0, kinds: {} };
+        byDate.set(date, day);
+      }
+      day.count += 1;
+      day.kinds[source.kind] = (day.kinds[source.kind] ?? 0) + 1;
     }
-    day.count += 1;
-    day.kinds[source.kind] = (day.kinds[source.kind] ?? 0) + 1;
   }
   return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
 }
@@ -366,10 +374,10 @@ export function timelineBounds(
   let from: string | null = null;
   let to: string | null = null;
   for (const source of sources) {
-    const { date } = sourceTimeline(source, offsetMinutes);
-    if (date == null) continue;
-    if (from == null || date < from) from = date;
-    if (to == null || date > to) to = date;
+    for (const date of calendarDays(source, offsetMinutes)) {
+      if (from == null || date < from) from = date;
+      if (to == null || date > to) to = date;
+    }
   }
   return { from, to };
 }

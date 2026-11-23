@@ -31,7 +31,7 @@ export const sources = defineMessages({
     "sources.error.detail": "加载 source 详情失败",
 
     "sources.heatmap.title": "来源密度",
-    "sources.heatmap.hint": "点一格只看当天",
+    "sources.heatmap.hint": "每份来源在有记录的日期各计一次，点击查看",
 
     "sources.filter.aria": "来源过滤",
     "sources.filter.searchPlaceholder": "按标题搜索…",
@@ -178,7 +178,7 @@ export const sources = defineMessages({
     "sources.error.detail": "Could not load the source detail",
 
     "sources.heatmap.title": "Source density",
-    "sources.heatmap.hint": "Click a day to see only that day",
+    "sources.heatmap.hint": "Each source counts once per recorded day. Click a day to see its sources.",
 
     "sources.filter.aria": "Catalogue filters",
     "sources.filter.searchPlaceholder": "Search titles…",
