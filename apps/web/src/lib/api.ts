@@ -101,6 +101,7 @@ export interface SourceSummary {
    * source that never got one; `lib/sourceFilter.ts` owns the fallback and marks it.
    */
   occurred_on: string | null;
+  active_days?: string[];
   intake_plan: IntakePlan | null;
   block_count: number;
   /** null = not yet compiled into canonical; set once the worker digests it (M3b). */

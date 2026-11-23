@@ -24,7 +24,8 @@ import httpx
 import pytest
 
 from pneuma_knowledge_core.domain.ids import SourceId, UserId
-from pneuma_knowledge_core.domain.source import RawSource
+from pneuma_knowledge_core.domain.source import RawSource, SectionSpan, StructureMap
+from pneuma_knowledge_service.source_calendar import section_days
 from pneuma_knowledge_service.api.app import create_app
 
 USER = "u-catalogue"
@@ -65,6 +66,9 @@ class _Store:
         self.limits.append(limit)
         return list(self._raws), len(self._raws), False
 
+    async def source_section_days(self, user_id, source_ids):
+        return {sid: ["2026-01-09", "2026-01-12"] for sid in source_ids if sid == "s-dated"}
+
     async def block_counts(self, user_id: UserId, source_ids: list[str]) -> dict[str, int]:
         return {sid: 3 for sid in source_ids}
 
@@ -97,6 +101,7 @@ async def test_corpus_time_reaches_the_catalogue_row_and_absence_stays_visible()
     assert response.status_code == 200
     rows = {row["source_id"]: row for row in response.json()["items"]}
     assert rows["s-dated"]["occurred_on"] == "2026-01-09"
+    assert rows["s-dated"]["active_days"] == ["2026-01-09", "2026-01-12"]
     # A whitespace-only stamp is no stamp: it must not become a date the reader trusts.
     assert rows["s-blank"]["occurred_on"] is None
     assert rows["s-none"]["occurred_on"] is None
@@ -111,3 +116,10 @@ async def test_the_page_ceiling_is_a_stated_crawl_budget():
         assert (await client.get(f"/v1/users/{USER}/sources?limit=500")).status_code == 200
         assert (await client.get(f"/v1/users/{USER}/sources?limit=501")).status_code == 422
     assert store.limits == [500]
+
+def test_days_follow_recorded_sections_including_repeated_visits():
+    labels = ["2026-11-15", "2026-11-20", "undated", "2026-11-15"]
+    structure = StructureMap(sections=[
+        SectionSpan(path=[label], start_block=i, end_block=i) for i, label in enumerate(labels)
+    ])
+    assert section_days(structure) == ["2026-11-15", "2026-11-20"]

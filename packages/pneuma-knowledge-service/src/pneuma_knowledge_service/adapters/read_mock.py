@@ -24,6 +24,7 @@ from pneuma_knowledge_core.domain.ids import SourceId
 from pneuma_knowledge_core.domain.source import NormalizedSource
 
 from .draft_mock import InMemoryJobQueue
+from ..source_calendar import section_days
 from ..source_receipt import SourceImportBatchReceipt, SourceImportReceipt
 
 
@@ -127,6 +128,14 @@ class InMemoryLibraryStore(InMemoryJobQueue):
         if not blocks:
             raise ValueError(f"no blocks in {source_id} ¶{start}-{end}")
         return "\n\n".join(b.text for b in blocks)
+
+    async def source_section_days(self, user_id, source_ids):
+        wanted = set(source_ids)
+        return {
+            sid: section_days(ns.structure)
+            for (uid, sid), ns in self._sources.items()
+            if uid == str(user_id) and sid in wanted
+        }
 
     async def block_counts(self, user_id, source_ids=None) -> dict[str, int]:  # noqa: ANN001
         wanted = None if source_ids is None else {str(s) for s in source_ids}

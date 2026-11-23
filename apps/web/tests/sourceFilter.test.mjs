@@ -409,3 +409,12 @@ test("the density calendar does not light a day that only the archive occupies",
     { date: "2026-02-02", count: 1, kinds: { conversation: 1 } },
   );
 });
+
+test("a session appears once on each recorded day and never in the intervening gap", () => {
+  const days = ["2026-11-15", "2026-11-16", "2026-11-17", "2026-11-20"];
+  const rows = [row("session", "Cross-day session", days[0], { active_days: days })];
+  assert.deepEqual(sourceDensity(rows).map(d => [d.date, d.count]), days.map(d => [d, 1]));
+  assert.deepEqual(timelineBounds(rows), { from: days[0], to: days.at(-1) });
+  assert.deepEqual(filterSources(rows, filter({ from: days[3], to: days[3] })), rows);
+  assert.deepEqual(filterSources(rows, filter({ from: "2026-11-18", to: "2026-11-19" })), []);
+});
